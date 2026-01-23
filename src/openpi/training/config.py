@@ -18,6 +18,7 @@ import openpi.models.pi0_config as pi0_config
 import openpi.models.pi0_fast as pi0_fast
 import openpi.models.tokenizer as _tokenizer
 import openpi.policies.aloha_policy as aloha_policy
+import openpi.policies.bin_pack_policy as bin_pack_policy
 import openpi.policies.droid_policy as droid_policy
 import openpi.policies.libero_policy as libero_policy
 import openpi.shared.download as _download
@@ -352,6 +353,27 @@ class LeRobotLiberoDataConfig(DataConfigFactory):
             repack_transforms=repack_transform,
             data_transforms=data_transforms,
             model_transforms=model_transforms,
+        )
+
+
+@dataclasses.dataclass(frozen=True)
+class LeRobotBinPackDataConfig(DataConfigFactory):
+    """Data config for the bin_pack_coffee_capsules LeRobot dataset."""
+
+    default_prompt: str | None = "pack coffee capsules into the cardboard bin container"
+
+    @override
+    def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
+        data_transforms = _transforms.Group(
+            inputs=[bin_pack_policy.BinPackInputs()],
+            outputs=[bin_pack_policy.BinPackOutputs()],
+        )
+        model_transforms = ModelTransformFactory(default_prompt=self.default_prompt)(model_config)
+        return dataclasses.replace(
+            self.create_base_config(assets_dirs, model_config),
+            data_transforms=data_transforms,
+            model_transforms=model_transforms,
+            action_sequence_keys=("action.pos", "action.eef_pose"),
         )
 
 
@@ -759,6 +781,25 @@ _CONFIGS = [
         ema_decay=0.999,
         weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
         pytorch_weight_path="/path/to/your/pytorch_weight_path",
+        num_train_steps=30_000,
+    ),
+    TrainConfig(
+        name="pi05_bin_pack_coffee_capsules",
+        model=pi0_config.Pi0Config(pi05=True, action_horizon=10),
+        data=LeRobotBinPackDataConfig(
+            repo_id="villekuosmanen/bin_pick_pack_coffee_capsules",
+            base_config=DataConfig(prompt_from_task=True),
+        ),
+        batch_size=64,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=10_000,
+            peak_lr=5e-5,
+            decay_steps=1_000_000,
+            decay_lr=5e-5,
+        ),
+        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
+        ema_decay=0.999,
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
         num_train_steps=30_000,
     ),
     #

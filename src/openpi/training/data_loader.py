@@ -7,7 +7,24 @@ from typing import Literal, Protocol, SupportsIndex, TypeVar
 
 import jax
 import jax.numpy as jnp
-import lerobot.common.datasets.lerobot_dataset as lerobot_dataset
+try:
+    import lerobot.datasets.lerobot_dataset as lerobot_dataset
+except ModuleNotFoundError:
+    import lerobot.common.datasets.lerobot_dataset as lerobot_dataset
+ 
+
+def _coerce_task_mapping(tasks) -> dict[int, str]:
+    if isinstance(tasks, dict):
+        return {int(k): str(v) for k, v in tasks.items()}
+    if hasattr(tasks, "to_pandas"):
+        df = tasks.to_pandas()
+        if "task_index" in df.columns and "task" in df.columns:
+            return {int(row["task_index"]): str(row["task"]) for _, row in df.iterrows()}
+        if "task_index" in df.columns:
+            return {int(row["task_index"]): str(idx) for idx, row in df.iterrows()}
+    if isinstance(tasks, (list, tuple)):
+        return {idx: str(task) for idx, task in enumerate(tasks)}
+    return {}
 import numpy as np
 import torch
 
@@ -146,7 +163,11 @@ def create_torch_dataset(
     )
 
     if data_config.prompt_from_task:
-        dataset = TransformedDataset(dataset, [_transforms.PromptFromLeRobotTask(dataset_meta.tasks)])
+        task_mapping = _coerce_task_mapping(dataset_meta.tasks)
+        if task_mapping:
+            dataset = TransformedDataset(dataset, [_transforms.PromptFromLeRobotTask(task_mapping)])
+        else:
+            logging.warning("prompt_from_task=True but dataset task mapping is empty; skipping PromptFromLeRobotTask.")
 
     return dataset
 

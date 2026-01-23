@@ -1,6 +1,9 @@
-from typing import Literal
+from __future__ import annotations
 
-import pytest
+from typing import Literal, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import pytest
 import torch
 from torch import nn
 from transformers import GemmaForCausalLM
