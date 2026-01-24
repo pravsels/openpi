@@ -29,7 +29,7 @@ EXP_NAME="${1:-bin_pack_run}"
 
 CHECKPOINT_DIR="${data_dir}/checkpoints/${CONFIG_NAME}/${EXP_NAME}"
 
-mkdir -p "${HF_CACHE}" "${data_dir}/checkpoints" "${data_dir}/assets" "${data_dir}/weights"
+mkdir -p "${HF_CACHE}" "${data_dir}/checkpoints" "${data_dir}/assets" "${data_dir}/weights" "${data_dir}/.venv"
 
 start_time="$(date -Is --utc)"
 echo "===================================="
@@ -45,6 +45,7 @@ EXPORT_VARS="export PYTHONUNBUFFERED=1"
 EXPORT_VARS="${EXPORT_VARS} && export WANDB_MODE=offline"
 EXPORT_VARS="${EXPORT_VARS} && export WANDB_ENTITY=pravsels"
 EXPORT_VARS="${EXPORT_VARS} && export OPENPI_DATA_HOME=${data_dir}"
+EXPORT_VARS="${EXPORT_VARS} && export UV_PROJECT_ENVIRONMENT=${data_dir}/.venv"
 
 echo "Running training command..."
 echo "Command: ${TRAIN_CMD}"
