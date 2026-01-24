@@ -790,7 +790,7 @@ _CONFIGS = [
             repo_id="villekuosmanen/bin_pick_pack_coffee_capsules",
             base_config=DataConfig(prompt_from_task=True),
         ),
-        batch_size=64,
+        batch_size=32,
         lr_schedule=_optimizer.CosineDecaySchedule(
             warmup_steps=10_000,
             peak_lr=5e-5,
