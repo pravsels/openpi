@@ -245,6 +245,66 @@ class AbsoluteActions(DataTransformFn):
 
 
 @dataclasses.dataclass(frozen=True)
+class DeltaActionsFromState(DataTransformFn):
+    """Repacks absolute actions into delta space, using state length when mask is not provided."""
+
+    # Boolean mask for action dimensions to repack into delta action space. If None, all
+    # dimensions shared by state/actions are treated as delta dimensions.
+    mask: Sequence[bool] | None
+
+    def __call__(self, data: DataDict) -> DataDict:
+        if "actions" not in data:
+            return data
+
+        state, actions = data["state"], data["actions"]
+        if self.mask is None:
+            dims = min(state.shape[-1], actions.shape[-1])
+            if dims == 0:
+                return data
+            mask = np.ones(dims, dtype=bool)
+        else:
+            mask = np.asarray(self.mask)
+            dims = min(mask.shape[-1], state.shape[-1], actions.shape[-1])
+            if dims == 0:
+                return data
+            mask = mask[:dims]
+
+        actions[..., :dims] -= np.expand_dims(np.where(mask, state[..., :dims], 0), axis=-2)
+        data["actions"] = actions
+        return data
+
+
+@dataclasses.dataclass(frozen=True)
+class AbsoluteActionsFromState(DataTransformFn):
+    """Repacks delta actions into absolute space, using state length when mask is not provided."""
+
+    # Boolean mask for action dimensions to repack into absolute action space. If None, all
+    # dimensions shared by state/actions are treated as delta dimensions.
+    mask: Sequence[bool] | None
+
+    def __call__(self, data: DataDict) -> DataDict:
+        if "actions" not in data:
+            return data
+
+        state, actions = data["state"], data["actions"]
+        if self.mask is None:
+            dims = min(state.shape[-1], actions.shape[-1])
+            if dims == 0:
+                return data
+            mask = np.ones(dims, dtype=bool)
+        else:
+            mask = np.asarray(self.mask)
+            dims = min(mask.shape[-1], state.shape[-1], actions.shape[-1])
+            if dims == 0:
+                return data
+            mask = mask[:dims]
+
+        actions[..., :dims] += np.expand_dims(np.where(mask, state[..., :dims], 0), axis=-2)
+        data["actions"] = actions
+        return data
+
+
+@dataclasses.dataclass(frozen=True)
 class TokenizePrompt(DataTransformFn):
     tokenizer: _tokenizer.PaligemmaTokenizer
     discrete_state_input: bool = False

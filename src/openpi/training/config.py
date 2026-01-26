@@ -361,6 +361,13 @@ class LeRobotBinPackDataConfig(DataConfigFactory):
     """Data config for the bin_pack_coffee_capsules LeRobot dataset."""
 
     default_prompt: str | None = "pack coffee capsules into the cardboard bin container"
+    # If true, will convert actions to deltas relative to the current state. When mask is None,
+    # all action dimensions shared with state will be treated as delta dimensions.
+    use_delta_actions: bool = False
+    # Optional mask for which action dimensions should be converted to deltas.
+    delta_action_mask: Sequence[bool] | None = None
+    # If true, keep model outputs as deltas at inference time (do not convert back to absolute).
+    output_delta_actions: bool = False
 
     @override
     def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
@@ -368,6 +375,14 @@ class LeRobotBinPackDataConfig(DataConfigFactory):
             inputs=[bin_pack_policy.BinPackInputs()],
             outputs=[bin_pack_policy.BinPackOutputs()],
         )
+        if self.use_delta_actions:
+            output_transforms = []
+            if not self.output_delta_actions:
+                output_transforms.append(_transforms.AbsoluteActionsFromState(self.delta_action_mask))
+            data_transforms = data_transforms.push(
+                inputs=[_transforms.DeltaActionsFromState(self.delta_action_mask)],
+                outputs=output_transforms,
+            )
         model_transforms = ModelTransformFactory(default_prompt=self.default_prompt)(model_config)
         return dataclasses.replace(
             self.create_base_config(assets_dirs, model_config),
@@ -789,6 +804,27 @@ _CONFIGS = [
         data=LeRobotBinPackDataConfig(
             repo_id="villekuosmanen/bin_pick_pack_coffee_capsules",
             base_config=DataConfig(prompt_from_task=True),
+        ),
+        batch_size=32,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=10_000,
+            peak_lr=5e-5,
+            decay_steps=1_000_000,
+            decay_lr=5e-5,
+        ),
+        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
+        ema_decay=0.999,
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
+        num_train_steps=30_000,
+    ),
+    TrainConfig(
+        name="pi05_bin_pack_coffee_capsules_delta",
+        model=pi0_config.Pi0Config(pi05=True, action_horizon=10),
+        data=LeRobotBinPackDataConfig(
+            repo_id="villekuosmanen/bin_pick_pack_coffee_capsules",
+            base_config=DataConfig(prompt_from_task=True),
+            use_delta_actions=True,
+            output_delta_actions=True,
         ),
         batch_size=32,
         lr_schedule=_optimizer.CosineDecaySchedule(

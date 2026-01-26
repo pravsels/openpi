@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=pi05_bin_pack
+#SBATCH --job-name=pi05_bin_pack_delta
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:1
 #SBATCH --ntasks-per-node=1
@@ -24,7 +24,7 @@ container="${data_dir}/container/openpi_arm64.sif"
 HF_CACHE="${scratch_dir}/huggingface_cache"
 
 # Training config
-CONFIG_NAME="pi05_bin_pack_coffee_capsules"
+CONFIG_NAME="pi05_bin_pack_coffee_capsules_delta"
 EXP_NAME="${1:-bin_pack_run}"
 
 CHECKPOINT_DIR="${data_dir}/checkpoints/${CONFIG_NAME}/${EXP_NAME}"
