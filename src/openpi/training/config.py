@@ -70,6 +70,10 @@ class DataConfig:
     asset_id: str | None = None
     # Contains precomputed normalization stats. If None, normalization will not be performed.
     norm_stats: dict[str, _transforms.NormStats] | None = None
+    # If true, use per-timestep action normalization when available. If None, use defaults set by data configs.
+    use_per_timestep_action_norm: bool | None = None
+    # Per-timestep action normalization stats (actions only).
+    per_timestep_action_norm_stats: _transforms.NormStats | None = None
 
     # Used to adopt the inputs from a dataset specific format to a common format
     # which is expected by the data transforms.
@@ -185,6 +189,9 @@ class DataConfigFactory(abc.ABC):
             repo_id=repo_id,
             asset_id=asset_id,
             norm_stats=self._load_norm_stats(epath.Path(self.assets.assets_dir or assets_dirs), asset_id),
+            per_timestep_action_norm_stats=self._load_per_timestep_action_norm_stats(
+                epath.Path(self.assets.assets_dir or assets_dirs), asset_id
+            ),
             use_quantile_norm=model_config.model_type != ModelType.PI0,
         )
 
@@ -198,6 +205,20 @@ class DataConfigFactory(abc.ABC):
             return norm_stats
         except FileNotFoundError:
             logging.info(f"Norm stats not found in {data_assets_dir}, skipping.")
+        return None
+
+    def _load_per_timestep_action_norm_stats(
+        self, assets_dir: epath.Path, asset_id: str | None
+    ) -> _transforms.NormStats | None:
+        if asset_id is None:
+            return None
+        try:
+            data_assets_dir = str(assets_dir / asset_id)
+            action_stats = _normalize.load_actions_per_timestep(_download.maybe_download(data_assets_dir))
+            logging.info(f"Loaded per-timestep action stats from {data_assets_dir}")
+            return action_stats
+        except FileNotFoundError:
+            logging.info(f"Per-timestep action stats not found in {data_assets_dir}, skipping.")
         return None
 
 
@@ -269,13 +290,18 @@ class LeRobotAlohaDataConfig(DataConfigFactory):
             )
 
         model_transforms = ModelTransformFactory(default_prompt=self.default_prompt)(model_config)
+        base_config = self.create_base_config(assets_dirs, model_config)
+        use_per_timestep_action_norm = base_config.use_per_timestep_action_norm
+        if self.use_delta_joint_actions and use_per_timestep_action_norm is None:
+            use_per_timestep_action_norm = True
 
         return dataclasses.replace(
-            self.create_base_config(assets_dirs, model_config),
+            base_config,
             repack_transforms=self.repack_transforms,
             data_transforms=data_transforms,
             model_transforms=model_transforms,
             action_sequence_keys=self.action_sequence_keys,
+            use_per_timestep_action_norm=use_per_timestep_action_norm,
         )
 
 
@@ -346,13 +372,18 @@ class LeRobotLiberoDataConfig(DataConfigFactory):
         # Model transforms include things like tokenizing the prompt and action targets
         # You do not need to change anything here for your own dataset.
         model_transforms = ModelTransformFactory()(model_config)
+        base_config = self.create_base_config(assets_dirs, model_config)
+        use_per_timestep_action_norm = base_config.use_per_timestep_action_norm
+        if self.extra_delta_transform and use_per_timestep_action_norm is None:
+            use_per_timestep_action_norm = True
 
         # We return all data transforms for training and inference. No need to change anything here.
         return dataclasses.replace(
-            self.create_base_config(assets_dirs, model_config),
+            base_config,
             repack_transforms=repack_transform,
             data_transforms=data_transforms,
             model_transforms=model_transforms,
+            use_per_timestep_action_norm=use_per_timestep_action_norm,
         )
 
 
@@ -384,11 +415,16 @@ class LeRobotBinPackDataConfig(DataConfigFactory):
                 outputs=output_transforms,
             )
         model_transforms = ModelTransformFactory(default_prompt=self.default_prompt)(model_config)
+        base_config = self.create_base_config(assets_dirs, model_config)
+        use_per_timestep_action_norm = base_config.use_per_timestep_action_norm
+        if self.use_delta_actions and use_per_timestep_action_norm is None:
+            use_per_timestep_action_norm = True
         return dataclasses.replace(
-            self.create_base_config(assets_dirs, model_config),
+            base_config,
             data_transforms=data_transforms,
             model_transforms=model_transforms,
             action_sequence_keys=("action.pos", "action.eef_pose"),
+            use_per_timestep_action_norm=use_per_timestep_action_norm,
         )
 
 

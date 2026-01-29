@@ -41,3 +41,53 @@ def test_multiple_batch_dimensions():
 
     assert np.allclose(results.mean, expected_mean)
     assert np.allclose(results.std, expected_std)
+
+
+def test_actions_per_timestep_roundtrip(tmp_path):
+    stats = normalize.NormStats(
+        mean=np.zeros((2, 3)),
+        std=np.ones((2, 3)),
+        q01=np.zeros((2, 3)),
+        q99=np.ones((2, 3)) * 2.0,
+    )
+    normalize.save_actions_per_timestep(tmp_path, stats)
+    loaded = normalize.load_actions_per_timestep(tmp_path)
+    assert np.allclose(stats.mean, loaded.mean)
+    assert np.allclose(stats.std, loaded.std)
+    assert np.allclose(stats.q01, loaded.q01)
+    assert np.allclose(stats.q99, loaded.q99)
+
+
+def test_merge_action_norm_stats_disabled():
+    base = {
+        "actions": normalize.NormStats(mean=np.zeros(2), std=np.ones(2)),
+        "state": normalize.NormStats(mean=np.zeros(2), std=np.ones(2)),
+    }
+    per_timestep = normalize.NormStats(mean=np.ones((2, 2)), std=np.ones((2, 2)) * 2.0)
+    merged = normalize.merge_action_norm_stats(
+        base, per_timestep_action_stats=per_timestep, use_per_timestep_action_norm=False
+    )
+    assert np.allclose(merged["actions"].mean, base["actions"].mean)
+
+
+def test_merge_action_norm_stats_enabled_missing():
+    base = {
+        "actions": normalize.NormStats(mean=np.zeros(2), std=np.ones(2)),
+        "state": normalize.NormStats(mean=np.zeros(2), std=np.ones(2)),
+    }
+    merged = normalize.merge_action_norm_stats(
+        base, per_timestep_action_stats=None, use_per_timestep_action_norm=True
+    )
+    assert np.allclose(merged["actions"].mean, base["actions"].mean)
+
+
+def test_merge_action_norm_stats_enabled():
+    base = {
+        "actions": normalize.NormStats(mean=np.zeros(2), std=np.ones(2)),
+        "state": normalize.NormStats(mean=np.zeros(2), std=np.ones(2)),
+    }
+    per_timestep = normalize.NormStats(mean=np.ones((2, 2)), std=np.ones((2, 2)) * 2.0)
+    merged = normalize.merge_action_norm_stats(
+        base, per_timestep_action_stats=per_timestep, use_per_timestep_action_norm=True
+    )
+    assert np.allclose(merged["actions"].mean, per_timestep.mean)

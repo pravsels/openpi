@@ -2,6 +2,20 @@
 
 Following common practice, our models normalize the proprioceptive state inputs and action targets during policy training and inference. The statistics used for normalization are computed over the training data and stored alongside the model checkpoint.
 
+## Per-timestep action normalization
+
+For delta-action workflows, we support a parallel per-timestep action normalization file named
+`norm_stats_actions_per_timestep.json`. This file contains **actions-only** stats computed separately
+for each timestep index in the action horizon (shape `[H, D]`). The regular `norm_stats.json`
+remains the source of global stats (including state).
+
+By default, per-timestep action normalization is **auto-enabled** when delta actions are used
+(e.g. `use_delta_actions=True`, `use_delta_joint_actions=True`, or `extra_delta_transform=True`).
+You can override this behavior by setting `use_per_timestep_action_norm` in the data config.
+State normalization always remains global.
+
+To generate these files, use `scripts/compute_norm_stats_per_timestep.py`.
+
 ## Reloading normalization statistics
 
 When you fine-tune one of our models on a new dataset, you need to decide whether to (A) reuse existing normalization statistics or (B) compute new statistics over your new training data. Which option is better for you depends on the similarity of your robot and task to the robot and task distribution in the pre-training dataset. Below, we list all the available pre-training normalization statistics for each model.

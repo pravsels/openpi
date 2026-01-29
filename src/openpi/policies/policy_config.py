@@ -8,6 +8,7 @@ import jax.numpy as jnp
 import openpi.models.model as _model
 import openpi.policies.policy as _policy
 import openpi.shared.download as download
+import openpi.shared.normalize as _normalize
 from openpi.training import checkpoints as _checkpoints
 from openpi.training import config as _config
 import openpi.transforms as transforms
@@ -62,6 +63,21 @@ def create_trained_policy(
         if data_config.asset_id is None:
             raise ValueError("Asset id is required to load norm stats.")
         norm_stats = _checkpoints.load_norm_stats(checkpoint_dir / "assets", data_config.asset_id)
+
+    per_timestep_action_stats = data_config.per_timestep_action_norm_stats
+    if data_config.use_per_timestep_action_norm and data_config.asset_id is not None:
+        try:
+            per_timestep_action_stats = _normalize.load_actions_per_timestep(
+                checkpoint_dir / "assets" / data_config.asset_id
+            )
+        except FileNotFoundError:
+            pass
+
+    norm_stats = _normalize.merge_action_norm_stats(
+        norm_stats or {},
+        per_timestep_action_stats=per_timestep_action_stats,
+        use_per_timestep_action_norm=data_config.use_per_timestep_action_norm,
+    )
 
     # Determine the device to use for PyTorch models
     if is_pytorch and pytorch_device is None:

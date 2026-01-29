@@ -29,6 +29,7 @@ import numpy as np
 import torch
 
 import openpi.models.model as _model
+import openpi.shared.normalize as _normalize
 import openpi.training.config as _config
 from openpi.training.droid_rlds_dataset import DroidRldsDataset
 import openpi.transforms as _transforms
@@ -200,6 +201,11 @@ def transform_dataset(dataset: Dataset, data_config: _config.DataConfig, *, skip
                 "Make sure to run `scripts/compute_norm_stats.py --config-name=<your-config>`."
             )
         norm_stats = data_config.norm_stats
+        norm_stats = _normalize.merge_action_norm_stats(
+            norm_stats,
+            per_timestep_action_stats=data_config.per_timestep_action_norm_stats,
+            use_per_timestep_action_norm=data_config.use_per_timestep_action_norm,
+        )
 
     return TransformedDataset(
         dataset,
@@ -228,6 +234,11 @@ def transform_iterable_dataset(
                 "Make sure to run `scripts/compute_norm_stats.py --config-name=<your-config>`."
             )
         norm_stats = data_config.norm_stats
+        norm_stats = _normalize.merge_action_norm_stats(
+            norm_stats,
+            per_timestep_action_stats=data_config.per_timestep_action_norm_stats,
+            use_per_timestep_action_norm=data_config.use_per_timestep_action_norm,
+        )
 
     return IterableTransformedDataset(
         dataset,

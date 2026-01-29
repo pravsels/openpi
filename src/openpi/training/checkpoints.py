@@ -74,6 +74,10 @@ def save_state(
         norm_stats = data_config.norm_stats
         if norm_stats is not None and data_config.asset_id is not None:
             _normalize.save(directory / data_config.asset_id, norm_stats)
+        if data_config.per_timestep_action_norm_stats is not None and data_config.asset_id is not None:
+            _normalize.save_actions_per_timestep(
+                directory / data_config.asset_id, data_config.per_timestep_action_norm_stats
+            )
 
     # Split params that can be used for inference into a separate item.
     with at.disable_typechecking():

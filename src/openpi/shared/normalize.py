@@ -1,4 +1,5 @@
 import json
+import logging
 import pathlib
 
 import numpy as np
@@ -144,3 +145,38 @@ def load(directory: pathlib.Path | str) -> dict[str, NormStats]:
     if not path.exists():
         raise FileNotFoundError(f"Norm stats file not found at: {path}")
     return deserialize_json(path.read_text())
+
+
+_ACTIONS_PER_TIMESTEP_FILENAME = "norm_stats_actions_per_timestep.json"
+
+
+def save_actions_per_timestep(directory: pathlib.Path | str, actions_stats: NormStats) -> None:
+    """Save per-timestep action normalization stats to a directory."""
+    path = pathlib.Path(directory) / _ACTIONS_PER_TIMESTEP_FILENAME
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(_NormStatsDict(norm_stats={"actions": actions_stats}).model_dump_json(indent=2))
+
+
+def load_actions_per_timestep(directory: pathlib.Path | str) -> NormStats:
+    """Load per-timestep action normalization stats from a directory."""
+    path = pathlib.Path(directory) / _ACTIONS_PER_TIMESTEP_FILENAME
+    if not path.exists():
+        raise FileNotFoundError(f"Per-timestep action stats file not found at: {path}")
+    return deserialize_json(path.read_text())["actions"]
+
+
+def merge_action_norm_stats(
+    norm_stats: dict[str, NormStats],
+    *,
+    per_timestep_action_stats: NormStats | None,
+    use_per_timestep_action_norm: bool | None,
+) -> dict[str, NormStats]:
+    """Return normalization stats with actions overridden by per-timestep stats if enabled."""
+    if not use_per_timestep_action_norm:
+        return norm_stats
+    if per_timestep_action_stats is None:
+        logging.info("Per-timestep action normalization enabled, but stats not found. Using global stats.")
+        return norm_stats
+    merged = dict(norm_stats)
+    merged["actions"] = per_timestep_action_stats
+    return merged
