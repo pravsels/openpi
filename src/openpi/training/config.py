@@ -184,13 +184,17 @@ class DataConfigFactory(abc.ABC):
     def create_base_config(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
         repo_id = self.repo_id if self.repo_id is not tyro.MISSING else None
         asset_id = self.assets.asset_id or repo_id
+        assets_base_dir = self.assets.assets_dir or assets_dirs
+        if self.assets.assets_dir is not None and not epath.Path(self.assets.assets_dir).exists():
+            if assets_dirs is not None and epath.Path(assets_dirs).exists():
+                assets_base_dir = assets_dirs
         return dataclasses.replace(
             self.base_config or DataConfig(),
             repo_id=repo_id,
             asset_id=asset_id,
-            norm_stats=self._load_norm_stats(epath.Path(self.assets.assets_dir or assets_dirs), asset_id),
+            norm_stats=self._load_norm_stats(epath.Path(assets_base_dir), asset_id),
             per_timestep_action_norm_stats=self._load_per_timestep_action_norm_stats(
-                epath.Path(self.assets.assets_dir or assets_dirs), asset_id
+                epath.Path(assets_base_dir), asset_id
             ),
             use_quantile_norm=model_config.model_type != ModelType.PI0,
         )
