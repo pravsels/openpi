@@ -836,7 +836,7 @@ _CONFIGS = [
     ),
     TrainConfig(
         name="pi05_bin_pack_coffee_capsules",
-        model=pi0_config.Pi0Config(pi05=True, action_horizon=10),
+        model=pi0_config.Pi0Config(pi05=True, action_horizon=30),
         data=LeRobotBinPackDataConfig(
             repo_id="villekuosmanen/bin_pick_pack_coffee_capsules",
             base_config=DataConfig(prompt_from_task=True),
@@ -855,7 +855,7 @@ _CONFIGS = [
     ),
     TrainConfig(
         name="pi05_bin_pack_coffee_capsules_delta",
-        model=pi0_config.Pi0Config(pi05=True, action_horizon=10),
+        model=pi0_config.Pi0Config(pi05=True, action_horizon=30),
         data=LeRobotBinPackDataConfig(
             repo_id="villekuosmanen/bin_pick_pack_coffee_capsules",
             base_config=DataConfig(prompt_from_task=True),
