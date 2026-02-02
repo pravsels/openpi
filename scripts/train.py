@@ -22,17 +22,11 @@ import optax
 import tqdm_loggable.auto as tqdm
 import wandb
 
-# Increase coordination timeout for multi-GPU initialization.
-jax.config.update("jax_coordination_service_timeout", 600)
-try:
-    _jax_coord_timeout = jax.config.read("jax_coordination_service_timeout")
-except Exception:
-    _jax_coord_timeout = "unknown"
+# Log NCCL-related env settings for troubleshooting.
 print(
     "[train.py] env:",
     f"PJRT_NCCL_INIT_TIMEOUT={os.environ.get('PJRT_NCCL_INIT_TIMEOUT')}",
     f"NCCL_P2P_DISABLE={os.environ.get('NCCL_P2P_DISABLE')}",
-    f"jax_coordination_service_timeout={_jax_coord_timeout}",
 )
 
 import openpi.models.model as _model
