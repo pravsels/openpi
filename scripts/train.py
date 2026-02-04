@@ -1,8 +1,8 @@
 import os
 
-# Force longer NCCL init and disable P2P to avoid multi-GPU rendezvous hangs.
-os.environ.setdefault("PJRT_NCCL_INIT_TIMEOUT", "600")
-os.environ.setdefault("NCCL_P2P_DISABLE", "1")
+# Force offline W&B logging unless explicitly overridden.
+os.environ.setdefault("WANDB_MODE", "offline")
+os.environ.setdefault("WANDB_ENTITY", "pravsels")
 
 import dataclasses
 import functools
@@ -21,13 +21,6 @@ import numpy as np
 import optax
 import tqdm_loggable.auto as tqdm
 import wandb
-
-# Log NCCL-related env settings for troubleshooting.
-print(
-    "[train.py] env:",
-    f"PJRT_NCCL_INIT_TIMEOUT={os.environ.get('PJRT_NCCL_INIT_TIMEOUT')}",
-    f"NCCL_P2P_DISABLE={os.environ.get('NCCL_P2P_DISABLE')}",
-)
 
 import openpi.models.model as _model
 import openpi.shared.array_typing as at

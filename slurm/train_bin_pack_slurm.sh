@@ -16,8 +16,8 @@ module purge
 module load brics/apptainer-multi-node
 
 # Paths (edit these for your cluster)
-home_dir="/home/u5dm/pravsels.u5dm"
-scratch_dir="/scratch/u5dm/pravsels.u5dm"
+home_dir="/home/u6cr/pravsels.u6cr"
+scratch_dir="/scratch/u6cr/pravsels.u6cr"
 repo_dir="${home_dir}/openpi"
 data_dir="${scratch_dir}/openpi"
 container="${data_dir}/container/openpi_arm64.sif"
