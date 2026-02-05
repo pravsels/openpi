@@ -4,6 +4,7 @@ import pathlib
 from typing import Any
 
 import jax.numpy as jnp
+import numpy as np
 
 import openpi.models.model as _model
 import openpi.policies.policy as _policy
@@ -12,6 +13,23 @@ import openpi.shared.normalize as _normalize
 from openpi.training import checkpoints as _checkpoints
 from openpi.training import config as _config
 import openpi.transforms as transforms
+
+
+def _pad_norm_stats_to_dim(stats: transforms.NormStats, target_dim: int) -> None:
+    def _pad(x, value):
+        if x is None:
+            return None
+        if x.shape[-1] > target_dim:
+            return x[..., :target_dim]
+        if x.shape[-1] == target_dim:
+            return x
+        pad = target_dim - x.shape[-1]
+        return np.pad(x, [(0, 0)] * (x.ndim - 1) + [(0, pad)], constant_values=value)
+
+    stats.mean = _pad(stats.mean, 0.0)
+    stats.std = _pad(stats.std, 1.0)
+    stats.q01 = _pad(stats.q01, 0.0)
+    stats.q99 = _pad(stats.q99, 1.0)
 
 
 def create_trained_policy(
@@ -72,6 +90,8 @@ def create_trained_policy(
             )
         except FileNotFoundError:
             pass
+    if per_timestep_action_stats is not None:
+        _pad_norm_stats_to_dim(per_timestep_action_stats, train_config.model.action_dim)
 
     norm_stats = _normalize.merge_action_norm_stats(
         norm_stats or {},
