@@ -22,6 +22,11 @@ repo_dir="${home_dir}/openpi"
 data_dir="${scratch_dir}/openpi"
 container="${data_dir}/container/openpi_arm64.sif"
 HF_CACHE="${scratch_dir}/huggingface_cache"
+WANDB_DIR="${data_dir}/wandb"
+WANDB_CACHE_DIR="${scratch_dir}/.cache/wandb"
+WANDB_CONFIG_DIR="${scratch_dir}/.config/wandb"
+XDG_CACHE_HOME="${scratch_dir}/.cache"
+XDG_CONFIG_HOME="${scratch_dir}/.config"
 
 # Training config
 CONFIG_NAME="pi05_bin_pack_coffee_capsules_delta"
@@ -29,7 +34,7 @@ EXP_NAME="${1:-${CONFIG_NAME}}"
 
 CHECKPOINT_DIR="${data_dir}/checkpoints/${CONFIG_NAME}/${EXP_NAME}"
 
-mkdir -p "${HF_CACHE}" "${data_dir}/checkpoints" "${data_dir}/assets" "${data_dir}/weights" "${data_dir}/.venv"
+mkdir -p "${HF_CACHE}" "${WANDB_DIR}" "${WANDB_CACHE_DIR}" "${WANDB_CONFIG_DIR}" "${XDG_CACHE_HOME}" "${XDG_CONFIG_HOME}" "${data_dir}/checkpoints" "${data_dir}/assets" "${data_dir}/weights" "${data_dir}/.venv"
 
 start_time="$(date -Is --utc)"
 echo "===================================="
@@ -43,6 +48,11 @@ TRAIN_CMD="uv run scripts/train.py ${CONFIG_NAME} --exp-name=${EXP_NAME} --resum
 
 EXPORT_VARS="export PYTHONUNBUFFERED=1"
 EXPORT_VARS="${EXPORT_VARS} && export WANDB_MODE=offline"
+EXPORT_VARS="${EXPORT_VARS} && export WANDB_DIR=${WANDB_DIR}"
+EXPORT_VARS="${EXPORT_VARS} && export WANDB_CACHE_DIR=${WANDB_CACHE_DIR}"
+EXPORT_VARS="${EXPORT_VARS} && export WANDB_CONFIG_DIR=${WANDB_CONFIG_DIR}"
+EXPORT_VARS="${EXPORT_VARS} && export XDG_CACHE_HOME=${XDG_CACHE_HOME}"
+EXPORT_VARS="${EXPORT_VARS} && export XDG_CONFIG_HOME=${XDG_CONFIG_HOME}"
 EXPORT_VARS="${EXPORT_VARS} && export WANDB_ENTITY=pravsels"
 EXPORT_VARS="${EXPORT_VARS} && export OPENPI_DATA_HOME=${data_dir}"
 EXPORT_VARS="${EXPORT_VARS} && export UV_PROJECT_ENVIRONMENT=${data_dir}/.venv"
