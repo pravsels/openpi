@@ -37,6 +37,8 @@ dependencies = [
     "transformers==4.53.2",
     "rich>=14.0.0",
     "polars>=1.30.0",
+    "robocandywrapper>=0.2.6",
+    "rewact_tools",
 ]
 
 

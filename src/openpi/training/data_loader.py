@@ -2,8 +2,13 @@ from collections.abc import Iterator, Sequence
 import logging
 import multiprocessing
 import os
+import pathlib
 import typing
 from typing import Literal, Protocol, SupportsIndex, TypeVar
+
+import tqdm_loggable.auto as tqdm
+import math
+import random
 
 import jax
 import jax.numpy as jnp
@@ -12,6 +17,10 @@ try:
 except ModuleNotFoundError:
     import lerobot.common.datasets.lerobot_dataset as lerobot_dataset
  
+from robocandywrapper.factory import make_dataset_without_config
+from robocandywrapper.plugins import EpisodeOutcomePlugin
+from rewact_tools import PiStar0_6CumulativeRewardPlugin, ControlModePlugin
+
 
 def _coerce_task_mapping(tasks) -> dict[int, str]:
     if isinstance(tasks, dict):
@@ -155,13 +164,25 @@ def create_torch_dataset(
     if repo_id == "fake":
         return FakeDataset(model_config, num_samples=1024)
 
-    dataset_meta = lerobot_dataset.LeRobotDatasetMetadata(repo_id)
-    dataset = lerobot_dataset.LeRobotDataset(
-        data_config.repo_id,
-        delta_timestamps={
-            key: [t / dataset_meta.fps for t in range(action_horizon)] for key in data_config.action_sequence_keys
+    # Use RoboCandyWrapper for training on multiple datasets and to add extensions
+    dataset = make_dataset_without_config(
+        repo_id,
+        action_delta_indices=[t for t in range(action_horizon)],
+        plugins=[EpisodeOutcomePlugin(), ControlModePlugin(), PiStar0_6CumulativeRewardPlugin(normalise=True)],
+        key_rename_map={
+            # 'action.pos': 'action',
+            # 'observation.state.pos': 'observation.state',
         },
     )
+    dataset_meta = dataset.meta
+
+    # dataset_meta = lerobot_dataset.LeRobotDatasetMetadata(repo_id)
+    # dataset = lerobot_dataset.LeRobotDataset(
+    #     data_config.repo_id,
+    #     delta_timestamps={
+    #         key: [t / dataset_meta.fps for t in range(action_horizon)] for key in data_config.action_sequence_keys
+    #     },
+    # )
 
     if data_config.prompt_from_task:
         task_mapping = _coerce_task_mapping(dataset_meta.tasks)
@@ -285,6 +306,16 @@ def create_data_loader(
             skip_norm_stats=skip_norm_stats,
             framework=framework,
         )
+    valid_indices_path = None
+    if data_config.repo_id not in (None, "fake"):
+        p = pathlib.Path(config.assets_dirs) / data_config.repo_id / VALID_INDICES_FILENAME
+        if p.exists():
+            valid_indices_path = p
+        else:
+            logging.warning(
+                "Valid indices file not found at %s; run scripts/compute_valid_indices.py for filtered sampling.",
+                p,
+            )
     return create_torch_data_loader(
         data_config,
         model_config=config.model,
@@ -297,6 +328,7 @@ def create_data_loader(
         seed=config.seed,
         skip_norm_stats=skip_norm_stats,
         framework=framework,
+        valid_indices_path=valid_indices_path,
     )
 
 
@@ -313,6 +345,7 @@ def create_torch_data_loader(
     num_workers: int = 0,
     seed: int = 0,
     framework: str = "jax",
+    valid_indices_path: pathlib.Path | str | None = None,
 ) -> DataLoader[tuple[_model.Observation, _model.Actions]]:
     """Create a data loader for training.
 
@@ -330,28 +363,42 @@ def create_torch_data_loader(
         num_workers: The number of worker processes to use. If zero, the data loader will
             execute in the main process.
         seed: The seed to use for shuffling the data.
+        valid_indices_path: Path to a text file of comma-separated valid indices (from
+            scripts/compute_valid_indices.py). If provided, only these indices are sampled.
     """
     dataset = create_torch_dataset(data_config, action_horizon, model_config)
-    dataset = transform_dataset(dataset, data_config, skip_norm_stats=skip_norm_stats)
 
-    # Use TorchDataLoader for both frameworks
-    # For PyTorch DDP, create DistributedSampler and divide batch size by world size
-    # For JAX, divide by process count
     sampler = None
-    if framework == "pytorch":
-        if torch.distributed.is_initialized():
-            sampler = torch.utils.data.distributed.DistributedSampler(
-                dataset,
-                num_replicas=torch.distributed.get_world_size(),
-                rank=torch.distributed.get_rank(),
-                shuffle=shuffle,
-                drop_last=True,
-            )
-            local_batch_size = batch_size // torch.distributed.get_world_size()
+    if valid_indices_path is not None:
+        valid_indices = _load_valid_indices(valid_indices_path)
+        logging.info("Loaded %d valid indices from %s", len(valid_indices), valid_indices_path)
+        if framework == "pytorch":
+            if torch.distributed.is_initialized():
+                sampler = FilteredDistributedSampler(
+                    valid_indices,
+                    num_replicas=torch.distributed.get_world_size(),
+                    rank=torch.distributed.get_rank(),
+                    shuffle=True,
+                    drop_last=True,
+                )
+                local_batch_size = batch_size // torch.distributed.get_world_size()
+            else:
+                sampler = FilteredSampler(valid_indices, shuffle=True)
+                local_batch_size = batch_size
         else:
-            local_batch_size = batch_size
+            sampler = FilteredSampler(valid_indices, shuffle=True)
+            local_batch_size = batch_size // jax.process_count()
     else:
-        local_batch_size = batch_size // jax.process_count()
+        if framework == "pytorch":
+            local_batch_size = (
+                batch_size // torch.distributed.get_world_size()
+                if torch.distributed.is_initialized()
+                else batch_size
+            )
+        else:
+            local_batch_size = batch_size // jax.process_count()
+
+    dataset = transform_dataset(dataset, data_config, skip_norm_stats=skip_norm_stats)
 
     logging.info(f"local_batch_size: {local_batch_size}")
     data_loader = TorchDataLoader(
@@ -570,3 +617,86 @@ class DataLoaderImpl(DataLoader):
     def __iter__(self):
         for batch in self._data_loader:
             yield _model.Observation.from_dict(batch), batch["actions"]
+
+
+VALID_INDICES_FILENAME = "valid_indices.txt"
+
+
+def _load_valid_indices(path: pathlib.Path | str) -> list[int]:
+    """Load comma-separated valid indices from a text file."""
+    path = pathlib.Path(path)
+    text = path.read_text().strip()
+    if not text:
+        return []
+    return [int(x) for x in text.split(",")]
+
+
+class FilteredSampler(torch.utils.data.Sampler):
+    """Sampler that samples only from a precomputed list of valid indices."""
+
+    def __init__(self, valid_indices: list[int], shuffle: bool = True):
+        self.valid_indices = valid_indices
+        self.shuffle = shuffle
+
+    def __iter__(self):
+        indices = self.valid_indices.copy()
+        if self.shuffle:
+            random.shuffle(indices)
+        return iter(indices)
+
+    def __len__(self):
+        return len(self.valid_indices)
+
+
+class FilteredDistributedSampler(torch.utils.data.Sampler):
+    """DistributedSampler that only samples from a precomputed list of valid indices."""
+
+    def __init__(
+        self,
+        valid_indices: list[int],
+        num_replicas: int | None = None,
+        rank: int | None = None,
+        shuffle: bool = True,
+        drop_last: bool = True,
+    ):
+        self.valid_indices = valid_indices
+        self.shuffle = shuffle
+        self.drop_last = drop_last
+        self.num_replicas = num_replicas or torch.distributed.get_world_size()
+        self.rank = rank or torch.distributed.get_rank()
+        self.epoch = 0
+
+        if self.drop_last and len(self.valid_indices) % self.num_replicas != 0:
+            self.num_samples = math.ceil(
+                (len(self.valid_indices) - self.num_replicas) / self.num_replicas
+            )
+        else:
+            self.num_samples = math.ceil(len(self.valid_indices) / self.num_replicas)
+        self.total_size = self.num_samples * self.num_replicas
+
+    def __iter__(self):
+        # Deterministic shuffle based on epoch (same across all ranks)
+        if self.shuffle:
+            g = torch.Generator()
+            g.manual_seed(self.epoch)
+            perm = torch.randperm(len(self.valid_indices), generator=g).tolist()
+            indices = [self.valid_indices[i] for i in perm]
+        else:
+            indices = self.valid_indices.copy()
+
+        # Pad or truncate to total_size
+        if self.drop_last:
+            indices = indices[:self.total_size]
+        else:
+            padding = self.total_size - len(indices)
+            indices += indices[:padding]
+
+        # Subsample for this rank
+        indices = indices[self.rank:self.total_size:self.num_replicas]
+        assert len(indices) == self.num_samples
+
+        return iter(indices)
+
+    def __len__(self):
+        return self.num_samples
+
