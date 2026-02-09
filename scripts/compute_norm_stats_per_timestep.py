@@ -8,6 +8,7 @@ stats saved to a parallel file.
 from __future__ import annotations
 
 import dataclasses
+import pathlib
 import numpy as np
 import tqdm
 import tyro

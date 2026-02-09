@@ -56,6 +56,9 @@ echo "===================================="
 # Training commands
 COMPUTE_VALID_INDICES_CMD="uv run scripts/compute_valid_indices.py --config-name=${CONFIG_NAME} --assets-dir=${ASSETS_DIR}"
 COMPUTE_NORM_STATS_CMD="uv run scripts/compute_norm_stats_per_timestep.py --config-name=${CONFIG_NAME} --assets-dir=${ASSETS_DIR}"
+VALID_INDICES_PATH="${ASSETS_DIR}/valid_indices.txt"
+NORM_STATS_PATH="${ASSETS_DIR}/norm_stats.json"
+PER_TIMESTEP_STATS_PATH="${ASSETS_DIR}/norm_stats_actions_per_timestep.json"
 TRAIN_CMD="uv run scripts/train.py ${CONFIG_NAME} --exp-name=${EXP_NAME} --assets-dir=${ASSETS_DIR} --resume"
 
 EXPORT_VARS="export PYTHONUNBUFFERED=1"
@@ -70,12 +73,23 @@ EXPORT_VARS="${EXPORT_VARS} && export OPENPI_DATA_HOME=${data_dir}"
 EXPORT_VARS="${EXPORT_VARS} && export UV_PROJECT_ENVIRONMENT=${data_dir}/.venv"
 EXPORT_VARS="${EXPORT_VARS} && export CUDA_VISIBLE_DEVICES=0,1,2"
 
-echo "Running valid-index precompute..."
-echo "Command: ${COMPUTE_VALID_INDICES_CMD}"
-echo ""
-echo "Running normalization precompute..."
-echo "Command: ${COMPUTE_NORM_STATS_CMD}"
-echo ""
+if [ -f "${VALID_INDICES_PATH}" ]; then
+    echo "Skipping valid-index precompute (found ${VALID_INDICES_PATH})."
+else
+    echo "Running valid-index precompute..."
+    echo "Command: ${COMPUTE_VALID_INDICES_CMD}"
+    echo ""
+    PRECOMPUTE_CMD="${PRECOMPUTE_CMD}${COMPUTE_VALID_INDICES_CMD} && "
+fi
+
+if [ -f "${NORM_STATS_PATH}" ] && [ -f "${PER_TIMESTEP_STATS_PATH}" ]; then
+    echo "Skipping normalization precompute (found stats files)."
+else
+    echo "Running normalization precompute..."
+    echo "Command: ${COMPUTE_NORM_STATS_CMD}"
+    echo ""
+    PRECOMPUTE_CMD="${PRECOMPUTE_CMD}${COMPUTE_NORM_STATS_CMD} && "
+fi
 echo "Running training command..."
 echo "Command: ${TRAIN_CMD}"
 echo ""
@@ -91,7 +105,7 @@ apptainer exec --nv \
     --bind "${HF_CACHE}:/root/.cache/huggingface" \
     --env "HF_HOME=/root/.cache/huggingface" \
     "${container}" \
-    bash -c "${EXPORT_VARS} && ${COMPUTE_VALID_INDICES_CMD} && ${COMPUTE_NORM_STATS_CMD} && ${TRAIN_CMD}"
+    bash -c "${EXPORT_VARS} && ${PRECOMPUTE_CMD}${TRAIN_CMD}"
 EXIT_CODE=$?
 set -e
 
