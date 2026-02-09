@@ -184,7 +184,7 @@ class DataConfigFactory(abc.ABC):
 
     def create_base_config(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
         repo_id = self.repo_id if self.repo_id is not tyro.MISSING else None
-        asset_id = self.assets.asset_id or repo_id
+        asset_id = self.assets.asset_id
         return dataclasses.replace(
             self.base_config or DataConfig(),
             repo_id=repo_id,
@@ -198,6 +198,12 @@ class DataConfigFactory(abc.ABC):
 
     def _load_norm_stats(self, assets_dir: epath.Path, asset_id: str | None) -> dict[str, _transforms.NormStats] | None:
         if asset_id is None:
+            try:
+                norm_stats = _normalize.load(_download.maybe_download(str(assets_dir)))
+                logging.info(f"Loaded norm stats from {assets_dir}")
+                return norm_stats
+            except FileNotFoundError:
+                logging.info(f"Norm stats not found in {assets_dir}, skipping.")
             return None
         try:
             data_assets_dir = str(assets_dir / asset_id)
@@ -212,6 +218,12 @@ class DataConfigFactory(abc.ABC):
         self, assets_dir: epath.Path, asset_id: str | None
     ) -> _transforms.NormStats | None:
         if asset_id is None:
+            try:
+                action_stats = _normalize.load_actions_per_timestep(_download.maybe_download(str(assets_dir)))
+                logging.info(f"Loaded per-timestep action stats from {assets_dir}")
+                return action_stats
+            except FileNotFoundError:
+                logging.info(f"Per-timestep action stats not found in {assets_dir}, skipping.")
             return None
         try:
             data_assets_dir = str(assets_dir / asset_id)
