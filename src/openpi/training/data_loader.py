@@ -705,3 +705,15 @@ class FilteredDistributedSampler(torch.utils.data.Sampler[int]):
 
     def __len__(self):
         return self.num_samples
+
+
+VALID_INDICES_FILENAME = "valid_indices.txt"
+
+
+def _load_valid_indices(path: pathlib.Path | str) -> list[int]:
+    """Load comma-separated valid indices from a text file."""
+    path = pathlib.Path(path)
+    text = path.read_text().strip()
+    if not text:
+        return []
+    return [int(x) for x in text.split(",")]

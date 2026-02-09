@@ -20,15 +20,15 @@ To generate these files, use `scripts/compute_norm_stats_per_timestep.py`.
 
 By default, normalization stats (and related assets like `valid_indices.txt`) are stored under the
 config assets directory: `assets/<config name>/<repo_id>/...`. If you want these files to be
-experiment-specific, pass a custom assets base directory when running the scripts and training.
+experiment-specific, pass a custom assets directory when running the scripts and training.
 
 Example:
 
 ```bash
 ASSETS_DIR="/scratch/.../checkpoints/<CONFIG_NAME>/<EXP_NAME>/assets"
-uv run scripts/compute_valid_indices.py <CONFIG_NAME> --assets-base-dir="${ASSETS_DIR}"
-uv run scripts/compute_norm_stats_per_timestep.py <CONFIG_NAME> --assets-base-dir="${ASSETS_DIR}"
-uv run scripts/train.py <CONFIG_NAME> --exp-name=<EXP_NAME> --assets-base-dir="${ASSETS_DIR}"
+uv run scripts/compute_valid_indices.py <CONFIG_NAME> --assets-dir="${ASSETS_DIR}"
+uv run scripts/compute_norm_stats_per_timestep.py <CONFIG_NAME> --assets-dir="${ASSETS_DIR}"
+uv run scripts/train.py <CONFIG_NAME> --exp-name=<EXP_NAME> --assets-dir="${ASSETS_DIR}"
 ```
 
 ## Reloading normalization statistics

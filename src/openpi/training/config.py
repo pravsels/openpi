@@ -619,6 +619,8 @@ class TrainConfig:
 
     # Base directory for config assets (e.g., norm stats).
     assets_base_dir: str = "./assets"
+    # Optional fully-qualified assets directory (overrides assets_base_dir/name).
+    assets_dir: str | None = None
     # Base directory for checkpoints.
     checkpoint_base_dir: str = "./checkpoints"
 
@@ -659,6 +661,8 @@ class TrainConfig:
     @property
     def assets_dirs(self) -> pathlib.Path:
         """Get the assets directory for this config."""
+        if self.assets_dir is not None:
+            return pathlib.Path(self.assets_dir).resolve()
         return (pathlib.Path(self.assets_base_dir) / self.name).resolve()
 
     @property
