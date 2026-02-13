@@ -20,7 +20,91 @@ except ModuleNotFoundError:
  
 from robocandywrapper.factory import make_dataset_without_config
 from robocandywrapper.plugins import EpisodeOutcomePlugin
-from rewact_tools import PiStar0_6CumulativeRewardPlugin, ControlModePlugin
+from robocandywrapper.constants import CANDYWRAPPER_PLUGINS_DIR
+from rewact_tools import PiStar0_6CumulativeRewardPlugin
+from rewact_tools import ControlModePlugin as _ControlModePlugin
+
+
+class ControlModePlugin(_ControlModePlugin):
+    """ControlModePlugin that checks both legacy and new paths for episode_modes.json,
+    and handles both the legacy flat-list and newer wrapped JSON formats.
+
+    Path fix:
+        The upstream plugin only checks ``candywrapper_plugins/dagger_data_source/``.
+        Newer datasets store the file under ``candywrapper_plugins/control_mode/``.
+        This subclass checks both locations so both old and new datasets work.
+
+    JSON format fix:
+        The upstream parser expects ``{"0": [{start_index, end_index, mode}, ...]}``.
+        Newer datasets use ``{"0": {"segments": [{start_index, end_index, mode}, ...]}}``.
+        This subclass normalises the wrapped format before parsing.
+    """
+
+    def attach(self, dataset):
+        from pathlib import Path
+
+        if self.episode_modes_file is None:
+            dataset_root = None
+            if hasattr(dataset, "root"):
+                dataset_root = Path(dataset.root)
+            elif hasattr(dataset, "local_dir"):
+                dataset_root = Path(dataset.local_dir)
+
+            if dataset_root is not None:
+                legacy_path = dataset_root / CANDYWRAPPER_PLUGINS_DIR / "dagger_data_source" / "episode_modes.json"
+                new_path = dataset_root / CANDYWRAPPER_PLUGINS_DIR / "control_mode" / "episode_modes.json"
+                if legacy_path.exists():
+                    self.episode_modes_file = legacy_path
+                elif new_path.exists():
+                    self.episode_modes_file = new_path
+
+        return super().attach(dataset)
+
+    def _load_episode_modes(self, file_path):
+        """Load episode modes, handling both flat-list and wrapped JSON formats."""
+        import json
+        import warnings
+        from rewact_tools.control_mode_plugin import ControlModeSegment
+
+        if file_path is None or not file_path.exists():
+            if file_path is not None:
+                warnings.warn(
+                    f"Episode modes file not found: {file_path}. "
+                    "All control modes will default to 'unknown'."
+                )
+            return {}
+
+        try:
+            with open(file_path, "r") as f:
+                data = json.load(f)
+
+            episode_modes = {}
+            for episode_id_str, segments_data in data.items():
+                episode_idx = int(episode_id_str)
+
+                # Normalise: unwrap {"segments": [...]} -> [...]
+                if isinstance(segments_data, dict) and "segments" in segments_data:
+                    segments_data = segments_data["segments"]
+
+                segments = []
+                for seg in segments_data:
+                    segments.append(
+                        ControlModeSegment(
+                            start_index=seg["start_index"],
+                            end_index=seg["end_index"],
+                            mode=seg["mode"],
+                        )
+                    )
+                episode_modes[episode_idx] = segments
+
+            return episode_modes
+
+        except Exception as e:
+            warnings.warn(
+                f"Error loading episode modes file {file_path}: {e}. "
+                "All control modes will default to 'unknown'."
+            )
+            return {}
 
 
 def _coerce_task_mapping(tasks) -> dict[int, str]:
