@@ -29,8 +29,8 @@ XDG_CACHE_HOME="${scratch_dir}/.cache"
 XDG_CONFIG_HOME="${scratch_dir}/.config"
 
 # Training config
-CONFIG_NAME="pi05_bin_pack_coffee_capsules_delta"
-EXP_NAME="10_datasets"
+CONFIG_NAME="pi05_bin_pack_coffee_capsules_delta_single_dataset"
+EXP_NAME="1_dataset"
 
 CHECKPOINT_DIR="${data_dir}/checkpoints/${CONFIG_NAME}/${EXP_NAME}"
 ASSETS_DIR="${CHECKPOINT_DIR}/assets"

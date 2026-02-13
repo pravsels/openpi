@@ -965,6 +965,31 @@ _CONFIGS = [
         weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
         num_train_steps=30_000,
     ),
+    TrainConfig(
+        name="pi05_bin_pack_coffee_capsules_delta_single_dataset",
+        model=pi0_config.Pi0Config(pi05=True, action_horizon=50),
+        data=LeRobotBinPackDataConfig(
+            repo_id=(
+                "["
+                "villekuosmanen/bin_pick_pack_coffee_capsules"
+                "]"
+            ),
+            base_config=DataConfig(prompt_from_task=True),
+            use_delta_actions=True,
+            output_delta_actions=True,
+        ),
+        batch_size=36,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=10_000,
+            peak_lr=5e-5,
+            decay_steps=1_000_000,
+            decay_lr=5e-5,
+        ),
+        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
+        ema_decay=0.999,
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
+        num_train_steps=30_000,
+    ),
     #
     # Fine-tuning Aloha configs.
     #
