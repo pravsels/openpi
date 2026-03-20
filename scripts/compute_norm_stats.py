@@ -86,30 +86,54 @@ def create_rlds_dataloader(
     return data_loader, num_batches
 
 
-def _save_checkpoint(stats: dict, checkpoint_path: str, batch_idx: int):
-    """Save running stats checkpoint so progress isn't lost on crash."""
-    import pickle
-    state = {
-        "batch_idx": batch_idx,
-        "stats": {
-            key: {
-                "_count": s._count,
-                "_mean": s._mean,
-                "_mean_of_squares": s._mean_of_squares,
-                "_min": s._min,
-                "_max": s._max,
-                "_histograms": s._histograms,
-                "_bin_edges": s._bin_edges,
-            }
-            for key, s in stats.items()
-        },
+def _serialize_running_stats(s: normalize.RunningStats) -> dict:
+    return {
+        "_count": s._count,
+        "_mean": s._mean,
+        "_mean_of_squares": s._mean_of_squares,
+        "_min": s._min,
+        "_max": s._max,
+        "_histograms": s._histograms,
+        "_bin_edges": s._bin_edges,
     }
+
+
+def _deserialize_running_stats(saved: dict) -> normalize.RunningStats:
+    s = normalize.RunningStats()
+    s._count = saved["_count"]
+    s._mean = saved["_mean"]
+    s._mean_of_squares = saved["_mean_of_squares"]
+    s._min = saved["_min"]
+    s._max = saved["_max"]
+    s._histograms = saved["_histograms"]
+    s._bin_edges = saved["_bin_edges"]
+    return s
+
+
+def _save_checkpoint(
+    checkpoint_path: str,
+    batch_idx: int,
+    stats: dict | None = None,
+    per_dim_stats: dict | None = None,
+    use_per_dim: bool = False,
+):
+    import pickle
+    state = {"batch_idx": batch_idx, "use_per_dim": use_per_dim}
+    if use_per_dim and per_dim_stats:
+        state["per_dim_stats"] = {
+            key: [_serialize_running_stats(s) for s in dim_list]
+            for key, dim_list in per_dim_stats.items()
+        }
+    elif stats:
+        state["stats"] = {
+            key: _serialize_running_stats(s) for key, s in stats.items()
+        }
     with open(checkpoint_path, "wb") as f:
         pickle.dump(state, f)
 
 
-def _load_checkpoint(checkpoint_path: str, keys: list[str]) -> tuple[dict, int] | None:
-    """Load running stats from checkpoint. Returns (stats_dict, last_batch_idx) or None."""
+def _load_checkpoint(checkpoint_path: str, keys: list[str]):
+    """Load checkpoint. Returns (stats, per_dim_stats, use_per_dim, batch_idx) or None."""
     import pickle
     import os
     if not os.path.exists(checkpoint_path):
@@ -117,21 +141,29 @@ def _load_checkpoint(checkpoint_path: str, keys: list[str]) -> tuple[dict, int] 
     try:
         with open(checkpoint_path, "rb") as f:
             state = pickle.load(f)
-        stats = {}
-        for key in keys:
-            s = normalize.RunningStats()
-            saved = state["stats"][key]
-            s._count = saved["_count"]
-            s._mean = saved["_mean"]
-            s._mean_of_squares = saved["_mean_of_squares"]
-            s._min = saved["_min"]
-            s._max = saved["_max"]
-            s._histograms = saved["_histograms"]
-            s._bin_edges = saved["_bin_edges"]
-            stats[key] = s
-        print(f"Resumed from checkpoint at batch {state['batch_idx']} "
-              f"({stats[keys[0]]._count} samples processed)")
-        return stats, state["batch_idx"]
+        use_per_dim = state.get("use_per_dim", False)
+        batch_idx = state["batch_idx"]
+
+        if use_per_dim and "per_dim_stats" in state:
+            per_dim_stats = {}
+            for key in keys:
+                per_dim_stats[key] = [
+                    _deserialize_running_stats(d) for d in state["per_dim_stats"][key]
+                ]
+            n_dims = len(per_dim_stats[keys[0]])
+            counts = [per_dim_stats[keys[0]][d]._count for d in range(n_dims)]
+            print(f"Resumed per-dim checkpoint at batch {batch_idx} "
+                  f"(dim counts: {counts[0]:,}..{counts[-1]:,})")
+            return None, per_dim_stats, True, batch_idx
+        elif "stats" in state:
+            stats = {}
+            for key in keys:
+                stats[key] = _deserialize_running_stats(state["stats"][key])
+            print(f"Resumed checkpoint at batch {batch_idx} "
+                  f"({stats[keys[0]]._count:,} samples)")
+            return stats, None, False, batch_idx
+
+        return None
     except Exception as e:
         print(f"Could not load checkpoint: {e}, starting fresh")
         return None
@@ -159,18 +191,20 @@ def main(
 
     # When action_dim_mask is present (mixed single-arm + bimanual),
     # we compute per-dim stats so single-arm data contributes to dims
-    # 0-6 and bimanual data contributes to all 14. This avoids both
-    # overfitting stats to bimanual-only data AND corrupting dims 7-13
-    # with zero-padded values from single-arm data.
-    use_per_dim = False  # set True on first batch if mask is present
+    # 0-6 and bimanual data contributes to all 14.
+    use_per_dim = False
     per_dim_stats: dict[str, list[normalize.RunningStats]] = {}
+    stats = {key: normalize.RunningStats() for key in keys}
+    start_batch = 0
 
     resumed = _load_checkpoint(checkpoint_path, keys)
     if resumed is not None:
-        stats, start_batch = resumed
-    else:
-        stats = {key: normalize.RunningStats() for key in keys}
-        start_batch = 0
+        r_stats, r_per_dim, r_use_per_dim, start_batch = resumed
+        use_per_dim = r_use_per_dim
+        if r_per_dim:
+            per_dim_stats = r_per_dim
+        if r_stats:
+            stats = r_stats
 
     for batch_idx, batch in enumerate(
         tqdm.tqdm(data_loader, total=num_batches, desc="Computing stats",
@@ -196,11 +230,9 @@ def main(
             arr = np.asarray(batch[key])
 
             if use_per_dim and dim_mask is not None:
-                mask = np.asarray(dim_mask)  # [batch, dim]
-                # Flatten batch dims: arr is [batch, dim] or [batch, horizon, dim]
+                mask = np.asarray(dim_mask)
                 flat = arr.reshape(-1, arr.shape[-1])
                 if arr.ndim == 3:
-                    # Broadcast mask across horizon: [batch, dim] -> [batch*horizon, dim]
                     mask_expanded = np.repeat(mask, arr.shape[1], axis=0)
                 else:
                     mask_expanded = mask
@@ -210,7 +242,6 @@ def main(
                     if len(real_vals) > 0:
                         per_dim_stats[key][d].update(real_vals)
             elif use_per_dim:
-                # No mask on this batch but per_dim mode is active — all dims real
                 flat = arr.reshape(-1, arr.shape[-1])
                 for d in range(flat.shape[-1]):
                     per_dim_stats[key][d].update(flat[:, d:d+1])
@@ -218,7 +249,11 @@ def main(
                 stats[key].update(arr)
 
         if (batch_idx + 1) % checkpoint_interval == 0:
-            _save_checkpoint(stats, checkpoint_path, batch_idx + 1)
+            _save_checkpoint(
+                checkpoint_path, batch_idx + 1,
+                stats=stats, per_dim_stats=per_dim_stats,
+                use_per_dim=use_per_dim,
+            )
             tqdm.tqdm.write(f"  Checkpoint saved at batch {batch_idx + 1}")
 
     if use_per_dim:
