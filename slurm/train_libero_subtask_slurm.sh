@@ -61,7 +61,6 @@ echo "Started (UTC): ${start_time}"
 echo "===================================="
 
 # Training commands
-COMPUTE_VALID_INDICES_CMD="uv run scripts/compute_valid_indices.py --config-name=${CONFIG_NAME} --assets-dir=${ASSETS_DIR}"
 COMPUTE_NORM_STATS_CMD="uv run scripts/compute_norm_stats_per_timestep.py --config-name=${CONFIG_NAME} --assets-dir=${ASSETS_DIR}"
 VALID_INDICES_PATH="${ASSETS_DIR}/valid_indices.txt"
 NORM_STATS_PATH="${ASSETS_DIR}/norm_stats.json"
@@ -79,13 +78,13 @@ EXPORT_VARS="${EXPORT_VARS} && export WANDB_ENTITY=pravsels"
 EXPORT_VARS="${EXPORT_VARS} && export OPENPI_DATA_HOME=${data_dir}"
 EXPORT_VARS="${EXPORT_VARS} && export UV_PROJECT_ENVIRONMENT=${data_dir}/.venv"
 
+# This dataset currently lacks the metadata needed for filtered valid-index generation,
+# so train on the full dataset by ensuring no stale filter file is present.
 if [ -f "${VALID_INDICES_PATH}" ]; then
-    echo "Skipping valid-index precompute (found ${VALID_INDICES_PATH})."
+    echo "Removing stale valid-indices file to train on full dataset: ${VALID_INDICES_PATH}"
+    rm -f "${VALID_INDICES_PATH}"
 else
-    echo "Running valid-index precompute..."
-    echo "Command: ${COMPUTE_VALID_INDICES_CMD}"
-    echo ""
-    PRECOMPUTE_CMD="${PRECOMPUTE_CMD}${COMPUTE_VALID_INDICES_CMD} && "
+    echo "Skipping valid-index precompute; training will use the full dataset."
 fi
 
 if [ -f "${NORM_STATS_PATH}" ] && [ -f "${PER_TIMESTEP_STATS_PATH}" ]; then
