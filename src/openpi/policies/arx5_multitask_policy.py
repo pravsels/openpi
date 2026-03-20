@@ -76,7 +76,28 @@ class ARX5MultiTaskInputs(transforms.DataTransformFn):
             found = False
             for sk in source_keys:
                 if sk in flat:
-                    images[model_key] = _parse_image(flat[sk])
+                    raw = flat[sk]
+                    raw_arr = np.asarray(raw)
+                    # Ensure HWC format: handle CHW tensors (C, H, W) where C <= 4
+                    if raw_arr.ndim == 3 and raw_arr.shape[0] <= 4 and raw_arr.shape[2] > 4:
+                        raw_arr = np.transpose(raw_arr, (1, 2, 0))
+                    # Ensure 3-channel
+                    if raw_arr.ndim == 2:
+                        raw_arr = np.stack([raw_arr] * 3, axis=-1)
+                    elif raw_arr.ndim == 3 and raw_arr.shape[-1] == 1:
+                        raw_arr = np.repeat(raw_arr, 3, axis=-1)
+                    elif raw_arr.ndim == 3 and raw_arr.shape[-1] == 4:
+                        raw_arr = raw_arr[..., :3]
+
+                    if raw_arr.ndim != 3 or raw_arr.shape[-1] != 3 or raw_arr.shape[0] < 16:
+                        logging.warning(
+                            f"[arx5_multitask] Unexpected image shape for "
+                            f"{sk} -> {model_key}: {raw_arr.shape} "
+                            f"(original: {np.asarray(raw).shape}), skipping"
+                        )
+                        continue
+
+                    images[model_key] = _parse_image(raw_arr)
                     image_masks[model_key] = np.True_
                     if placeholder is None:
                         placeholder = np.zeros_like(images[model_key])
