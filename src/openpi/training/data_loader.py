@@ -209,7 +209,7 @@ def create_torch_dataset(
             'observation.images.wrist': 'observation.images.left_wrist',
         },
         pad_to_max_dim=True,
-        fill_missing_images="zeros",
+        fill_missing_images="disable",
     )
     dataset_meta = dataset.meta
 
