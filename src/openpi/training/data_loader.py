@@ -1,4 +1,5 @@
 from collections.abc import Iterator, Sequence
+import dataclasses
 import logging
 import math
 import multiprocessing
@@ -19,92 +20,9 @@ except ModuleNotFoundError:
     import lerobot.common.datasets.lerobot_dataset as lerobot_dataset
  
 from robocandywrapper.factory import make_dataset_without_config
-from robocandywrapper.plugins import EpisodeOutcomePlugin
-from robocandywrapper.constants import CANDYWRAPPER_PLUGINS_DIR
+from robocandywrapper.plugins import EpisodeOutcomePlugin, ControlModePlugin
+from robocandywrapper.plugins.subtask import SubtaskPlugin
 from rewact_tools import PiStar0_6CumulativeRewardPlugin
-from rewact_tools import ControlModePlugin as _ControlModePlugin
-
-
-class ControlModePlugin(_ControlModePlugin):
-    """ControlModePlugin that checks both legacy and new paths for episode_modes.json,
-    and handles both the legacy flat-list and newer wrapped JSON formats.
-
-    Path fix:
-        The upstream plugin only checks ``candywrapper_plugins/dagger_data_source/``.
-        Newer datasets store the file under ``candywrapper_plugins/control_mode/``.
-        This subclass checks both locations so both old and new datasets work.
-
-    JSON format fix:
-        The upstream parser expects ``{"0": [{start_index, end_index, mode}, ...]}``.
-        Newer datasets use ``{"0": {"segments": [{start_index, end_index, mode}, ...]}}``.
-        This subclass normalises the wrapped format before parsing.
-    """
-
-    def attach(self, dataset):
-        from pathlib import Path
-
-        if self.episode_modes_file is None:
-            dataset_root = None
-            if hasattr(dataset, "root"):
-                dataset_root = Path(dataset.root)
-            elif hasattr(dataset, "local_dir"):
-                dataset_root = Path(dataset.local_dir)
-
-            if dataset_root is not None:
-                legacy_path = dataset_root / CANDYWRAPPER_PLUGINS_DIR / "dagger_data_source" / "episode_modes.json"
-                new_path = dataset_root / CANDYWRAPPER_PLUGINS_DIR / "control_mode" / "episode_modes.json"
-                if legacy_path.exists():
-                    self.episode_modes_file = legacy_path
-                elif new_path.exists():
-                    self.episode_modes_file = new_path
-
-        return super().attach(dataset)
-
-    def _load_episode_modes(self, file_path):
-        """Load episode modes, handling both flat-list and wrapped JSON formats."""
-        import json
-        import warnings
-        from rewact_tools.control_mode_plugin import ControlModeSegment
-
-        if file_path is None or not file_path.exists():
-            if file_path is not None:
-                warnings.warn(
-                    f"Episode modes file not found: {file_path}. "
-                    "All control modes will default to 'unknown'."
-                )
-            return {}
-
-        try:
-            with open(file_path, "r") as f:
-                data = json.load(f)
-
-            episode_modes = {}
-            for episode_id_str, segments_data in data.items():
-                episode_idx = int(episode_id_str)
-
-                # Normalise: unwrap {"segments": [...]} -> [...]
-                if isinstance(segments_data, dict) and "segments" in segments_data:
-                    segments_data = segments_data["segments"]
-
-                segments = []
-                for seg in segments_data:
-                    segments.append(
-                        ControlModeSegment(
-                            start_index=seg["start_index"],
-                            end_index=seg["end_index"],
-                            mode=seg["mode"],
-                        )
-                    )
-                episode_modes[episode_idx] = segments
-
-            return episode_modes
-
-        except Exception as e:
-            warnings.warn(
-                f"Error loading episode modes file {file_path}: {e}. "
-                "All control modes will default to 'unknown'."
-            )
-            return {}
 
 
 def _coerce_task_mapping(tasks) -> dict[int, str]:
@@ -237,6 +155,26 @@ class FakeDataset(Dataset):
         return self._num_samples
 
 
+@dataclasses.dataclass(frozen=True)
+class _PromptFromSubtask(_transforms.DataTransformFn):
+    """Use the subtask description as the language prompt when available.
+
+    Falls back to the existing ``prompt`` key (typically from task-level
+    PromptFromLeRobotTask) if the subtask description is empty.
+    """
+
+    def __call__(self, data: _transforms.DataDict) -> _transforms.DataDict:
+        subtask = data.get("subtask", "")
+        if isinstance(subtask, (bytes, np.bytes_)):
+            subtask = subtask.decode("utf-8", errors="replace")
+        elif hasattr(subtask, "item"):
+            subtask = str(subtask.item())
+        subtask = str(subtask).strip()
+        if subtask:
+            data["prompt"] = np.asarray(subtask)
+        return data
+
+
 def create_torch_dataset(
     data_config: _config.DataConfig, action_horizon: int, model_config: _model.BaseModelConfig
 ) -> Dataset:
@@ -247,32 +185,46 @@ def create_torch_dataset(
     if repo_id == "fake":
         return FakeDataset(model_config, num_samples=1024)
 
-    # Use RoboCandyWrapper for training on multiple datasets and to add extensions
+    # Support JSON file containing a list of repo_ids
+    if repo_id.endswith(".json") and pathlib.Path(repo_id).exists():
+        import json as _json
+        with open(repo_id) as f:
+            repo_id = _json.load(f)
+        logging.info(f"Loaded {len(repo_id)} repo_ids from file")
+
     dataset = make_dataset_without_config(
         repo_id,
         action_delta_indices=[t for t in range(action_horizon)],
-        plugins=[EpisodeOutcomePlugin(), ControlModePlugin(), PiStar0_6CumulativeRewardPlugin(normalise=True)],
+        plugins=[
+            EpisodeOutcomePlugin(),
+            ControlModePlugin(),
+            SubtaskPlugin(),
+            PiStar0_6CumulativeRewardPlugin(normalise=True),
+        ],
         key_rename_map={
-            # 'action.pos': 'action',
-            # 'observation.state.pos': 'observation.state',
+            'action.pos': 'action',
+            'observation.state.pos': 'observation.state',
+            'observation.images.cam_high': 'observation.images.front',
+            'observation.images.cam_left_wrist': 'observation.images.left_wrist',
+            'observation.images.cam_right_wrist': 'observation.images.right_wrist',
+            'observation.images.wrist': 'observation.images.left_wrist',
         },
     )
     dataset_meta = dataset.meta
 
-    # dataset_meta = lerobot_dataset.LeRobotDatasetMetadata(repo_id)
-    # dataset = lerobot_dataset.LeRobotDataset(
-    #     data_config.repo_id,
-    #     delta_timestamps={
-    #         key: [t / dataset_meta.fps for t in range(action_horizon)] for key in data_config.action_sequence_keys
-    #     },
-    # )
+    transforms = []
 
     if data_config.prompt_from_task:
         task_mapping = _coerce_task_mapping(dataset_meta.tasks)
         if task_mapping:
-            dataset = TransformedDataset(dataset, [_transforms.PromptFromLeRobotTask(task_mapping)])
+            transforms.append(_transforms.PromptFromLeRobotTask(task_mapping))
         else:
             logging.warning("prompt_from_task=True but dataset task mapping is empty; skipping PromptFromLeRobotTask.")
+
+    transforms.append(_PromptFromSubtask())
+
+    if transforms:
+        dataset = TransformedDataset(dataset, transforms)
 
     return dataset
 
