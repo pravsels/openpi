@@ -259,10 +259,10 @@ def main(
             dim_stats_list = per_dim_stats[key]
             per_dim_results = [ds.get_statistics() for ds in dim_stats_list]
             norm_stats[key] = normalize.NormStats(
-                mean=np.array([s.mean for s in per_dim_results]),
-                std=np.array([s.std for s in per_dim_results]),
-                q01=np.array([s.q01 for s in per_dim_results]),
-                q99=np.array([s.q99 for s in per_dim_results]),
+                mean=np.array([s.mean for s in per_dim_results]).squeeze(-1),
+                std=np.array([s.std for s in per_dim_results]).squeeze(-1),
+                q01=np.array([s.q01 for s in per_dim_results]).squeeze(-1),
+                q99=np.array([s.q99 for s in per_dim_results]).squeeze(-1),
             )
             print(f"\n{key} per-dim stats:")
             for d, s in enumerate(per_dim_results):
