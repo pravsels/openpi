@@ -189,22 +189,25 @@ def main(
     keys = ["state", "actions"]
     checkpoint_path = f"/tmp/norm_stats_checkpoint_{config_name}.pkl"
 
-    # When action_dim_mask is present (mixed single-arm + bimanual),
-    # we compute per-dim stats so single-arm data contributes to dims
-    # 0-6 and bimanual data contributes to all 14.
-    use_per_dim = False
+    # Per-dim stats: each dimension gets its own RunningStats so that
+    # single-arm data (7 real dims) contributes to dims 0-6 while
+    # bimanual data (14 real dims) contributes to all 14.
+    # We always use per-dim mode to handle mixed configs correctly,
+    # even if the first N batches happen to all be the same dim.
+    use_per_dim = True
     per_dim_stats: dict[str, list[normalize.RunningStats]] = {}
-    stats = {key: normalize.RunningStats() for key in keys}
+    stats: dict = {}  # unused but kept for checkpoint compat
     start_batch = 0
 
     resumed = _load_checkpoint(checkpoint_path, keys)
     if resumed is not None:
         r_stats, r_per_dim, r_use_per_dim, start_batch = resumed
-        use_per_dim = r_use_per_dim
         if r_per_dim:
             per_dim_stats = r_per_dim
-        if r_stats:
-            stats = r_stats
+        # If resuming from old-format checkpoint, discard and restart
+        if r_stats and not r_per_dim:
+            print("Old-format checkpoint found — discarding and restarting with per-dim stats")
+            start_batch = 0
 
     for batch_idx, batch in enumerate(
         tqdm.tqdm(data_loader, total=num_batches, desc="Computing stats",
@@ -215,38 +218,32 @@ def main(
 
         dim_mask = batch.get("action_dim_mask")
 
-        if dim_mask is not None and not use_per_dim:
-            use_per_dim = True
+        # Initialize per-dim stats on first batch (need to know ndim)
+        if not per_dim_stats:
             for key in keys:
                 arr = np.asarray(batch[key])
                 ndim = arr.shape[-1]
                 per_dim_stats[key] = [normalize.RunningStats() for _ in range(ndim)]
-                tqdm.tqdm.write(
-                    f"  Per-dim stats enabled for '{key}' ({ndim} dims) "
-                    f"due to action_dim_mask"
-                )
+                tqdm.tqdm.write(f"  Per-dim stats initialized for '{key}' ({ndim} dims)")
 
         for key in keys:
             arr = np.asarray(batch[key])
+            flat = arr.reshape(-1, arr.shape[-1])
 
-            if use_per_dim and dim_mask is not None:
+            if dim_mask is not None:
                 mask = np.asarray(dim_mask)
-                flat = arr.reshape(-1, arr.shape[-1])
                 if arr.ndim == 3:
                     mask_expanded = np.repeat(mask, arr.shape[1], axis=0)
                 else:
                     mask_expanded = mask
-
                 for d in range(flat.shape[-1]):
                     real_vals = flat[mask_expanded[:, d], d:d+1]
                     if len(real_vals) > 0:
                         per_dim_stats[key][d].update(real_vals)
-            elif use_per_dim:
-                flat = arr.reshape(-1, arr.shape[-1])
+            else:
+                # No mask = all dims real (bimanual data)
                 for d in range(flat.shape[-1]):
                     per_dim_stats[key][d].update(flat[:, d:d+1])
-            else:
-                stats[key].update(arr)
 
         if (batch_idx + 1) % checkpoint_interval == 0:
             _save_checkpoint(
