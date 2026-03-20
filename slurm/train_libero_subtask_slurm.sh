@@ -34,6 +34,7 @@ EXP_NAME="hybrid_1"
 
 CHECKPOINT_DIR="${data_dir}/checkpoints/${CONFIG_NAME}/${EXP_NAME}"
 ASSETS_DIR="${CHECKPOINT_DIR}/assets"
+FAST_TOKENIZER_DIR="${data_dir}/weights/fast"
 
 if [ -z "${ASSETS_DIR}" ]; then
     echo "ERROR: ASSETS_DIR is empty; refusing to run."
@@ -41,6 +42,11 @@ if [ -z "${ASSETS_DIR}" ]; then
 fi
 if [[ "${ASSETS_DIR}" != */assets ]]; then
     echo "ERROR: ASSETS_DIR must end with /assets (got: ${ASSETS_DIR})"
+    exit 1
+fi
+if [ ! -d "${FAST_TOKENIZER_DIR}" ]; then
+    echo "ERROR: FAST tokenizer not found at ${FAST_TOKENIZER_DIR}"
+    echo "Populate it first, e.g. with uv run python scripts/download_fast_tokenizer.py and sync to scratch weights/."
     exit 1
 fi
 

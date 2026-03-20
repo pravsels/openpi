@@ -825,7 +825,7 @@ _CONFIGS = [
             subtask_loss_weight=10.0,
             fast_token_loss_weight=1.0,  # Enable FAST token loss weight
             flow_matching_loss_weight=0.0,  # Disable flow matching
-            fast_tokenizer_path="physical-intelligence/fast",
+            fast_tokenizer_path="weights/fast",
         ),
         weight_loader=weight_loaders.CheckpointWeightLoader(
             "/home/kewang/.cache/openpi/openpi-assets/checkpoints/pi05_base/params"
@@ -864,7 +864,7 @@ _CONFIGS = [
             subtask_loss_weight=0.0,
             fast_token_loss_weight=0.0,  
             flow_matching_loss_weight=1.0,  # Enable flow matching
-            fast_tokenizer_path="physical-intelligence/fast",
+            fast_tokenizer_path="weights/fast",
             stop_gradient_flow_to_prefix=True,
         ),
         weight_loader=weight_loaders.CheckpointWeightLoader(
@@ -910,7 +910,7 @@ _CONFIGS = [
             subtask_loss_weight=0.15,
             fast_token_loss_weight=0.15,  # Lower weight for FAST tokens
             flow_matching_loss_weight=1.0,  # Lower weight for flow matching
-            fast_tokenizer_path="physical-intelligence/fast",
+            fast_tokenizer_path="weights/fast",
         ),
         weight_loader=weight_loaders.CheckpointWeightLoader(
             "/home/kewang/.cache/openpi/openpi-assets/checkpoints/pi05_base/params"

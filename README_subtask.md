@@ -286,11 +286,11 @@ TrainConfig(
 ### 1. Download the FAST Tokenizer
 
 ```bash
-python - <<'PY'
-from huggingface_hub import snapshot_download
-snapshot_download(repo_id="physical-intelligence/fast")
-PY
+uv run python scripts/download_fast_tokenizer.py
 ```
+
+This stores the tokenizer in `weights/fast`, which matches the subtask training configs in `src/openpi/training/config.py`.
+For cluster runs, copy that directory into the scratch-side `weights/` directory that gets bind-mounted into the repo.
 
 ### 2. Download the Pi0.5 Base Model
 
