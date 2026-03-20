@@ -999,7 +999,7 @@ _CONFIGS = [
         ),
         optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
         ema_decay=0.999,
-        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
         num_train_steps=30_000,
     ),
     TrainConfig(
@@ -1033,7 +1033,7 @@ _CONFIGS = [
         ),
         optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
         ema_decay=0.999,
-        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
         num_train_steps=30_000,
     ),
     TrainConfig(
@@ -1238,7 +1238,7 @@ _CONFIGS = [
         model=pi0_config.Pi0Config(pi05=True, action_horizon=50),
         data=LeRobotARX5MultiTaskDataConfig(
             # JSON file listing all 186 repo_ids in the training mix
-            repo_id="training_mix_v1.json",
+            repo_id="assets/pi05_arx5_multitask_v1/training_mix_v1.json",
             base_config=DataConfig(prompt_from_task=True),
             # TODO: enable delta actions once dim-mismatch handling is sorted
             use_delta_actions=False,
@@ -1252,7 +1252,7 @@ _CONFIGS = [
         ),
         optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
         ema_decay=0.999,
-        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
         num_train_steps=100_000,
         wandb_enabled=False,
     ),

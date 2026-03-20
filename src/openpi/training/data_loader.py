@@ -199,7 +199,6 @@ def create_torch_dataset(
             EpisodeOutcomePlugin(),
             ControlModePlugin(),
             SubtaskPlugin(),
-            PiStar0_6CumulativeRewardPlugin(normalise=True),
         ],
         key_rename_map={
             'action.pos': 'action',
@@ -209,6 +208,8 @@ def create_torch_dataset(
             'observation.images.cam_right_wrist': 'observation.images.right_wrist',
             'observation.images.wrist': 'observation.images.left_wrist',
         },
+        pad_to_max_dim=True,
+        fill_missing_images="zeros",
     )
     dataset_meta = dataset.meta
 
