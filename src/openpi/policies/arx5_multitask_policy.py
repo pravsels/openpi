@@ -110,18 +110,47 @@ class ARX5MultiTaskInputs(transforms.DataTransformFn):
             "image_mask": image_masks,
         }
 
-        if "actions" in data:
-            actions = np.asarray(data["actions"]).astype(np.float32)
+        # LeRobot stores action chunks as "action" (after key_rename_map) or
+        # "actions" (legacy). Also check the flattened dict for nested keys.
+        action_key = None
+        for k in ("actions", "action"):
+            if k in data:
+                action_key = k
+                break
+            if k in flat:
+                action_key = k
+                break
+        if action_key is not None:
+            raw = data.get(action_key) if action_key in data else flat.get(action_key)
+            actions = np.asarray(raw).astype(np.float32)
             if actions.shape[-1] == _BIMANUAL_ACTION_DIM:
                 actions = actions.copy()
                 for idx in _GRIPPER_INDICES_BIMANUAL:
                     actions[..., idx] /= _GRIPPER_SCALE
             inputs["actions"] = actions
+        else:
+            if not _LOGGED:
+                logging.warning(
+                    f"[arx5_multitask] No action key found in data. "
+                    f"Available keys: {list(data.keys())[:20]}"
+                )
 
         # ── Passthrough fields ──────────────────────────────────────
+        all_keys = set(data.keys()) | set(flat.keys())
         for pad_key in ("action_is_pad", "action.pos_is_pad", "action/pos_is_pad"):
             if pad_key in data:
                 inputs["action_is_pad"] = np.asarray(data[pad_key]).astype(bool)
+                break
+            elif pad_key in flat:
+                inputs["action_is_pad"] = np.asarray(flat[pad_key]).astype(bool)
+                break
+
+        for mask_key in ("action_dim_mask", "action.pos_dim_mask", "action/dim_mask"):
+            if mask_key in data:
+                inputs["action_dim_mask"] = np.asarray(data[mask_key]).astype(bool)
+                break
+            elif mask_key in flat:
+                inputs["action_dim_mask"] = np.asarray(flat[mask_key]).astype(bool)
                 break
 
         if "prompt" in data:

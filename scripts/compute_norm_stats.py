@@ -86,7 +86,62 @@ def create_rlds_dataloader(
     return data_loader, num_batches
 
 
-def main(config_name: str, max_frames: int | None = None):
+def _save_checkpoint(stats: dict, checkpoint_path: str, batch_idx: int):
+    """Save running stats checkpoint so progress isn't lost on crash."""
+    import pickle
+    state = {
+        "batch_idx": batch_idx,
+        "stats": {
+            key: {
+                "_count": s._count,
+                "_mean": s._mean,
+                "_mean_of_squares": s._mean_of_squares,
+                "_min": s._min,
+                "_max": s._max,
+                "_histograms": s._histograms,
+                "_bin_edges": s._bin_edges,
+            }
+            for key, s in stats.items()
+        },
+    }
+    with open(checkpoint_path, "wb") as f:
+        pickle.dump(state, f)
+
+
+def _load_checkpoint(checkpoint_path: str, keys: list[str]) -> tuple[dict, int] | None:
+    """Load running stats from checkpoint. Returns (stats_dict, last_batch_idx) or None."""
+    import pickle
+    import os
+    if not os.path.exists(checkpoint_path):
+        return None
+    try:
+        with open(checkpoint_path, "rb") as f:
+            state = pickle.load(f)
+        stats = {}
+        for key in keys:
+            s = normalize.RunningStats()
+            saved = state["stats"][key]
+            s._count = saved["_count"]
+            s._mean = saved["_mean"]
+            s._mean_of_squares = saved["_mean_of_squares"]
+            s._min = saved["_min"]
+            s._max = saved["_max"]
+            s._histograms = saved["_histograms"]
+            s._bin_edges = saved["_bin_edges"]
+            stats[key] = s
+        print(f"Resumed from checkpoint at batch {state['batch_idx']} "
+              f"({stats[keys[0]]._count} samples processed)")
+        return stats, state["batch_idx"]
+    except Exception as e:
+        print(f"Could not load checkpoint: {e}, starting fresh")
+        return None
+
+
+def main(
+    config_name: str,
+    max_frames: int | None = None,
+    checkpoint_interval: int = 5000,
+):
     config = _config.get_config(config_name)
     data_config = config.data.create(config.assets_dirs, config.model)
 
@@ -100,17 +155,38 @@ def main(config_name: str, max_frames: int | None = None):
         )
 
     keys = ["state", "actions"]
-    stats = {key: normalize.RunningStats() for key in keys}
+    checkpoint_path = f"/tmp/norm_stats_checkpoint_{config_name}.pkl"
 
-    for batch in tqdm.tqdm(data_loader, total=num_batches, desc="Computing stats"):
+    resumed = _load_checkpoint(checkpoint_path, keys)
+    if resumed is not None:
+        stats, start_batch = resumed
+    else:
+        stats = {key: normalize.RunningStats() for key in keys}
+        start_batch = 0
+
+    for batch_idx, batch in enumerate(
+        tqdm.tqdm(data_loader, total=num_batches, desc="Computing stats",
+                  initial=start_batch)
+    ):
+        if batch_idx < start_batch:
+            continue
         for key in keys:
             stats[key].update(np.asarray(batch[key]))
+        if (batch_idx + 1) % checkpoint_interval == 0:
+            _save_checkpoint(stats, checkpoint_path, batch_idx + 1)
+            tqdm.tqdm.write(f"  Checkpoint saved at batch {batch_idx + 1}")
 
     norm_stats = {key: stats.get_statistics() for key, stats in stats.items()}
 
     output_path = config.assets_dirs / data_config.repo_id
     print(f"Writing stats to: {output_path}")
     normalize.save(output_path, norm_stats)
+
+    # Clean up checkpoint
+    import os
+    if os.path.exists(checkpoint_path):
+        os.remove(checkpoint_path)
+        print("Checkpoint cleaned up")
 
 
 if __name__ == "__main__":
