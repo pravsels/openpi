@@ -69,6 +69,8 @@ IMAGE_RESOLUTION = (224, 224)
 #     "token_ar_mask": int32[*b, l],  # Optional, autoregressive mask for FAST model
 #     "token_loss_mask": bool[*b, l],  # Optional, loss mask for FAST model
 #     "action_is_pad": bool[*b, ah],  # Optional, True for padded actions at episode end
+#     "subtask_region_mask": bool[*b, l],  # Optional, mask for subtask token region
+#     "action_region_mask": bool[*b, l],  # Optional, mask for action token region
 #
 #      # Actions data.
 #      "actions": float32[*b ah ad]
@@ -106,6 +108,10 @@ class Observation(Generic[ArrayT]):
     token_ar_mask: at.Int[ArrayT, "*b l"] | None = None
     # Token loss mask (for FAST autoregressive model).
     token_loss_mask: at.Bool[ArrayT, "*b l"] | None = None
+    # Token region mask for subtask tokens (PI05 hierarchical training).
+    subtask_region_mask: at.Bool[ArrayT, "*b l"] | None = None
+    # Token region mask for FAST action tokens (PI05 hierarchical training).
+    action_region_mask: at.Bool[ArrayT, "*b l"] | None = None
 
     # Action padding mask: True for padded actions at the end of an episode.
     # Shape is [*b, ah] where ah is the action horizon. When present, padded
@@ -133,6 +139,8 @@ class Observation(Generic[ArrayT]):
             token_ar_mask=data.get("token_ar_mask"),
             token_loss_mask=data.get("token_loss_mask"),
             action_is_pad=data.get("action_is_pad"),
+            subtask_region_mask=data.get("subtask_region_mask"),
+            action_region_mask=data.get("action_region_mask"),
         )
 
     def to_dict(self) -> at.PyTree[ArrayT]:
@@ -213,6 +221,8 @@ def preprocess_observation(
         token_ar_mask=observation.token_ar_mask,
         token_loss_mask=observation.token_loss_mask,
         action_is_pad=observation.action_is_pad,
+        subtask_region_mask=observation.subtask_region_mask,
+        action_region_mask=observation.action_region_mask,
     )
 
 
