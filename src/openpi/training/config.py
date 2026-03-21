@@ -788,9 +788,7 @@ _CONFIGS = [
             fast_token_loss_weight=0.0,  # Disable FAST token loss
             flow_matching_loss_weight=1.0,
         ),
-        weight_loader=weight_loaders.CheckpointWeightLoader(
-            "/home/kewang/.cache/openpi/openpi-assets/checkpoints/pi05_base/params"
-        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
         data=LeRobotLiberoSubtaskDataConfig(
             repo_id="KeWangRobotics/libero_10_subtasks",
             base_config=DataConfig(
@@ -827,9 +825,7 @@ _CONFIGS = [
             flow_matching_loss_weight=0.0,  # Disable flow matching
             fast_tokenizer_path="weights/fast",
         ),
-        weight_loader=weight_loaders.CheckpointWeightLoader(
-            "/home/kewang/.cache/openpi/openpi-assets/checkpoints/pi05_base/params"
-        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
         
         data=LeRobotLiberoSubtaskDataConfig(
             repo_id="KeWangRobotics/libero_10_subtasks",
@@ -912,9 +908,7 @@ _CONFIGS = [
             flow_matching_loss_weight=1.0,  # Lower weight for flow matching
             fast_tokenizer_path="weights/fast",
         ),
-        weight_loader=weight_loaders.CheckpointWeightLoader(
-            "/home/kewang/.cache/openpi/openpi-assets/checkpoints/pi05_base/params"
-        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
         data=LeRobotLiberoSubtaskDataConfig(
             repo_id="KeWangRobotics/libero_10_subtasks",
             base_config=DataConfig(
