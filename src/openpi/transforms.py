@@ -442,14 +442,49 @@ class PromptFromLeRobotTask(DataTransformFn):
 
 @dataclasses.dataclass(frozen=True)
 class PadStatesAndActions(DataTransformFn):
-    """Zero-pads states and actions to the model action dimension."""
+    """Zero-pads states and actions to the model action dimension.
+
+    Also produces ``action_dim_mask`` (bool, shape ``[ad]``) when the original
+    action dimension is smaller than ``model_action_dim``.  The mask is True
+    for real dimensions and False for the padded ones so the training loss can
+    ignore predictions on non-existent arm joints.
+    """
 
     model_action_dim: int
 
     def __call__(self, data: DataDict) -> DataDict:
+        orig_action_dim = data["state"].shape[-1]
         data["state"] = pad_to_dim(data["state"], self.model_action_dim, axis=-1)
         if "actions" in data:
             data["actions"] = pad_to_dim(data["actions"], self.model_action_dim, axis=-1)
+        if orig_action_dim < self.model_action_dim:
+            mask = np.zeros(self.model_action_dim, dtype=bool)
+            mask[:orig_action_dim] = True
+            data["action_dim_mask"] = mask
+        return data
+
+
+@dataclasses.dataclass(frozen=True)
+class AgilexGripperScale(DataTransformFn):
+    """Rescale agilex gripper values from centimeters to meters.
+
+    Agilex bimanual datasets store gripper state/action at indices [6] and [13]
+    in centimeters while other datasets use meters. This divides those dims by
+    100 to unify the scale before normalization.
+    """
+
+    gripper_indices: tuple[int, ...] = (6, 13)
+    scale_factor: float = 100.0
+
+    def __call__(self, data: DataDict) -> DataDict:
+        for key in ("state", "actions"):
+            if key not in data:
+                continue
+            arr = np.array(data[key], copy=True, dtype=np.float32)
+            for idx in self.gripper_indices:
+                if idx < arr.shape[-1]:
+                    arr[..., idx] /= self.scale_factor
+            data[key] = arr
         return data
 
 

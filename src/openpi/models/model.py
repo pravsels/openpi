@@ -118,6 +118,12 @@ class Observation(Generic[ArrayT]):
     # actions should be excluded from the training loss.
     action_is_pad: at.Bool[ArrayT, "*b ah"] | None = None
 
+    # Action dimension mask: True for real action dimensions, False for
+    # zero-padded dimensions (e.g. right arm in a single-arm dataset padded
+    # to bimanual dim). Shape is [*b, ad] or [ad]. When present, the loss on
+    # masked dimensions is zeroed out.
+    action_dim_mask: at.Bool[ArrayT, "*b ad"] | None = None
+
     @classmethod
     def from_dict(cls, data: at.PyTree[ArrayT]) -> "Observation[ArrayT]":
         """This method defines the mapping between unstructured data (i.e., nested dict) to the structured Observation format."""
@@ -141,6 +147,7 @@ class Observation(Generic[ArrayT]):
             action_is_pad=data.get("action_is_pad"),
             subtask_region_mask=data.get("subtask_region_mask"),
             action_region_mask=data.get("action_region_mask"),
+            action_dim_mask=data.get("action_dim_mask"),
         )
 
     def to_dict(self) -> at.PyTree[ArrayT]:
@@ -223,6 +230,7 @@ def preprocess_observation(
         action_is_pad=observation.action_is_pad,
         subtask_region_mask=observation.subtask_region_mask,
         action_region_mask=observation.action_region_mask,
+        action_dim_mask=observation.action_dim_mask,
     )
 
 

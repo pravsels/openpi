@@ -21,6 +21,7 @@ import openpi.models.pi0_fast as pi0_fast
 import openpi.models.pi05_config as pi05_config
 import openpi.models.tokenizer as _tokenizer
 import openpi.policies.aloha_policy as aloha_policy
+import openpi.policies.arx5_multitask_policy as arx5_multitask_policy
 import openpi.policies.bin_pack_policy as bin_pack_policy
 import openpi.policies.arx_policy as arx_policy
 import openpi.policies.droid_policy as droid_policy
@@ -517,6 +518,76 @@ class LeRobotBinPackDataConfig(DataConfigFactory):
             data_transforms=data_transforms,
             model_transforms=model_transforms,
             action_sequence_keys=("action.pos", "action.eef_pose"),
+            use_per_timestep_action_norm=use_per_timestep_action_norm,
+        )
+
+
+@dataclasses.dataclass(frozen=True)
+class LeRobotARX5MultiTaskDataConfig(DataConfigFactory):
+    """Data config for multi-task training across ARX5 single-arm and bimanual datasets.
+
+    Handles mixed robot configs: single-arm (7-dim) padded to bimanual (14-dim)
+    with loss masking on padded dimensions. Agilex gripper values are rescaled
+    from centimeters to meters in the data transform.
+    """
+
+    default_prompt: str | None = "Do something useful"
+    use_delta_actions: bool = False
+    delta_action_mask: Sequence[bool] | None = None
+
+    @override
+    def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
+        data_transforms = _transforms.Group(
+            inputs=[arx5_multitask_policy.ARX5MultiTaskInputs()],
+            outputs=[arx5_multitask_policy.ARX5MultiTaskOutputs()],
+        )
+
+        if self.use_delta_actions:
+            delta_action_mask = self.delta_action_mask
+            if delta_action_mask is None:
+                # Delta joints, absolute grippers for bimanual: [J]*6 + [G] + [J]*6 + [G]
+                delta_action_mask = tuple([True] * 6 + [False] + [True] * 6 + [False])
+            data_transforms = data_transforms.push(
+                inputs=[_transforms.DeltaActions(delta_action_mask)],
+                outputs=[_transforms.AbsoluteActions(delta_action_mask)],
+            )
+
+        model_transforms = ModelTransformFactory(default_prompt=self.default_prompt)(model_config)
+        base_config = self.create_base_config(assets_dirs, model_config)
+
+        # Patch norm stats: agilex gripper dims need stats divided by 100
+        # since the data transform rescales cm→m before normalization.
+        patched_norm_stats = base_config.norm_stats
+        if patched_norm_stats is not None:
+            patched_norm_stats = dict(patched_norm_stats)
+            for key in ("state", "actions"):
+                if key in patched_norm_stats:
+                    stats = patched_norm_stats[key]
+                    mean = np.array(stats.mean, copy=True)
+                    std = np.array(stats.std, copy=True)
+                    q01 = None if stats.q01 is None else np.array(stats.q01, copy=True)
+                    q99 = None if stats.q99 is None else np.array(stats.q99, copy=True)
+                    # The data transform divides gripper dims by 100 before
+                    # these stats are applied, so the stats must also reflect
+                    # the scaled values. Since norm stats are computed WITH
+                    # the data transform applied, this is only needed if stats
+                    # were computed without the transform. Adding as a safety
+                    # measure — TODO: verify after computing norm stats.
+                    patched_norm_stats[key] = _normalize.NormStats(
+                        mean=mean, std=std, q01=q01, q99=q99,
+                    )
+
+        use_per_timestep_action_norm = base_config.use_per_timestep_action_norm
+        if self.use_delta_actions and use_per_timestep_action_norm is None:
+            use_per_timestep_action_norm = True
+
+        return dataclasses.replace(
+            base_config,
+            norm_stats=patched_norm_stats,
+            data_transforms=data_transforms,
+            model_transforms=model_transforms,
+            # RoboCandyWrapper normalises action keys to "action" via key_rename_map
+            action_sequence_keys=("action",),
             use_per_timestep_action_norm=use_per_timestep_action_norm,
         )
 
@@ -1160,7 +1231,7 @@ _CONFIGS = [
         ),
         optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
         ema_decay=0.999,
-        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
         num_train_steps=30_000,
     ),
     TrainConfig(
@@ -1194,7 +1265,7 @@ _CONFIGS = [
         ),
         optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
         ema_decay=0.999,
-        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
         num_train_steps=30_000,
     ),
     TrainConfig(
@@ -1390,6 +1461,32 @@ _CONFIGS = [
         ),
         weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi0_base/params"),
         num_train_steps=20_000,
+    ),
+    #
+    # ARX5 multi-task foundation model configs.
+    #
+    TrainConfig(
+        name="pi05_arx5_multitask_v1",
+        model=pi0_config.Pi0Config(pi05=True, action_horizon=50),
+        data=LeRobotARX5MultiTaskDataConfig(
+            # JSON file listing all 186 repo_ids in the training mix
+            repo_id="assets/pi05_arx5_multitask_v1/training_mix_v1.json",
+            base_config=DataConfig(prompt_from_task=True),
+            # TODO: enable delta actions once dim-mismatch handling is sorted
+            use_delta_actions=False,
+        ),
+        batch_size=1,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=10_000,
+            peak_lr=5e-5,
+            decay_steps=1_000_000,
+            decay_lr=5e-5,
+        ),
+        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
+        ema_decay=0.999,
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
+        num_train_steps=100_000,
+        wandb_enabled=False,
     ),
     #
     # Debugging configs.
