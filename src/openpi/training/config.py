@@ -537,6 +537,11 @@ class LeRobotARX5MultiTaskDataConfig(DataConfigFactory):
 
     @override
     def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
+        # Resolve repo_id relative to assets_dirs so all assets live together.
+        if self.repo_id.endswith(".json") and not pathlib.Path(self.repo_id).is_absolute():
+            resolved = assets_dirs / pathlib.Path(self.repo_id).name
+            object.__setattr__(self, "repo_id", str(resolved))
+
         data_transforms = _transforms.Group(
             inputs=[arx5_multitask_policy.ARX5MultiTaskInputs()],
             outputs=[arx5_multitask_policy.ARX5MultiTaskOutputs()],
@@ -1469,13 +1474,13 @@ _CONFIGS = [
         name="pi05_arx5_multitask_v1",
         model=pi0_config.Pi0Config(pi05=True, action_horizon=50),
         data=LeRobotARX5MultiTaskDataConfig(
-            # JSON file listing all 186 repo_ids in the training mix
-            repo_id="assets/pi05_arx5_multitask_v1/training_mix_v1.json",
+            # JSON listing 186 repo_ids; resolved against --assets-dir at runtime
+            repo_id="training_mix_v1.json",
             base_config=DataConfig(prompt_from_task=True),
             # TODO: enable delta actions once dim-mismatch handling is sorted
             use_delta_actions=False,
         ),
-        batch_size=1,
+        batch_size=36,
         lr_schedule=_optimizer.CosineDecaySchedule(
             warmup_steps=10_000,
             peak_lr=5e-5,
@@ -1484,9 +1489,9 @@ _CONFIGS = [
         ),
         optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
         ema_decay=0.999,
-        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
         num_train_steps=100_000,
-        wandb_enabled=False,
+        wandb_enabled=True,
     ),
     #
     # Debugging configs.
