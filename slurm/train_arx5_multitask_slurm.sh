@@ -31,7 +31,7 @@ XDG_CONFIG_HOME="${scratch_dir}/.config"
 
 # Training config
 CONFIG_NAME="pi05_arx5_multitask_v1"
-EXP_NAME="v1"
+EXP_NAME="arx5_abs_v1"
 
 CHECKPOINT_DIR="${data_dir}/checkpoints/${CONFIG_NAME}/${EXP_NAME}"
 ASSETS_DIR="${CHECKPOINT_DIR}/assets"
