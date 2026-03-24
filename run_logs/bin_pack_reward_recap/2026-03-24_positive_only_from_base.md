@@ -17,9 +17,10 @@
 - end:
 - end_human:
 - runtime:
-- node:
+- node: nid011091
 
 ## Status
+- 2026-03-24 12:30 — running, step 18800, loss 0.0119, rate ~1.7 it/s, ~13h remaining. First logged step 1100 (loss 0.0425). Loss dropping steadily to ~0.012.
 
 ## Results
 

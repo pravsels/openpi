@@ -17,9 +17,10 @@
 - end:
 - end_human:
 - runtime:
-- node:
+- node: nid010329
 
 ## Status
+- 2026-03-24 12:30 — running, step 2000, loss 0.0362, rate 1.7 it/s, ~16h remaining. Long data loading phase (~2h50m before training started). Step 0 loss 0.3473, already down to 0.036 by step 2k.
 
 ## Results
 
