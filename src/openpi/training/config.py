@@ -1345,7 +1345,7 @@ _CONFIGS = [
         optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
         ema_decay=0.999,
         weight_loader=weight_loaders.CheckpointWeightLoader(
-            "./checkpoints/pi05_bin_pack_coffee_capsules/my_experiment/30000/params"
+            "./checkpoints/pi05_bin_pack_coffee_capsules_delta_single_dataset/1_dataset/29999/params"
         ),
         num_train_steps=100_000,
     ),
@@ -1382,7 +1382,7 @@ _CONFIGS = [
         optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
         ema_decay=0.999,
         weight_loader=weight_loaders.CheckpointWeightLoader(
-            "./checkpoints/pi05_bin_pack_coffee_capsules/my_experiment/30000/params"
+            "./checkpoints/pi05_bin_pack_coffee_capsules_delta_single_dataset/1_dataset/29999/params"
         ),
         num_train_steps=100_000,
     ),
