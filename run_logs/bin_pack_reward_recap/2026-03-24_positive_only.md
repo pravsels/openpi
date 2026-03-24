@@ -11,7 +11,7 @@
 - key settings: delta actions, 100k steps, batch_size=36, lr=5e-5 cosine, resume from `pi05_bin_pack_coffee_capsules_delta_single_dataset/1_dataset/29999/params`
 
 ## Job
-- job_id: 3303413
+- job_id: 3303781
 - submitted/start: `2026-03-24T`
 - start_human: Monday, Mar 24th, 2026
 - end:

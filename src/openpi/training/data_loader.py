@@ -220,7 +220,6 @@ def create_torch_dataset(
             'observation.images.cam_high': 'observation.images.front',
             'observation.images.cam_left_wrist': 'observation.images.left_wrist',
             'observation.images.cam_right_wrist': 'observation.images.right_wrist',
-            'observation.images.wrist': 'observation.images.left_wrist',
         },
         pad_to_max_dim=True,
         fill_missing_images="disable",
