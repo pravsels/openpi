@@ -145,7 +145,7 @@ class BinPackInputs(transforms.DataTransformFn):
         front = _parse_image(_get_key(data, "observation/images/front", "observation.images.front"))
         wrist = _parse_image(_get_key(data, "observation/images/wrist", "observation.images.wrist"))
 
-        state_pos = np.asarray(_get_key(data, "observation/state/pos", "observation.state.pos"))
+        state_pos = np.asarray(_get_key(data, "observation/state/pos", "observation.state.pos", "observation.state"))
         state_eef = np.asarray(_get_key(data, "observation/state/eef_pose", "observation.state.eef_pose"))
         state_eef = _eef_pose_rpy_to_rot6d(state_eef)
         state = np.concatenate([state_pos, state_eef], axis=-1).astype(np.float32)
@@ -178,7 +178,7 @@ class BinPackInputs(transforms.DataTransformFn):
                     f"Expected actions last dim 14 (pos+eef_rpy) or 17 (pos+eef_rot6d), got {actions.shape[-1]}"
                 )
         else:
-            action_pos = _get_key(data, "action/pos", "action.pos")
+            action_pos = _get_key(data, "action/pos", "action.pos", "action")
             action_eef = _get_key(data, "action/eef_pose", "action.eef_pose")
             action_pos = np.asarray(action_pos)
             action_eef = _eef_pose_rpy_to_rot6d(np.asarray(action_eef))
