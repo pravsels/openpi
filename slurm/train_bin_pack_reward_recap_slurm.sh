@@ -96,14 +96,9 @@ EXPORT_VARS="${EXPORT_VARS} && export WANDB_ENTITY=pravsels"
 EXPORT_VARS="${EXPORT_VARS} && export OPENPI_DATA_HOME=${data_dir}"
 EXPORT_VARS="${EXPORT_VARS} && export UV_PROJECT_ENVIRONMENT=${data_dir}/.venv"
 
-if [ -f "${VALID_INDICES_PATH}" ]; then
-    echo "Skipping valid-index precompute (found ${VALID_INDICES_PATH})."
-else
-    echo "Running valid-index precompute..."
-    echo "Command: ${COMPUTE_VALID_INDICES_CMD}"
-    echo ""
-    PRECOMPUTE_CMD="${PRECOMPUTE_CMD}${COMPUTE_VALID_INDICES_CMD} && "
-fi
+# Reward recap uses all episodes (InjectAdvantagePrompt handles conditioning),
+# so we skip valid-index filtering and train on every sample.
+echo "Skipping valid-index precompute (reward recap trains on all episodes)."
 
 if [ -f "${NORM_STATS_PATH}" ] && [ -f "${PER_TIMESTEP_STATS_PATH}" ]; then
     echo "Skipping normalization precompute (found stats files)."
