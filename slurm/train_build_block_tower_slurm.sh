@@ -54,14 +54,10 @@ echo "Node: ${SLURM_NODELIST}"
 echo "Started (UTC): ${start_time}"
 echo "===================================="
 
+# Training commands
+COMPUTE_NORM_STATS_CMD="uv run scripts/compute_norm_stats_per_timestep.py --config-name=${CONFIG_NAME} --assets-dir=${ASSETS_DIR}"
 NORM_STATS_PATH="${ASSETS_DIR}/norm_stats.json"
-
-if [ ! -f "${NORM_STATS_PATH}" ]; then
-    echo "ERROR: norm_stats.json not found at ${NORM_STATS_PATH}"
-    echo "Rsync precomputed assets to ${ASSETS_DIR} before submitting."
-    exit 1
-fi
-
+PER_TIMESTEP_STATS_PATH="${ASSETS_DIR}/norm_stats_actions_per_timestep.json"
 TRAIN_CMD="uv run scripts/train.py ${CONFIG_NAME} --exp-name=${EXP_NAME} --assets-dir=${ASSETS_DIR} --resume"
 
 EXPORT_VARS="export PYTHONUNBUFFERED=1"
@@ -76,6 +72,16 @@ EXPORT_VARS="${EXPORT_VARS} && export OPENPI_DATA_HOME=${data_dir}"
 EXPORT_VARS="${EXPORT_VARS} && export UV_PROJECT_ENVIRONMENT=${data_dir}/.venv"
 EXPORT_VARS="${EXPORT_VARS} && export HF_TOKEN=\$(cat ${home_dir}/.hf_token)"
 
+PRECOMPUTE_CMD=""
+
+if [ -f "${NORM_STATS_PATH}" ] && [ -f "${PER_TIMESTEP_STATS_PATH}" ]; then
+    echo "Skipping normalization precompute (found stats files)."
+else
+    echo "Running normalization precompute..."
+    echo "Command: ${COMPUTE_NORM_STATS_CMD}"
+    echo ""
+    PRECOMPUTE_CMD="${PRECOMPUTE_CMD}${COMPUTE_NORM_STATS_CMD} && "
+fi
 echo "Running training command..."
 echo "Command: ${TRAIN_CMD}"
 echo ""
@@ -91,7 +97,7 @@ apptainer exec --nv \
     --bind "${HF_CACHE}:/root/.cache/huggingface" \
     --env "HF_HOME=/root/.cache/huggingface" \
     "${container}" \
-    bash -c "${EXPORT_VARS} && ${TRAIN_CMD}"
+    bash -c "${EXPORT_VARS} && ${PRECOMPUTE_CMD}${TRAIN_CMD}"
 EXIT_CODE=$?
 set -e
 
