@@ -109,8 +109,8 @@ class RLTokenEncoder(nnx.Module):
         else:
             attn_mask = None
 
-        for layer in self.layers.values():
-            x = layer(x, attn_mask)
+        for key in sorted(self.layers):
+            x = self.layers[key](x, attn_mask)
 
         return x[:, -1, :]  # RL token at query position
 
@@ -161,8 +161,8 @@ class RLTokenDecoder(nnx.Module):
             attn_mask = jnp.broadcast_to(causal, (b, seq_len, seq_len))
 
         x = decoder_input
-        for layer in self.layers.values():
-            x = layer(x, attn_mask)
+        for key in sorted(self.layers):
+            x = self.layers[key](x, attn_mask)
 
         return self.output_proj(x)
 
@@ -359,13 +359,16 @@ class Pi0RL(_pi0.Pi0):
         predictions = self.rl_decoder(rl_token, sg_prefix, mask=prefix_mask)
 
         recon_sq = jnp.square(predictions - sg_prefix)  # (b, M, dim)
+        # Per-token squared L2 norm: sum over embedding dim (matching paper Eq. 2),
+        # then mean over valid tokens to stay scale-independent of sequence length.
+        per_token_l2 = recon_sq.sum(axis=-1)  # (b, M)
 
         if prefix_mask is not None:
-            recon_sq = recon_sq * prefix_mask[:, :, None]
+            per_token_l2 = per_token_l2 * prefix_mask
             num_valid = jnp.clip(prefix_mask.sum(axis=1), 1)
-            recon_loss = recon_sq.sum(axis=(1, 2)) / (num_valid * sg_prefix.shape[-1])
+            recon_loss = per_token_l2.sum(axis=1) / num_valid  # (b,)
         else:
-            recon_loss = jnp.mean(recon_sq, axis=(1, 2))
+            recon_loss = jnp.mean(per_token_l2, axis=1)  # (b,)
 
         # ---- Combined loss: L_ro + alpha * L_vla ----
         # recon_loss: (b,) → broadcast to (b, ah) via [..., None]
