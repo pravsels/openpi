@@ -1,9 +1,11 @@
 import dataclasses
 
 import jax
+import pytest
 import torch
 
 from openpi.models import pi0_config
+import openpi.transforms as _transforms
 from openpi.training import config as _config
 from openpi.training import data_loader as _data_loader
 
@@ -101,6 +103,94 @@ def test_with_real_dataset():
 
     for _, actions in batches:
         assert actions.shape == (config.batch_size, config.model.action_horizon, config.model.action_dim)
+
+
+_BIN_PACK_REWARD_RECAP_REPO_CASES = [
+    ("villekuosmanen/bin_pick_pack_coffee_capsules", False),
+    ("villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.0.0", True),
+    ("villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.1.0", True),
+    ("villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.2.0", True),
+    ("villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.3.1", True),
+    ("villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.4.0", True),
+    ("villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.5.0", True),
+    ("villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.5.1", True),
+    ("villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.7.0", True),
+]
+
+
+def _to_text(value) -> str:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    if hasattr(value, "item"):
+        value = value.item()
+        if isinstance(value, bytes):
+            return value.decode("utf-8", errors="replace")
+        if isinstance(value, str):
+            return value
+    return str(value)
+
+
+@pytest.mark.parametrize(("repo_id", "expect_negative_prompt"), _BIN_PACK_REWARD_RECAP_REPO_CASES)
+def test_binpack_reward_recap_datasets_expose_control_mode_through_pipeline(
+    repo_id: str, expect_negative_prompt: bool, tmp_path
+):
+    pytest.importorskip("robocandywrapper")
+
+    model_config = pi0_config.Pi0Config(pi05=True, action_horizon=2)
+    factory = _config.LeRobotBinPackDataConfig(
+        repo_id=repo_id,
+        base_config=_config.DataConfig(prompt_from_task=True),
+        use_control_mode_advantage_prompt=True,
+        advantage_prompt_mode="mixed",
+    )
+    data_config = factory.create(tmp_path, model_config)
+
+    try:
+        dataset = _data_loader.create_torch_dataset(
+            data_config,
+            action_horizon=model_config.action_horizon,
+            model_config=model_config,
+        )
+    except Exception as e:
+        pytest.skip(f"Cannot load dataset {repo_id}: {e}")
+
+    data_transform = _transforms.compose(data_config.data_transforms.inputs)
+    sample_count = min(len(dataset), 64)
+    if sample_count == 0:
+        pytest.skip(f"Dataset {repo_id} is empty")
+
+    sample_indices = sorted(set(range(min(16, sample_count))) | set(range(0, sample_count, max(1, sample_count // 8))))
+    seen_modes = set()
+    seen_prompts = []
+
+    for idx in sample_indices:
+        sample = dataset[idx]
+        assert "control_mode" in sample, f"{repo_id} sample {idx} is missing control_mode"
+
+        mode = _to_text(sample["control_mode"]).strip().lower()
+        seen_modes.add(mode)
+
+        transformed = data_transform(sample)
+        prompt = _to_text(transformed["prompt"])
+        assert "Advantage:" in prompt, f"{repo_id} sample {idx} prompt missing advantage tag: {prompt!r}"
+        seen_prompts.append(prompt)
+
+    if expect_negative_prompt:
+        assert any(mode != "unknown" for mode in seen_modes), (
+            f"{repo_id} never exposed a concrete control_mode through the dataset pipeline. "
+            f"Modes seen: {seen_modes}"
+        )
+        assert any("Advantage: negative" in prompt for prompt in seen_prompts), (
+            f"{repo_id} never produced a negative advantage prompt through the dataset pipeline. "
+            f"Prompts seen: {seen_prompts[:5]}"
+        )
+    else:
+        assert all("Advantage: positive" in prompt for prompt in seen_prompts), (
+            f"{repo_id} should stay positive-only under unknown control_mode. "
+            f"Prompts seen: {seen_prompts[:5]}"
+        )
 
 
 def _expected_shuffled_indices(valid_indices: list[int], seed: int) -> list[int]:

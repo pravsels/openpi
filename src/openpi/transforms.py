@@ -1,7 +1,7 @@
 from collections.abc import Callable, Mapping, Sequence
 import dataclasses
 import re
-from typing import Protocol, TypeAlias, TypeVar, runtime_checkable
+from typing import Literal, Protocol, TypeAlias, TypeVar, runtime_checkable
 
 import flax.traverse_util as traverse_util
 import jax
@@ -109,6 +109,67 @@ class InjectDefaultPrompt(DataTransformFn):
         if self.prompt is not None and "prompt" not in data:
             data["prompt"] = np.asarray(self.prompt)
         return data
+
+
+@dataclasses.dataclass(frozen=True)
+class InjectAdvantagePrompt(DataTransformFn):
+    """Appends an advantage-conditioning string to the task prompt.
+
+    This is the minimal `reward_recap` bootstrap path for bin-pack:
+    - `positive_only`: always append `Advantage: positive`
+    - `mixed`: map `control_mode == "policy"` to negative, everything else to positive
+    """
+
+    mode: Literal["positive_only", "mixed"] = "mixed"
+    default_prompt: str | None = None
+    negative_control_modes: tuple[str, ...] = ("policy",)
+
+    def __call__(self, data: DataDict) -> DataDict:
+        prompt = self._extract_prompt(data)
+        if prompt is None:
+            return data
+
+        if self.mode == "positive_only":
+            advantage = "positive"
+        elif self.mode == "mixed":
+            control_mode = self._extract_control_mode(data.get("control_mode"))
+            advantage = "negative" if control_mode in self.negative_control_modes else "positive"
+        else:
+            raise ValueError(f"Unsupported advantage prompt mode: {self.mode}")
+
+        prompt = prompt.strip()
+        if prompt and prompt[-1] not in ".!?":
+            prompt += "."
+        prompt = f"{prompt} Advantage: {advantage}".strip()
+        return {**data, "prompt": np.asarray(prompt)}
+
+    def _extract_prompt(self, data: DataDict) -> str | None:
+        for key in ("prompt", "task"):
+            if key in data and data[key] is not None:
+                return self._to_text(data[key])
+        return self.default_prompt
+
+    def _extract_control_mode(self, control_mode) -> str | None:
+        if control_mode is None:
+            return None
+        return self._to_text(control_mode).strip().lower()
+
+    @staticmethod
+    def _to_text(value) -> str:
+        if isinstance(value, (bytes, np.bytes_)):
+            return value.decode("utf-8", errors="replace")
+        if isinstance(value, str):
+            return value
+        if hasattr(value, "item"):
+            try:
+                value = value.item()
+            except ValueError:
+                value = np.asarray(value).reshape(-1)[0]
+            if isinstance(value, (bytes, np.bytes_)):
+                return value.decode("utf-8", errors="replace")
+            if isinstance(value, str):
+                return value
+        return str(value)
 
 
 @dataclasses.dataclass(frozen=True)

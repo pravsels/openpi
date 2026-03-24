@@ -25,7 +25,7 @@ WORKDIR /workspace/repo
 # Install dependencies at build time.
 COPY . /workspace/repo
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync && \
+    uv sync --group dev && \
     uv pip install -e .
 
 # Install decord into the uv environment (source for arm64, pip for amd64).
