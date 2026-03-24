@@ -13,7 +13,7 @@
 
 set -e
 
-MODE="${1:?Usage: sbatch $0 <positive_only|mixed>}"
+MODE="${1:?Usage: sbatch $0 <positive_only|mixed|positive_only_from_base|mixed_from_base>}"
 
 case "${MODE}" in
     positive_only)
@@ -24,8 +24,16 @@ case "${MODE}" in
         CONFIG_NAME="pi05_bin_pack_coffee_capsules_reward_recap_mixed"
         EXP_NAME="mixed"
         ;;
+    positive_only_from_base)
+        CONFIG_NAME="pi05_bin_pack_coffee_capsules_reward_recap_positive_only_from_base"
+        EXP_NAME="positive_only_from_base"
+        ;;
+    mixed_from_base)
+        CONFIG_NAME="pi05_bin_pack_coffee_capsules_reward_recap_mixed_from_base"
+        EXP_NAME="mixed_from_base"
+        ;;
     *)
-        echo "ERROR: unknown mode '${MODE}'. Use 'positive_only' or 'mixed'."
+        echo "ERROR: unknown mode '${MODE}'. Use 'positive_only', 'mixed', 'positive_only_from_base', or 'mixed_from_base'."
         exit 1
         ;;
 esac

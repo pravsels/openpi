@@ -1,0 +1,31 @@
+# reward_recap positive_only — resume from 1_dataset checkpoint
+
+## Mode
+- run_type: experiment
+- objective: test whether positive-only advantage conditioning improves bin-pack policy when fine-tuning from a task-trained checkpoint
+
+## Config
+- script: `slurm/train_bin_pack_reward_recap_slurm.sh positive_only`
+- config: `pi05_bin_pack_coffee_capsules_reward_recap_positive_only` (in `src/openpi/training/config.py`)
+- dataset: 9 datasets (bin_pick_pack + 8 dAgger rounds) on HuggingFace
+- key settings: delta actions, 100k steps, batch_size=36, lr=5e-5 cosine, resume from `pi05_bin_pack_coffee_capsules_delta_single_dataset/1_dataset/29999/params`
+
+## Job
+- job_id:
+- submitted/start:
+- start_human:
+- end:
+- end_human:
+- runtime:
+- node:
+
+## Status
+
+## Results
+
+## W&B
+- local:
+- synced:
+- notes:
+
+## Next
