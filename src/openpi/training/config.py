@@ -1326,8 +1326,7 @@ _CONFIGS = [
                 "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.3.1, "
                 "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.4.0, "
                 "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.5.0, "
-                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.5.1, "
-                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.7.0"
+                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.5.1"
                 "]"
             ),
             base_config=DataConfig(prompt_from_task=True),
@@ -1361,8 +1360,7 @@ _CONFIGS = [
                 "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.3.1, "
                 "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.4.0, "
                 "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.5.0, "
-                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.5.1, "
-                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.7.0"
+                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.5.1"
                 "]"
             ),
             base_config=DataConfig(prompt_from_task=True),
@@ -1396,8 +1394,7 @@ _CONFIGS = [
                 "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.3.1, "
                 "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.4.0, "
                 "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.5.0, "
-                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.5.1, "
-                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.7.0"
+                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.5.1"
                 "]"
             ),
             base_config=DataConfig(prompt_from_task=True),
@@ -1433,8 +1430,7 @@ _CONFIGS = [
                 "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.3.1, "
                 "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.4.0, "
                 "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.5.0, "
-                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.5.1, "
-                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.7.0"
+                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.5.1"
                 "]"
             ),
             base_config=DataConfig(prompt_from_task=True),
