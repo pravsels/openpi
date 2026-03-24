@@ -65,9 +65,11 @@ class CompositeTransform(DataTransformFn):
 
     transforms: Sequence[DataTransformFn]
 
-    def __call__(self, data: DataDict) -> DataDict:
+    def __call__(self, data: DataDict) -> DataDict | None:
         for transform in self.transforms:
             data = transform(data)
+            if data is None:
+                return None
         return data
 
 
@@ -116,7 +118,8 @@ class InjectAdvantagePrompt(DataTransformFn):
     """Appends an advantage-conditioning string to the task prompt.
 
     This is the minimal `reward_recap` bootstrap path for bin-pack:
-    - `positive_only`: always append `Advantage: positive`
+    - `positive_only`: append `Advantage: positive` for human demos, return None
+      for autonomous/policy samples (skipped by the data loader)
     - `mixed`: map `control_mode == "policy"` to negative, everything else to positive
     """
 
@@ -124,12 +127,15 @@ class InjectAdvantagePrompt(DataTransformFn):
     default_prompt: str | None = None
     negative_control_modes: tuple[str, ...] = ("policy",)
 
-    def __call__(self, data: DataDict) -> DataDict:
+    def __call__(self, data: DataDict) -> DataDict | None:
         prompt = self._extract_prompt(data)
         if prompt is None:
             return data
 
         if self.mode == "positive_only":
+            control_mode = self._extract_control_mode(data.get("control_mode"))
+            if control_mode in self.negative_control_modes:
+                return None
             advantage = "positive"
         elif self.mode == "mixed":
             control_mode = self._extract_control_mode(data.get("control_mode"))

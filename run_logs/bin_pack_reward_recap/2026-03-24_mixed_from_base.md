@@ -11,9 +11,9 @@
 - key settings: delta actions, 100k steps, batch_size=36, lr=5e-5 cosine, weights from `weights/pi05_base/params`
 
 ## Job
-- job_id:
-- submitted/start:
-- start_human:
+- job_id: 3303416
+- submitted/start: `2026-03-24T`
+- start_human: Monday, Mar 24th, 2026
 - end:
 - end_human:
 - runtime:

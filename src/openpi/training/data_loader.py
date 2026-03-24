@@ -5,6 +5,7 @@ import math
 import multiprocessing
 import os
 import pathlib
+import random
 import typing
 from typing import Literal, Protocol, SupportsIndex, TypeVar
 
@@ -82,9 +83,22 @@ class TransformedDataset(Dataset[T_co]):
     def __init__(self, dataset: Dataset, transforms: Sequence[_transforms.DataTransformFn]):
         self._dataset = dataset
         self._transform = _transforms.compose(transforms)
+        self._rng = random.Random(0)
 
     def __getitem__(self, index: SupportsIndex) -> T_co:
-        return self._transform(self._dataset[index])
+        result = self._transform(self._dataset[index])
+        max_retries = 100
+        retries = 0
+        while result is None:
+            if retries >= max_retries:
+                raise RuntimeError(
+                    f"TransformedDataset: {max_retries} consecutive samples filtered out. "
+                    "Check that the dataset contains samples that pass the transform filters."
+                )
+            index = self._rng.randint(0, len(self._dataset) - 1)
+            result = self._transform(self._dataset[index])
+            retries += 1
+        return result
 
     def __len__(self) -> int:
         return len(self._dataset)

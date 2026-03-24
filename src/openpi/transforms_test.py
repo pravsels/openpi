@@ -101,10 +101,26 @@ def test_inject_advantage_prompt_treats_unknown_as_positive():
     assert data["prompt"] == "pick up the fork. Advantage: positive"
 
 
-def test_inject_advantage_prompt_can_force_all_positive():
+def test_inject_advantage_prompt_positive_only_skips_policy():
     transform = _transforms.InjectAdvantagePrompt(mode="positive_only")
 
-    data = transform({"prompt": "pick up the fork", "control_mode": "policy"})
+    result = transform({"prompt": "pick up the fork", "control_mode": "policy"})
+
+    assert result is None
+
+
+def test_inject_advantage_prompt_positive_only_keeps_human():
+    transform = _transforms.InjectAdvantagePrompt(mode="positive_only")
+
+    data = transform({"prompt": "pick up the fork", "control_mode": "human"})
+
+    assert data["prompt"] == "pick up the fork. Advantage: positive"
+
+
+def test_inject_advantage_prompt_positive_only_missing_control_mode():
+    transform = _transforms.InjectAdvantagePrompt(mode="positive_only")
+
+    data = transform({"prompt": "pick up the fork"})
 
     assert data["prompt"] == "pick up the fork. Advantage: positive"
 
