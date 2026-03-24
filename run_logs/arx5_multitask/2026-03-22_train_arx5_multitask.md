@@ -29,21 +29,39 @@
 - job_id: 3283403
 - submitted: 2026-03-22
 - start_human: Sunday, Mar 22nd, 2026
-- node:
-- end:
-- runtime:
+- node: nid010979
+- end: 2026-03-24 ~10:00 UTC (killed by walltime)
+- end_human: Tuesday, Mar 24th, 2026
+- runtime: 24:00:00 (walltime limit)
 
 ## Status
 - 2026-03-22 — 3283367 failed (one dataset still private); made public, resubmitted as 3283403
+- 2026-03-23 09:59 — job started on nid010979, dataset loading + JAX init
+- 2026-03-23 10:06 — training loop started, ~1.7 it/s
+- 2026-03-23 10:27 — reached step 2000, then deadlocked waiting for checkpoint finalization at step 1000. Scratch was full (5TB/5TB project quota). Checkpoint I/O couldn't complete, `.__lock` files never released, main thread blocked on `wait_until_finished`. Training hung for remaining ~23.5 hours.
+- 2026-03-24 ~10:00 — killed by Slurm walltime limit. No usable checkpoints.
+- 2026-03-24 — cleaned up corrupt checkpoint, cleared `wandb_id.txt`. Scratch cleaned from 4.4TB to 1.3TB.
+
+## Job (resubmit)
+- job_id: 3312454
+- submitted: 2026-03-24
+- start_human: Tuesday, Mar 24th, 2026
+- worktree: `openpi_ville_subtask` (feat/ville_subtask @ 5e007f2)
+- fresh start from base weights (no checkpoint to resume from)
 
 ## Results
+- final step reached: 2000 (of 100,000)
+- start_train_loss: 0.1667 (step 0)
+- end_train_loss: 0.0252 (step 2000)
+- loss_one_liner: Loss dropped healthily from 0.167 to 0.025 in 2000 steps before checkpoint deadlock killed the run.
+- checkpoint: none — `1000.orbax-checkpoint-tmp-0` is corrupt (incomplete write due to full scratch)
 
 ## W&B
 - local: `wandb/offline-run-20260322_213644-qabysa98`
 - synced:
-- notes:
+- notes: only ~20 min of training data captured before hang
 
 ## Next
-- Monitor initial loss curve to confirm training is progressing
+- Monitor 3312454 for healthy training progress
 - If walltime-interrupted, resume with same script (`--resume` flag is set)
 - Future experiment: enable delta actions (`use_delta_actions=True` with `DeltaActionsFromState`) and recompute norm stats
