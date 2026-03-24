@@ -23,6 +23,7 @@ import openpi.models.tokenizer as _tokenizer
 import openpi.policies.aloha_policy as aloha_policy
 import openpi.policies.arx5_multitask_policy as arx5_multitask_policy
 import openpi.policies.bin_pack_policy as bin_pack_policy
+import openpi.policies.block_tower_policy as block_tower_policy
 import openpi.policies.arx_policy as arx_policy
 import openpi.policies.droid_policy as droid_policy
 import openpi.policies.libero_policy as libero_policy
@@ -530,6 +531,62 @@ class LeRobotBinPackDataConfig(DataConfigFactory):
             data_transforms=data_transforms,
             model_transforms=model_transforms,
             action_sequence_keys=("action.pos", "action.eef_pose"),
+            use_per_timestep_action_norm=use_per_timestep_action_norm,
+        )
+
+
+@dataclasses.dataclass(frozen=True)
+class LeRobotBlockTowerDataConfig(DataConfigFactory):
+    """Data config for build_block_tower datasets (LeRobot v2.1 format).
+
+    State and actions are both 7D joint-space (no EEF actions in this dataset).
+    Delta actions work naturally since dimensions match.
+    """
+
+    default_prompt: str | None = "build a block tower"
+    use_control_mode_advantage_prompt: bool = False
+    advantage_prompt_mode: Literal["positive_only", "mixed"] = "mixed"
+    use_delta_actions: bool = False
+    delta_action_mask: Sequence[bool] | None = None
+    output_delta_actions: bool = False
+
+    @override
+    def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
+        input_transforms: list[_transforms.DataTransformFn] = []
+        if self.use_control_mode_advantage_prompt:
+            input_transforms.append(
+                _transforms.InjectAdvantagePrompt(
+                    mode=self.advantage_prompt_mode,
+                    default_prompt=self.default_prompt,
+                )
+            )
+        input_transforms.append(block_tower_policy.BlockTowerInputs())
+
+        data_transforms = _transforms.Group(
+            inputs=input_transforms,
+            outputs=[block_tower_policy.BlockTowerOutputs(action_dim=7)],
+        )
+        if self.use_delta_actions:
+            delta_action_mask = self.delta_action_mask
+            output_transforms = []
+            if not self.output_delta_actions:
+                output_transforms.append(_transforms.AbsoluteActionsFromState(delta_action_mask))
+            data_transforms = data_transforms.push(
+                inputs=[_transforms.DeltaActionsFromState(delta_action_mask)],
+                outputs=output_transforms,
+            )
+
+        model_transforms = ModelTransformFactory(default_prompt=self.default_prompt)(model_config)
+        base_config = self.create_base_config(assets_dirs, model_config)
+
+        use_per_timestep_action_norm = base_config.use_per_timestep_action_norm
+        if self.use_delta_actions and use_per_timestep_action_norm is None:
+            use_per_timestep_action_norm = True
+        return dataclasses.replace(
+            base_config,
+            data_transforms=data_transforms,
+            model_transforms=model_transforms,
+            action_sequence_keys=("action",),
             use_per_timestep_action_norm=use_per_timestep_action_norm,
         )
 
@@ -1455,6 +1512,66 @@ _CONFIGS = [
         weight_loader=weight_loaders.CheckpointWeightLoader(
             "./checkpoints/pi05_bin_pack_coffee_capsules_delta_single_dataset/1_dataset/29999/params"
         ),
+        num_train_steps=100_000,
+    ),
+    #
+    # Build block tower configs.
+    #
+    TrainConfig(
+        name="pi05_build_block_tower_baseline",
+        model=pi0_config.Pi0Config(pi05=True, action_horizon=50),
+        data=LeRobotBlockTowerDataConfig(
+            repo_id=(
+                "["
+                "villekuosmanen/build_block_tower"
+                "]"
+            ),
+            base_config=DataConfig(prompt_from_task=True),
+            use_delta_actions=True,
+            output_delta_actions=True,
+        ),
+        batch_size=36,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=10_000,
+            peak_lr=5e-5,
+            decay_steps=1_000_000,
+            decay_lr=5e-5,
+        ),
+        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
+        ema_decay=0.999,
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
+        num_train_steps=100_000,
+    ),
+    TrainConfig(
+        name="pi05_build_block_tower_dyna",
+        model=pi0_config.Pi0Config(pi05=True, action_horizon=50),
+        data=LeRobotBlockTowerDataConfig(
+            repo_id=(
+                "["
+                "villekuosmanen/build_block_tower, "
+                "villekuosmanen/dAgger_build_block_tower_1.0.0, "
+                "villekuosmanen/dAgger_build_block_tower_1.1.0, "
+                "villekuosmanen/dAgger_build_block_tower_1.2.0, "
+                "villekuosmanen/dAgger_build_block_tower_1.3.0, "
+                "villekuosmanen/dAgger_build_block_tower_1.4.0"
+                "]"
+            ),
+            base_config=DataConfig(prompt_from_task=True),
+            use_control_mode_advantage_prompt=True,
+            advantage_prompt_mode="positive_only",
+            use_delta_actions=True,
+            output_delta_actions=True,
+        ),
+        batch_size=36,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=10_000,
+            peak_lr=5e-5,
+            decay_steps=1_000_000,
+            decay_lr=5e-5,
+        ),
+        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
+        ema_decay=0.999,
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
         num_train_steps=100_000,
     ),
     #
