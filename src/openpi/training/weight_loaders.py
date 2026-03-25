@@ -73,6 +73,23 @@ class PaliGemmaWeightLoader(WeightLoader):
         return _merge_params(loaded_params, params, missing_regex=".*")
 
 
+@dataclasses.dataclass(frozen=True)
+class RLTokenCheckpointWeightLoader(WeightLoader):
+    """Loads weights from a Pi0 checkpoint into a Pi0RL model.
+
+    The checkpoint will not contain RL token encoder-decoder weights.
+    Those (and any LoRA weights) are kept from the randomly-initialized
+    reference model so the pytree structure check passes; they are later
+    stripped (ShapeDtypeStruct) and remain at their random init.
+    """
+
+    params_path: str
+
+    def load(self, params: at.Params) -> at.Params:
+        loaded_params = _model.restore_params(download.maybe_download(self.params_path), restore_type=np.ndarray)
+        return _merge_params(loaded_params, params, missing_regex=r".*(?:lora|rl_encoder|rl_decoder).*")
+
+
 def _merge_params(loaded_params: at.Params, params: at.Params, *, missing_regex: str) -> at.Params:
     """Merges the loaded parameters with the reference parameters.
 
