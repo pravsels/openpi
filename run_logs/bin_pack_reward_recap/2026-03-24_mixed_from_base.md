@@ -21,6 +21,9 @@
 ## Status
 - 2026-03-24 12:30 — running, step 2000, loss 0.0362, rate 1.7 it/s, ~16h remaining. Long data loading phase (~2h50m before training started). Step 0 loss 0.3473, already down to 0.036 by step 2k.
 - 2026-03-24 13:40 — checkpoint finalize hung at step 1000 (41GB tmp written, rename never completed). Training blocked at step 2000 waiting for finalize thread. Cancelled, cleaned up tmp checkpoint + wandb_id.txt.
+- 2026-03-25 10:03 — resubmit 2 stalled while waiting for checkpoint save finalize at step 35000; job remained RUNNING but logs stopped advancing.
+- 2026-03-25 12:12 — cancelled job 3334251, deleted unfinished checkpoint tmp dir `35000.orbax-checkpoint-tmp-20`, and resubmitted.
+- 2026-03-25 12:13 — new job 3337757 restored successfully from checkpoint `34000`; progress resumed (`34.0k/100k` onward).
 
 ## Job (resubmit 1)
 - job_id: 3318403
@@ -35,10 +38,18 @@
 - job_id: 3334251
 - submitted: `2026-03-25T08:50+00:00`
 - start_human: Wednesday, Mar 25th, 2026
-- end:
-- runtime:
-- node:
-- notes: resuming from clean 29k checkpoint, 71k steps remaining
+- end: cancelled (checkpoint finalize hang at step 35k)
+- runtime: ~3h19m
+- node: nid011286
+- notes: resumed from 34k and reached 36k before stalling on checkpoint finalize; unfinished tmp checkpoint removed before restart
+
+## Job (resubmit 3)
+- job_id: 3337757
+- submitted: `2026-03-25T12:12+00:00`
+- start_human: Wednesday, Mar 25th, 2026
+- resumed from: `/scratch/u6cr/pravsels.u6cr/openpi/checkpoints/pi05_bin_pack_coffee_capsules_reward_recap_mixed_from_base/mixed_from_base/34000`
+- node: nid011208
+- notes: restart after deleting `35000.orbax-checkpoint-tmp-20`; checkpoint restore to step 34000 confirmed in logs
 
 ## Results
 - loss@25k: 0.0114 (from resubmit 1)
@@ -55,5 +66,6 @@
 - includes: README, TRAINING_LOG, assets
 
 ## Next
-- Upload 50k + final checkpoint once resubmit 2 completes
+- Upload 50k + final checkpoint once resubmit 3 completes
 - Sync new wandb run
+- Watch the next checkpoint save/finalize cycle before leaving unattended
