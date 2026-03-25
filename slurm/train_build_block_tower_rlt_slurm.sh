@@ -33,24 +33,15 @@ XDG_CONFIG_HOME="${scratch_dir}/.config"
 CONFIG_NAME="pi05_rl_token_build_block_tower"
 EXP_NAME="rlt_v1"
 
-# Baseline checkpoint (VLA backbone for the RLT encoder-decoder)
+# Baseline checkpoint and assets (VLA backbone — already trained, assets already computed)
 BASELINE_HF_REPO="pravsels/pi05-build-block-tower-baseline"
 BASELINE_STEP="55000"
 BASELINE_CKPT_DIR="${data_dir}/checkpoints/pi05_build_block_tower_baseline/baseline_v1/${BASELINE_STEP}"
+ASSETS_DIR="${data_dir}/checkpoints/pi05_build_block_tower_baseline/baseline_v1/assets"
 
 CHECKPOINT_DIR="${data_dir}/checkpoints/${CONFIG_NAME}/${EXP_NAME}"
-ASSETS_DIR="${CHECKPOINT_DIR}/assets"
 
-if [ -z "${ASSETS_DIR}" ]; then
-    echo "ERROR: ASSETS_DIR is empty; refusing to run."
-    exit 1
-fi
-if [[ "${ASSETS_DIR}" != */assets ]]; then
-    echo "ERROR: ASSETS_DIR must end with /assets (got: ${ASSETS_DIR})"
-    exit 1
-fi
-
-mkdir -p "${HF_CACHE}" "${WANDB_DIR}" "${WANDB_CACHE_DIR}" "${WANDB_CONFIG_DIR}" "${XDG_CACHE_HOME}" "${XDG_CONFIG_HOME}" "${data_dir}/checkpoints" "${data_dir}/assets" "${data_dir}/weights" "${data_dir}/.venv" "${ASSETS_DIR}"
+mkdir -p "${HF_CACHE}" "${WANDB_DIR}" "${WANDB_CACHE_DIR}" "${WANDB_CONFIG_DIR}" "${XDG_CACHE_HOME}" "${XDG_CONFIG_HOME}" "${data_dir}/checkpoints" "${data_dir}/assets" "${data_dir}/weights" "${data_dir}/.venv" "${CHECKPOINT_DIR}"
 
 # Download baseline checkpoint from HuggingFace if not present locally
 if [ -d "${BASELINE_CKPT_DIR}/params" ]; then
@@ -64,9 +55,7 @@ else
         --include "checkpoints/${BASELINE_STEP}/params/*" \
         --local-dir "${data_dir}/checkpoints/pi05_build_block_tower_baseline/baseline_v1" \
         --token "${HF_TOKEN}"
-    # HF download preserves directory structure, verify the params dir exists
     if [ ! -d "${BASELINE_CKPT_DIR}/params" ]; then
-        # Try flattened structure (HF may nest under checkpoints/<step>)
         ALT_PATH="${data_dir}/checkpoints/pi05_build_block_tower_baseline/baseline_v1/checkpoints/${BASELINE_STEP}/params"
         if [ -d "${ALT_PATH}" ]; then
             mv "${ALT_PATH}" "${BASELINE_CKPT_DIR}/params"
@@ -80,6 +69,14 @@ else
     echo "Baseline checkpoint ready at ${BASELINE_CKPT_DIR}/params"
 fi
 
+# Verify baseline assets exist
+if [ ! -d "${ASSETS_DIR}" ] || [ -z "$(ls -A "${ASSETS_DIR}"/*.json 2>/dev/null)" ]; then
+    echo "ERROR: Baseline assets not found at ${ASSETS_DIR}"
+    echo "The baseline training should have produced norm stats here."
+    exit 1
+fi
+echo "Using baseline assets from ${ASSETS_DIR}"
+
 start_time="$(date -Is --utc)"
 echo "===================================="
 echo "Job ID: ${SLURM_JOB_ID}"
@@ -88,12 +85,9 @@ echo "Started (UTC): ${start_time}"
 echo "Config: ${CONFIG_NAME}"
 echo "Exp: ${EXP_NAME}"
 echo "Baseline checkpoint: step ${BASELINE_STEP}"
+echo "Assets: ${ASSETS_DIR}"
 echo "===================================="
 
-# Training commands
-COMPUTE_NORM_STATS_CMD="uv run scripts/compute_norm_stats_per_timestep.py --config-name=${CONFIG_NAME} --assets-dir=${ASSETS_DIR}"
-NORM_STATS_PATH="${ASSETS_DIR}/norm_stats.json"
-PER_TIMESTEP_STATS_PATH="${ASSETS_DIR}/norm_stats_actions_per_timestep.json"
 TRAIN_CMD="uv run scripts/train.py ${CONFIG_NAME} --exp-name=${EXP_NAME} --assets-dir=${ASSETS_DIR} --resume"
 
 EXPORT_VARS="export PYTHONUNBUFFERED=1"
@@ -102,22 +96,12 @@ EXPORT_VARS="${EXPORT_VARS} && export WANDB_DIR=${WANDB_DIR}"
 EXPORT_VARS="${EXPORT_VARS} && export WANDB_CACHE_DIR=${WANDB_CACHE_DIR}"
 EXPORT_VARS="${EXPORT_VARS} && export WANDB_CONFIG_DIR=${WANDB_CONFIG_DIR}"
 EXPORT_VARS="${EXPORT_VARS} && export XDG_CACHE_HOME=${XDG_CACHE_HOME}"
-EXPORT_VARS="${EXPORT_VARS} && export XDG_CONFIG_HOME=${XDG_CONFIG_HOME}"
+EXPORT_VARS="${EXPORT_VARS} && export XDG_CONFIG_HOME=${XDG_CONFIG_DIR}"
 EXPORT_VARS="${EXPORT_VARS} && export WANDB_ENTITY=pravsels"
 EXPORT_VARS="${EXPORT_VARS} && export OPENPI_DATA_HOME=${data_dir}"
 EXPORT_VARS="${EXPORT_VARS} && export UV_PROJECT_ENVIRONMENT=${data_dir}/.venv"
 EXPORT_VARS="${EXPORT_VARS} && export HF_TOKEN=\$(cat ${home_dir}/.hf_token)"
 
-PRECOMPUTE_CMD=""
-
-if [ -f "${NORM_STATS_PATH}" ] && [ -f "${PER_TIMESTEP_STATS_PATH}" ]; then
-    echo "Skipping normalization precompute (found stats files)."
-else
-    echo "Running normalization precompute..."
-    echo "Command: ${COMPUTE_NORM_STATS_CMD}"
-    echo ""
-    PRECOMPUTE_CMD="${PRECOMPUTE_CMD}${COMPUTE_NORM_STATS_CMD} && "
-fi
 echo "Running training command..."
 echo "Command: ${TRAIN_CMD}"
 echo ""
@@ -133,7 +117,7 @@ apptainer exec --nv \
     --bind "${HF_CACHE}:/root/.cache/huggingface" \
     --env "HF_HOME=/root/.cache/huggingface" \
     "${container}" \
-    bash -c "${EXPORT_VARS} && ${PRECOMPUTE_CMD}${TRAIN_CMD}"
+    bash -c "${EXPORT_VARS} && ${TRAIN_CMD}"
 EXIT_CODE=$?
 set -e
 
