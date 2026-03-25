@@ -232,10 +232,9 @@ def create_torch_dataset(
         task_mapping = _coerce_task_mapping(dataset_meta.tasks)
         if task_mapping:
             transforms.append(_transforms.PromptFromLeRobotTask(task_mapping))
-        else:
-            logging.warning("prompt_from_task=True but dataset task mapping is empty; skipping PromptFromLeRobotTask.")
 
-    transforms.append(_PromptFromSubtask())
+    if data_config.prompt_from_subtask:
+        transforms.append(_PromptFromSubtask())
 
     if transforms:
         dataset = TransformedDataset(dataset, transforms)

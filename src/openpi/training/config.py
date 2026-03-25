@@ -100,6 +100,8 @@ class DataConfig:
 
     # If true, will use the LeRobot dataset task to define the prompt.
     prompt_from_task: bool = False
+    # If true, will override the prompt with the per-episode subtask description (when available).
+    prompt_from_subtask: bool = False
 
     # Only used for RLDS data loader (ie currently only used for DROID).
     rlds_data_dir: str | None = None
@@ -1123,9 +1125,7 @@ _CONFIGS = [
                 inputs=[droid_policy.DroidInputs(model_type=ModelType.PI0)],
                 outputs=[droid_policy.DroidOutputs()],
             ),
-            base_config=DataConfig(
-                prompt_from_task=True,
-            ),
+            base_config=DataConfig(prompt_from_task=True),
         ),
     ),
     TrainConfig(
@@ -1137,9 +1137,7 @@ _CONFIGS = [
                 inputs=[droid_policy.DroidInputs(model_type=ModelType.PI0_FAST)],
                 outputs=[droid_policy.DroidOutputs()],
             ),
-            base_config=DataConfig(
-                prompt_from_task=True,
-            ),
+            base_config=DataConfig(prompt_from_task=True),
         ),
     ),
     TrainConfig(
@@ -1151,9 +1149,7 @@ _CONFIGS = [
                 inputs=[droid_policy.DroidInputs(model_type=ModelType.PI05)],
                 outputs=[droid_policy.DroidOutputs()],
             ),
-            base_config=DataConfig(
-                prompt_from_task=True,
-            ),
+            base_config=DataConfig(prompt_from_task=True),
         ),
     ),
     #
@@ -1176,12 +1172,7 @@ _CONFIGS = [
         # Also modify the DataConfig to use the new config you made for your dataset above.
         data=LeRobotLiberoDataConfig(
             repo_id="physical-intelligence/libero",
-            base_config=DataConfig(
-                # This flag determines whether we load the prompt (i.e. the task instruction) from the
-                # ``task`` field in the LeRobot dataset. If set to True, the prompt will show up in
-                # a field called ``prompt`` in the input dict. The recommended setting is True.
-                prompt_from_task=True,
-            ),
+            base_config=DataConfig(prompt_from_task=True),
             extra_delta_transform=True,
         ),
         # Here you define which pre-trained checkpoint you want to load to initialize the model.
@@ -1782,7 +1773,7 @@ _CONFIGS = [
                 "villekuosmanen/build_block_tower"
                 "]"
             ),
-            base_config=DataConfig(prompt_from_task=False),
+            base_config=DataConfig(prompt_from_task=True),
             use_delta_actions=True,
             output_delta_actions=True,
         ),
