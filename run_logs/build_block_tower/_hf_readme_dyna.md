@@ -18,6 +18,7 @@ Fine-tuned [pi0.5](https://github.com/Physical-Intelligence/openpi) checkpoint f
 - **Weight init:** `weights/pi05_base/params` (pi0.5 base weights).
 - **Advantage mode:** `positive_only`
 - **Target steps:** 100,000
+- **Latest observed step before stop:** 81,900 (loss 0.0111)
 
 ## Config
 
@@ -48,11 +49,15 @@ Verify integrity with `tar cf - -C checkpoints/<step> params | sha256sum`.
 | Step | Loss | SHA-256 |
 |------|------|---------|
 | 25,000 | 0.0212 | `9bb8e728529b7d4461467b45ec1c7b9fed972ab03bf74feec85e1021047f0545` |
-| 48,000 | — | `6b18d9dab63d28a708c25f079694ca6ada5613f590b95d808e0f8c23337dbd15` |
+| 50,000 | 0.0145 | `a6673bee89023ba6726fa5c2c7d9957c289b8cdd5427be0815720a31eb3f0164` |
+| 80,000 | ~0.0115 | `564caf6cfdfe57d80733e8806f28005d6077189d7dfdcb8f2b4f5e6857dab827` |
+
+Note: checkpoint `48,000` was removed from the HuggingFace repo.
 
 ## W&B
 
 - [Training dashboard](https://wandb.ai/pravsels/block_tower/runs/bcqxnzhs)
+- Synced coverage currently reaches `_step=81600` (final local logs reached step 81,900 before manual stop).
 
 ## Repo Structure
 
