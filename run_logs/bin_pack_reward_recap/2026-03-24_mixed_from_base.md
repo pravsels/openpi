@@ -34,8 +34,13 @@
 ## Results
 
 ## W&B
-- local:
-- synced:
+- local: `wandb/offline-run-20260324_140237-kurb306v`
+- synced: https://wandb.ai/pravsels/recap_plain/runs/kurb306v
 - notes:
+
+## HuggingFace
+- repo: https://huggingface.co/pravsels/pi05-bin-pack-reward-recap-mixed-from-base
+- uploaded checkpoints: 25k (params only)
+- includes: README, TRAINING_LOG, assets
 
 ## Next
