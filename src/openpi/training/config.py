@@ -1774,6 +1774,36 @@ _CONFIGS = [
     # RL Token (RLT Stage 1) configs.
     #
     TrainConfig(
+        name="pi05_rl_token_build_block_tower",
+        model=pi0_rl_config.Pi0RLConfig(pi05=True, action_horizon=50, rl_vla_loss_weight=0.0),
+        data=LeRobotBlockTowerDataConfig(
+            repo_id=(
+                "["
+                "villekuosmanen/build_block_tower"
+                "]"
+            ),
+            base_config=DataConfig(prompt_from_task=True),
+            use_delta_actions=True,
+            output_delta_actions=True,
+        ),
+        batch_size=36,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=5e-5,
+            decay_steps=10_000,
+            decay_lr=5e-5,
+        ),
+        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
+        ema_decay=0.999,
+        freeze_filter=pi0_rl_config.Pi0RLConfig(
+            pi05=True, action_horizon=50, rl_vla_loss_weight=0.0
+        ).get_rl_freeze_filter(),
+        weight_loader=weight_loaders.RLTokenCheckpointWeightLoader(
+            "checkpoints/pi05_build_block_tower_baseline/baseline_v1/55000/params"
+        ),
+        num_train_steps=10_000,
+    ),
+    TrainConfig(
         name="pi05_rl_token_bin_pack_coffee_capsules",
         model=pi0_rl_config.Pi0RLConfig(pi05=True, action_horizon=50),
         data=LeRobotBinPackDataConfig(
