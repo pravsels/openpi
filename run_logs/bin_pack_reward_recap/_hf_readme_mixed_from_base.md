@@ -17,7 +17,7 @@ Fine-tuned [pi0.5](https://github.com/Physical-Intelligence/openpi) checkpoint f
 - **Objective:** Test whether mixed positive/negative advantage conditioning works when training from pi0.5 base weights directly (no task-specific pre-training).
 - **Weight init:** `weights/pi05_base/params` (pi0.5 base weights).
 - **Advantage mode:** `mixed` — both successful and unsuccessful demonstrations receive advantage prompts (positive and negative).
-- **Target steps:** 100,000
+- **Target steps:** 100,000 (stopped at 74,200)
 
 ## Config
 
@@ -49,16 +49,20 @@ Fine-tuned [pi0.5](https://github.com/Physical-Intelligence/openpi) checkpoint f
 |------|------|
 | 0 | 0.3473 |
 | 25,000 | 0.0125 |
+| 50,000 | ~0.0075 |
+| 74,000 | ~0.0070 |
 
-Note: High initial loss (0.35) is expected — mixed mode introduces negative demonstrations the base model hasn't seen. Loss dropped rapidly in the first few thousand steps.
+Note: High initial loss (0.35) is expected — mixed mode introduces negative demonstrations the base model hasn't seen. Loss dropped rapidly in the first few thousand steps, then converged to ~0.007 by 74k.
 
 ## Checkpoint Hashes
 
-Verify integrity with `tar cf - -C checkpoints/<step> params | sha256sum`.
+Verify integrity with `find params -type f | sort | xargs cat | sha256sum`.
 
 | Step | Loss | SHA-256 |
 |------|------|---------|
-| 25,000 | 0.0125 | `fda750265baa451291c6a0148ea405216e8319d86e1f6cbbf7d31103510e87e2` |
+| 25,000 | 0.0125 | `9e6d903b70a0159d6fb9979570556b031650f2e733e9b8a30c1d17b08f3307c2` |
+| 50,000 | ~0.0075 | `f347d098e046f63ef65aa9c0c7a5614e0735667f1d03a5f8fb893e43698079c9` |
+| 74,000 | ~0.0070 | `4fd1de8b341df95595b7691443e524638c80a0f1eb58c09d717a33741482d70e` |
 
 ## Repo Structure
 

@@ -52,20 +52,28 @@
 - notes: restart after deleting `35000.orbax-checkpoint-tmp-20`; checkpoint restore to step 34000 confirmed in logs
 
 ## Results
-- loss@25k: 0.0114 (from resubmit 1)
-- loss@29k: ~0.0114
+- loss@0: 0.3473
+- loss@25k: 0.0125
+- loss@50k: ~0.0075
+- loss@74k: ~0.0070
+- grad_norm@74k: ~0.05
+- param_norm@74k: ~1886
+- loss_one_liner: High initial loss (0.35) from base weights + negative demos. Dropped rapidly to 0.012 by 25k, converged to ~0.007 by 74k.
 
 ## W&B
-- local: `wandb/offline-run-20260324_140237-kurb306v`
-- synced: https://wandb.ai/pravsels/recap_plain/runs/kurb306v
-- notes: synced data covers resubmit 1 (steps 0–31k). Resubmit 2 will create a new offline run.
+- local (resubmit 1): `wandb/offline-run-20260324_140237-kurb306v`
+- synced (resubmit 1, steps 0-31k): https://wandb.ai/pravsels/recap_plain/runs/kurb306v
+- local (resubmit 3): `wandb/offline-run-20260325_121310-kurb306v`
+- synced (resubmit 3, steps 34k-74k): https://wandb.ai/pravsels/recap_plain/runs/kurb306v
 
 ## HuggingFace
 - repo: https://huggingface.co/pravsels/pi05-bin-pack-reward-recap-mixed-from-base
-- uploaded checkpoints: 25k (params only)
+- uploaded checkpoints: 25k, 50k, 74k (params only)
 - includes: README, TRAINING_LOG, assets
+- checkpoint hashes (deterministic, `find params -type f | sort | xargs cat | sha256sum`):
+  - 25k: `9e6d903b70a0159d6fb9979570556b031650f2e733e9b8a30c1d17b08f3307c2`
+  - 50k: `f347d098e046f63ef65aa9c0c7a5614e0735667f1d03a5f8fb893e43698079c9`
+  - 74k: `4fd1de8b341df95595b7691443e524638c80a0f1eb58c09d717a33741482d70e`
 
 ## Next
-- Upload 50k + final checkpoint once resubmit 3 completes
-- Sync new wandb run
-- Watch the next checkpoint save/finalize cycle before leaving unattended
+- Evaluate checkpoints on bin packing task
