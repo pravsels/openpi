@@ -1782,7 +1782,7 @@ _CONFIGS = [
                 "villekuosmanen/build_block_tower"
                 "]"
             ),
-            base_config=DataConfig(prompt_from_task=True),
+            base_config=DataConfig(prompt_from_task=False),
             use_delta_actions=True,
             output_delta_actions=True,
         ),
