@@ -18,6 +18,7 @@ RL Token encoder-decoder trained on top of a frozen pi0.5 baseline VLA for build
 - **VLA backbone:** Baseline 55k checkpoint (`pravsels/pi05-build-block-tower-baseline`), frozen (`rl_vla_loss_weight=0.0`).
 - **Encoder-decoder:** 2-layer transformer, 8 heads, dim=2048, SwiGLU FFN.
 - **Loss:** Autoregressive reconstruction of VLA prefix embeddings (L2).
+- **Validation:** Deterministic episode-level `90/10` train/val split with held-out episode IDs saved in `assets/episode_split.json`.
 - **Steps:** 10,000
 
 ## Config
@@ -34,23 +35,24 @@ RL Token encoder-decoder trained on top of a frozen pi0.5 baseline VLA for build
 ## Dataset
 
 - `villekuosmanen/build_block_tower` (200 episodes, LeRobot v2.1)
+- Train/val separation is by whole episode, not timestep, to avoid leakage.
 
 ## Checkpoint Hashes
 
-Verify integrity with `find params -type f | sort | xargs cat | sha256sum`.
+Verify integrity with `find params -type f | sort | xargs sha256sum | sha256sum`.
 
-| Step | Loss | SHA-256 |
-|------|------|---------|
-| 9,999 | ~218 | `214f3473fba0339779276528ff618b3a88cd7df5bdb4c1560bf0c13459fe3454` |
+| Step | Train Loss | Val Loss | SHA-256 |
+|------|------------|----------|---------|
+| 9,999 | 216.8683 | 286.5721 | `4378fc1886f7eef6adab8a123ec491cde783c9aa94cd60a0b57757314862ed95` |
 
 ## W&B
 
-- [pravsels/openpi-rlt-block-tower/runs/i183ouv4](https://wandb.ai/pravsels/openpi-rlt-block-tower/runs/i183ouv4)
+- [pravsels/openpi-rlt-block-tower/runs/oa2o0o0z](https://wandb.ai/pravsels/openpi-rlt-block-tower/runs/oa2o0o0z)
 
 ## Repo Structure
 
 ```
-assets/                      # Norm stats for inference (from baseline)
+assets/                      # Norm stats plus deterministic episode split metadata
 checkpoints/9999/params/     # Model weights (params only)
 README.md                    # This file
 TRAINING_LOG.md              # Training log
