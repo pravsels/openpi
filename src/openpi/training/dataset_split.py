@@ -95,6 +95,26 @@ def get_episode_id(item: Mapping[str, Any]) -> str:
     raise KeyError("Could not determine episode ID from dataset item.")
 
 
+def get_episode_ids_from_dataset(dataset: Any) -> list[str]:
+    wrapped_datasets = getattr(dataset, "_datasets", None)
+    dataset_lengths = getattr(dataset, "_dataset_lengths", None)
+    if (
+        isinstance(wrapped_datasets, Sequence)
+        and isinstance(dataset_lengths, Sequence)
+        and len(wrapped_datasets) == len(dataset_lengths)
+    ):
+        episode_ids: list[str] = []
+        for subdataset, subdataset_len in zip(wrapped_datasets, dataset_lengths, strict=True):
+            hf_dataset = getattr(subdataset, "hf_dataset", None)
+            if hf_dataset is None:
+                break
+            episode_ids.extend(get_episode_id(hf_dataset[i]) for i in range(subdataset_len))
+        else:
+            return episode_ids
+
+    return [get_episode_id(dataset[i]) for i in range(len(dataset))]
+
+
 def filter_indices_by_episode_split(
     items: Sequence[Mapping[str, Any]],
     split: EpisodeSplit,
@@ -103,3 +123,14 @@ def filter_indices_by_episode_split(
 ) -> list[int]:
     allowed_episode_ids = set(split.train_episode_ids if split_name == "train" else split.val_episode_ids)
     return [i for i, item in enumerate(items) if get_episode_id(item) in allowed_episode_ids]
+
+
+def filter_dataset_indices_by_episode_split(
+    dataset: Any,
+    split: EpisodeSplit,
+    *,
+    split_name: Literal["train", "val"],
+) -> list[int]:
+    allowed_episode_ids = set(split.train_episode_ids if split_name == "train" else split.val_episode_ids)
+    episode_ids = get_episode_ids_from_dataset(dataset)
+    return [i for i, episode_id in enumerate(episode_ids) if episode_id in allowed_episode_ids]

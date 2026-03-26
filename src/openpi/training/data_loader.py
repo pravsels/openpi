@@ -532,7 +532,7 @@ def _get_dataset_split_indices(
                 f"requested(seed={split_config.seed}, val_ratio={split_config.val_ratio})."
             )
     else:
-        episode_ids = [_dataset_split.get_episode_id(dataset[i]) for i in range(len(dataset))]
+        episode_ids = _dataset_split.get_episode_ids_from_dataset(dataset)
         split = _dataset_split.compute_episode_split(
             episode_ids,
             val_ratio=split_config.val_ratio,
@@ -541,8 +541,7 @@ def _get_dataset_split_indices(
         _dataset_split.save_episode_split(assets_path, split)
         logging.info("Wrote episode split to %s", split_path)
 
-    items = [dataset[i] for i in range(len(dataset))]
-    indices = _dataset_split.filter_indices_by_episode_split(items, split, split_name=split_name)
+    indices = _dataset_split.filter_dataset_indices_by_episode_split(dataset, split, split_name=split_name)
     logging.info("Resolved %d %s indices from persisted episode split", len(indices), split_name)
     return indices
 
@@ -553,6 +552,7 @@ compute_episode_split = _dataset_split.compute_episode_split
 save_episode_split = _dataset_split.save_episode_split
 load_episode_split = _dataset_split.load_episode_split
 filter_indices_by_episode_split = _dataset_split.filter_indices_by_episode_split
+filter_dataset_indices_by_episode_split = _dataset_split.filter_dataset_indices_by_episode_split
 
 
 def create_rlds_data_loader(
