@@ -6,8 +6,8 @@
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=64G
 #SBATCH --time=12:00:00
-#SBATCH --output=/scratch/u6cr/pravsels.u6cr/openpi/slurm-%x-%j.out
-#SBATCH --error=/scratch/u6cr/pravsels.u6cr/openpi/slurm-%x-%j.err
+#SBATCH --output=slurm-%x-%j.out
+#SBATCH --error=slurm-%x-%j.err
 #SBATCH --requeue
 
 set -euo pipefail
