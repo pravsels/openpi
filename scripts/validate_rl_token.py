@@ -1,4 +1,5 @@
 import dataclasses
+import gc
 import json
 import logging
 import pathlib
@@ -352,6 +353,11 @@ def _extract_split_features(
         raw_items = [raw_dataset[i] for i in batch_indices]
 
         batch = _stack_trees(transformed_items)
+        # Keep numpy copies of probe targets before moving batch to JAX/GPU.
+        batch_state_np = np.asarray(batch["state"], dtype=np.float32)
+        batch_actions_np = np.asarray(batch["actions"], dtype=np.float32).reshape(len(batch_indices), -1)
+
+        # gemma.Module.embed expects JAX arrays, not numpy.
         batch = jax.tree.map(lambda x: jnp.asarray(x) if isinstance(x, np.ndarray) else x, batch)
         observation = _model.Observation.from_dict(batch)
         rng = jax.random.fold_in(base_rng, batch_idx)
@@ -363,9 +369,9 @@ def _extract_split_features(
         pred_actions = np.asarray(jax.device_get(pred_actions))
 
         rl_tokens.append(batch_rl_tokens)
-        states.append(np.asarray(batch["state"], dtype=np.float32))
+        states.append(batch_state_np)
         vla_actions.append(pred_actions.reshape(pred_actions.shape[0], -1).astype(np.float32))
-        gt_actions.append(np.asarray(batch["actions"], dtype=np.float32).reshape(len(batch_indices), -1))
+        gt_actions.append(batch_actions_np)
         subtasks.extend(_decode_text(item.get("subtask", "")).strip() for item in raw_items)
 
     return {
@@ -445,6 +451,12 @@ def main(args: Args) -> None:
         base_rng=jax.random.fold_in(base_rng, 1),
         num_denoising_steps=args.num_denoising_steps,
     )
+
+    # Free JAX model/params so PyTorch probes can use GPU memory.
+    del model, params
+    jax.clear_caches()
+    gc.collect()
+    LOGGER.info("Released JAX model before probe training")
 
     train_x = np.concatenate([train_features["rl_token"], train_features["state"]], axis=-1)
     val_x = np.concatenate([val_features["rl_token"], val_features["state"]], axis=-1)
