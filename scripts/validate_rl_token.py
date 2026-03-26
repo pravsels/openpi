@@ -6,6 +6,7 @@ import random
 from typing import Any
 
 import jax
+import jax.numpy as jnp
 import numpy as np
 import torch
 from torch import nn
@@ -351,6 +352,7 @@ def _extract_split_features(
         raw_items = [raw_dataset[i] for i in batch_indices]
 
         batch = _stack_trees(transformed_items)
+        batch = jax.tree.map(lambda x: jnp.asarray(x) if isinstance(x, np.ndarray) else x, batch)
         observation = _model.Observation.from_dict(batch)
         rng = jax.random.fold_in(base_rng, batch_idx)
 
