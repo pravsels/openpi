@@ -77,9 +77,18 @@
   - linear probe is indistinguishable from the random baseline
   - subtask classifier is at chance despite apparently valid labels
 
-## Job
+## Job (failed)
 - job_id: 3378883
 - submitted: `2026-03-26T17:21:56+00:00`
+- start: `2026-03-26T20:14:58+00:00`
+- end: `2026-03-26T20:14:59+00:00`
+- runtime: 00:00:01
+- node: nid010956
+- failure: checkpoint `rlt_v1/9999/params` did not exist on scratch — the training run saved at steps 5000/15000/19999, not 9999. Downloaded step 9999 params from [HuggingFace](https://huggingface.co/pravsels/pi05-build-block-tower-rlt-v1/tree/main/checkpoints/9999) and copied assets from the 19999 checkpoint (identical across all steps).
+
+## Job (resubmit)
+- job_id: 3380023
+- submitted: `2026-03-26T20:22:00+00:00`
 - start_human: Thursday, Mar 26th, 2026
 - end: pending
 - end_human: pending
@@ -90,6 +99,8 @@
 - 2026-03-26 — created pre-submit Stage 2 validation log and recorded expected probe behavior before HPC launch.
 - 2026-03-26 17:21 UTC — pulled `task/rlt_block_tower` on `openpi_rlt_block_tower` and submitted `slurm/validate_build_block_tower_rlt_stage2_slurm.sh` as job `3378883`.
 - 2026-03-26 17:22 UTC — job `3378883` is pending in Slurm.
+- 2026-03-26 20:14 UTC — job `3378883` failed after 1s: checkpoint `rlt_v1/9999/params` not found on scratch.
+- 2026-03-26 20:22 UTC — downloaded step 9999 params from HuggingFace, copied assets from step 19999. Resubmitted as job `3380023`.
 
 ## Results
 - runtime: pending
