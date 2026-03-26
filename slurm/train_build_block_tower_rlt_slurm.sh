@@ -32,6 +32,7 @@ XDG_CONFIG_HOME="${scratch_dir}/.config"
 # Training config
 CONFIG_NAME="pi05_rl_token_build_block_tower"
 EXP_NAME="rlt_v1"
+EXTRA_TRAIN_ARGS="${EXTRA_TRAIN_ARGS:-}"
 
 # Baseline checkpoint and assets (VLA backbone — already trained, assets already computed)
 BASELINE_HF_REPO="pravsels/pi05-build-block-tower-baseline"
@@ -84,11 +85,12 @@ echo "Node: ${SLURM_NODELIST}"
 echo "Started (UTC): ${start_time}"
 echo "Config: ${CONFIG_NAME}"
 echo "Exp: ${EXP_NAME}"
+echo "Extra train args: ${EXTRA_TRAIN_ARGS:-<none>}"
 echo "Baseline checkpoint: step ${BASELINE_STEP}"
 echo "Assets: ${ASSETS_DIR}"
 echo "===================================="
 
-TRAIN_CMD="uv run scripts/train.py ${CONFIG_NAME} --exp-name=${EXP_NAME} --assets-dir=${ASSETS_DIR} --resume"
+TRAIN_CMD="uv run scripts/train.py ${CONFIG_NAME} --exp-name=${EXP_NAME} --assets-dir=${ASSETS_DIR} --resume ${EXTRA_TRAIN_ARGS}"
 
 EXPORT_VARS="export PYTHONUNBUFFERED=1"
 EXPORT_VARS="${EXPORT_VARS} && export WANDB_MODE=offline"
