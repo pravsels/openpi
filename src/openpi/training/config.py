@@ -102,6 +102,8 @@ class DataConfig:
     prompt_from_task: bool = False
     # If true, will override the prompt with the per-episode subtask description (when available).
     prompt_from_subtask: bool = False
+    # Optional deterministic episode-level train/validation split.
+    episode_split: "EpisodeSplitConfig | None" = None
 
     # Only used for RLDS data loader (ie currently only used for DROID).
     rlds_data_dir: str | None = None
@@ -114,6 +116,12 @@ class DataConfig:
 class GroupFactory(Protocol):
     def __call__(self, model_config: _model.BaseModelConfig) -> _transforms.Group:
         """Create a group."""
+
+
+@dataclasses.dataclass(frozen=True)
+class EpisodeSplitConfig:
+    val_ratio: float = 0.1
+    seed: int = 42
 
 
 @dataclasses.dataclass(frozen=True)
@@ -873,6 +881,10 @@ class TrainConfig:
 
     # How often (in steps) to log training metrics.
     log_interval: int = 100
+    # How often (in steps) to run validation when a validation split is enabled.
+    val_interval: int | None = None
+    # Number of validation batches to average when validation is enabled.
+    val_num_batches: int = 10
     # How often (in steps) to save checkpoints.
     save_interval: int = 1000
     # If set, any existing checkpoints matching step % keep_period == 0 will not be deleted.
@@ -1773,7 +1785,10 @@ _CONFIGS = [
                 "villekuosmanen/build_block_tower"
                 "]"
             ),
-            base_config=DataConfig(prompt_from_task=True),
+            base_config=DataConfig(
+                prompt_from_task=True,
+                episode_split=EpisodeSplitConfig(val_ratio=0.1, seed=42),
+            ),
             use_delta_actions=True,
             output_delta_actions=True,
         ),
@@ -1793,6 +1808,8 @@ _CONFIGS = [
             "checkpoints/pi05_build_block_tower_baseline/baseline_v1/55000/params"
         ),
         num_train_steps=10_000,
+        val_interval=1000,
+        val_num_batches=10,
     ),
     TrainConfig(
         name="pi05_rl_token_bin_pack_coffee_capsules",
