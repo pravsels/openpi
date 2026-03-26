@@ -78,9 +78,9 @@
   - subtask classifier is at chance despite apparently valid labels
 
 ## Job
-- job_id: pending
-- submitted: pending
-- start_human: pending
+- job_id: 3378883
+- submitted: `2026-03-26T17:21:56+00:00`
+- start_human: Thursday, Mar 26th, 2026
 - end: pending
 - end_human: pending
 - runtime: pending
@@ -88,6 +88,8 @@
 
 ## Status
 - 2026-03-26 — created pre-submit Stage 2 validation log and recorded expected probe behavior before HPC launch.
+- 2026-03-26 17:21 UTC — pulled `task/rlt_block_tower` on `openpi_rlt_block_tower` and submitted `slurm/validate_build_block_tower_rlt_stage2_slurm.sh` as job `3378883`.
+- 2026-03-26 17:22 UTC — job `3378883` is pending in Slurm.
 
 ## Results
 - runtime: pending
