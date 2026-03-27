@@ -16,6 +16,7 @@ the standard flow-matching action prediction loss (gradients to VLA params
 theta only).
 """
 
+from collections.abc import Callable
 import logging
 
 import flax.nnx as nnx
@@ -165,6 +166,60 @@ class RLTokenDecoder(nnx.Module):
             x = self.layers[key](x, attn_mask)
 
         return self.output_proj(x)
+
+
+# ---------------------------------------------------------------------------
+# Reconstruction diagnostics
+# ---------------------------------------------------------------------------
+
+
+def _reconstruction_loss(
+    predictions: jax.Array,
+    target_embeddings: jax.Array,
+    mask: jax.Array | None = None,
+) -> jax.Array:
+    recon_sq = jnp.square(predictions - target_embeddings)
+    per_token_l2 = recon_sq.sum(axis=-1)
+
+    if mask is not None:
+        per_token_l2 = per_token_l2 * mask
+        num_valid = jnp.clip(mask.sum(axis=1), 1)
+        per_example = per_token_l2.sum(axis=1) / num_valid
+    else:
+        per_example = jnp.mean(per_token_l2, axis=1)
+
+    return jnp.mean(per_example)
+
+
+def compute_reconstruction_ablation_metrics(
+    decoder_fn: Callable[[jax.Array, jax.Array, jax.Array | None], jax.Array],
+    rl_token: jax.Array,
+    target_embeddings: jax.Array,
+    mask: jax.Array | None = None,
+    *,
+    shuffle_perm: jax.Array | None = None,
+) -> dict[str, float]:
+    """Compare real, zeroed, and shuffled RL-token reconstruction losses."""
+    real_predictions = decoder_fn(rl_token, target_embeddings, mask)
+    real_loss = _reconstruction_loss(real_predictions, target_embeddings, mask)
+
+    zero_token = jnp.zeros_like(rl_token)
+    zero_predictions = decoder_fn(zero_token, target_embeddings, mask)
+    zero_loss = _reconstruction_loss(zero_predictions, target_embeddings, mask)
+
+    if shuffle_perm is None:
+        shuffle_perm = jnp.roll(jnp.arange(rl_token.shape[0]), 1)
+    shuffled_token = rl_token[shuffle_perm]
+    shuffled_predictions = decoder_fn(shuffled_token, target_embeddings, mask)
+    shuffled_loss = _reconstruction_loss(shuffled_predictions, target_embeddings, mask)
+
+    return {
+        "real_recon_loss": float(real_loss),
+        "zero_recon_loss": float(zero_loss),
+        "shuffled_recon_loss": float(shuffled_loss),
+        "zero_recon_gap": float(zero_loss - real_loss),
+        "shuffled_recon_gap": float(shuffled_loss - real_loss),
+    }
 
 
 # ---------------------------------------------------------------------------

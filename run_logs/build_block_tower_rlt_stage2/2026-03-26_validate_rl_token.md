@@ -111,7 +111,7 @@
 ## Job (resubmit 4)
 - job_id: 3391484
 - submitted: `2026-03-27T09:00:00+00:00`
-- start_human: Thursday, Mar 27th, 2026
+- start_human: Friday, Mar 27th, 2026
 - end: pending
 - end_human: pending
 - runtime: pending
