@@ -33,7 +33,7 @@ CHECKPOINT_PATH="${data_dir}/checkpoints/pi05_rl_token_build_block_tower/rlt_v1/
 ASSETS_DIR="${data_dir}/checkpoints/pi05_rl_token_build_block_tower/rlt_v1/9999/assets"
 RUN_NAME="validate_rl_token_9999"
 OUTPUT_DIR="${data_dir}/eval_outputs/build_block_tower_rlt_stage2/${RUN_NAME}"
-EXTRA_VALIDATE_ARGS=""
+EXTRA_VALIDATE_ARGS="--batch-size 8"
 
 mkdir -p "${HF_CACHE}" "${XDG_CACHE_HOME}" "${XDG_CONFIG_HOME}" "${data_dir}" "${slurm_log_dir}" "${data_dir}/eval_outputs/build_block_tower_rlt_stage2" "${OUTPUT_DIR}"
 
