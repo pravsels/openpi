@@ -75,10 +75,7 @@ def _stack_trees(items: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def _unwrap_dataset(dataset: Any) -> Any:
-    """Walk through TransformedDataset / IndexedDataset wrappers to reach the
-    underlying dataset that has episode metadata (hf_dataset, _datasets, etc.).
-    Without this, episode enumeration falls back to dataset[i] for every frame
-    which triggers full image I/O and takes 20+ minutes on large datasets."""
+    """Peel off wrapper layers to reach the dataset with hf_dataset / _datasets."""
     inner = dataset
     while hasattr(inner, "_dataset"):
         inner = inner._dataset
@@ -86,13 +83,7 @@ def _unwrap_dataset(dataset: Any) -> Any:
 
 
 def _get_episode_ids_fast(dataset: Any) -> list[str]:
-    """Get per-frame episode IDs without loading images.
-
-    The default get_episode_ids_from_dataset falls back to dataset[i] for every
-    frame when it can't find _datasets/_dataset_lengths. That loads images from
-    disk and is extremely slow (20+ min for ~2k frames). This function walks
-    through wrapper layers to find the HF dataset and reads the episode_index
-    column directly — no image I/O, runs in seconds."""
+    """Per-frame episode IDs via HF column access (no image I/O)."""
     inner = _unwrap_dataset(dataset)
 
     # Multi-dataset (ConcatDataset with _datasets list)
@@ -126,7 +117,7 @@ def _get_episode_ids_fast(dataset: Any) -> list[str]:
 
 
 def _pick_episodes(dataset: Any, n: int) -> list[str]:
-    """Pick the first n unique episode IDs using fast column access."""
+    """First n unique episode IDs."""
     all_ids = _get_episode_ids_fast(dataset)
     seen: list[str] = []
     seen_set: set[str] = set()
@@ -140,7 +131,7 @@ def _pick_episodes(dataset: Any, n: int) -> list[str]:
 
 
 def _get_episode_indices(dataset: Any, episode_ids: set[str]) -> dict[str, list[int]]:
-    """Return {episode_id: [frame_indices]} using fast column access."""
+    """Map episode_id -> list of frame indices."""
     all_ids = _get_episode_ids_fast(dataset)
     result: dict[str, list[int]] = defaultdict(list)
     for i, eid in enumerate(all_ids):
@@ -158,7 +149,7 @@ def _extract_rl_tokens(
     base_rng: jax.Array,
     num_denoising_steps: int,
 ) -> np.ndarray:
-    """Extract RL token embeddings for the given frame indices. Returns [N, emb]."""
+    """Extract RL token embeddings for given frame indices. Returns [N, emb]."""
     all_tokens: list[np.ndarray] = []
     total_batches = (len(indices) + batch_size - 1) // batch_size
 
@@ -179,7 +170,7 @@ def _extract_rl_tokens(
             rng, observation, num_steps=num_denoising_steps
         )
         all_tokens.append(np.asarray(jax.device_get(batch_rl_tokens)))
-        LOGGER.info("  batch %d/%d done", batch_idx + 1, total_batches)
+        print(f"    batch {batch_idx + 1}/{total_batches} done")
 
     return np.concatenate(all_tokens, axis=0).astype(np.float32)
 
@@ -190,12 +181,7 @@ def _create_dataset_for_repo(
     action_horizon: int,
     model_config: _model.BaseModelConfig,
 ) -> tuple[Any, Any]:
-    """Create raw + transformed datasets for a given repo_id.
-
-    Uses the ID data config's norm stats and transforms for all datasets so the
-    model sees consistently normalized inputs. The OOD dataset will have "wrong"
-    normalization for state/actions, but the RL token is primarily driven by
-    images + text so this is acceptable for embedding comparison."""
+    """Create raw + transformed datasets for a repo_id, reusing ID norm stats."""
     override_config = dataclasses.replace(data_config, repo_id=repo_id)
     raw = _data_loader.create_torch_dataset(override_config, action_horizon, model_config)
     transformed = _data_loader.transform_dataset(raw, data_config)
@@ -204,42 +190,50 @@ def _create_dataset_for_repo(
 
 def main(args: Args) -> None:
     _init_logging()
-    LOGGER.info("Starting RL token extraction")
-
+    print("[1/6] Resolving paths...")
     checkpoint_path = _resolve_checkpoint_path(pathlib.Path(args.checkpoint_path).resolve())
     assets_dir = _resolve_assets_dir(args, checkpoint_path)
     output_dir = pathlib.Path(args.output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
+    print(f"  checkpoint: {checkpoint_path}")
+    print(f"  assets:     {assets_dir}")
+    print(f"  output:     {output_dir}")
 
+    print("[2/6] Loading config and building data pipeline...")
     config = _config.get_config(args.config_name)
     config = dataclasses.replace(config, assets_dir=str(assets_dir))
     data_config = config.data.create(config.assets_dirs, config.model)
+    print(f"  config: {args.config_name}")
 
-    LOGGER.info("Loading model from %s", checkpoint_path)
+    print("[3/6] Loading model checkpoint (this allocates GPU memory)...")
     params = _model.restore_params(checkpoint_path, restore_type=np.ndarray)
     model = config.model.load(params)
     model.eval()
-    LOGGER.info("Model loaded")
+    print("  model loaded and set to eval mode")
 
     base_rng = jax.random.key(args.seed)
     results: dict[str, Any] = {}
 
-    for label, repo_id in [("id", args.id_dataset), ("ood", args.ood_dataset)]:
-        LOGGER.info("=== Processing %s dataset: %s ===", label.upper(), repo_id)
+    for ds_idx, (label, repo_id) in enumerate([("id", args.id_dataset), ("ood", args.ood_dataset)]):
+        step = 4 + ds_idx
+        print(f"[{step}/6] Processing {label.upper()} dataset: {repo_id}")
+
+        print(f"  [{step}a] Creating dataset (may download from HuggingFace)...")
         raw_ds, transformed_ds = _create_dataset_for_repo(
             data_config, repo_id, config.model.action_horizon, config.model
         )
-        LOGGER.info("  dataset size: %d frames", len(raw_ds))
+        print(f"  [{step}a] Dataset ready: {len(raw_ds)} frames")
 
-        LOGGER.info("  enumerating episodes (fast path, no image I/O)...")
+        print(f"  [{step}b] Enumerating episodes (fast path via HF column access)...")
         episode_ids = _pick_episodes(raw_ds, args.episodes_per_dataset)
-        LOGGER.info("  selected episodes: %s", episode_ids)
+        print(f"  [{step}b] Selected episodes: {episode_ids}")
 
         ep_index_map = _get_episode_indices(raw_ds, set(episode_ids))
 
         for ep_id in episode_ids:
             indices = ep_index_map[ep_id]
-            LOGGER.info("  extracting %d frames for episode %s", len(indices), ep_id)
+            total_batches = (len(indices) + args.batch_size - 1) // args.batch_size
+            print(f"  [{step}c] Extracting RL tokens: episode {ep_id}, {len(indices)} frames, {total_batches} batches")
             tokens = _extract_rl_tokens(
                 model,
                 transformed_ds,
@@ -250,11 +244,12 @@ def main(args: Args) -> None:
             )
             key = f"{label}_ep{ep_id}"
             results[key] = tokens
-            LOGGER.info("  %s: shape %s", key, tokens.shape)
+            print(f"  [{step}c] Done: {key} -> {tokens.shape}")
 
+    print("[6/6] Saving outputs...")
     npz_path = output_dir / "rl_token_embeddings.npz"
     np.savez_compressed(npz_path, **results)
-    LOGGER.info("Saved embeddings to %s", npz_path)
+    print(f"  embeddings: {npz_path}")
 
     meta = {
         "config_name": args.config_name,
@@ -268,7 +263,8 @@ def main(args: Args) -> None:
     }
     meta_path = output_dir / "extraction_meta.json"
     meta_path.write_text(json.dumps(meta, indent=2))
-    LOGGER.info("Saved metadata to %s", meta_path)
+    print(f"  metadata:   {meta_path}")
+    print("Done.")
 
 
 if __name__ == "__main__":
