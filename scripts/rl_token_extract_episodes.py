@@ -1,0 +1,206 @@
+"""Extract per-frame RL token embeddings from a Pi0RL model for specified datasets.
+
+Saves raw embeddings as .npz for downstream analysis (e.g. cosine similarity).
+Designed to run on HPC with GPU; analysis is done locally.
+"""
+
+import dataclasses
+import json
+import logging
+import pathlib
+from collections import defaultdict
+from typing import Any
+
+import jax
+import jax.numpy as jnp
+import numpy as np
+import tyro
+
+import openpi.models.model as _model
+import openpi.training.config as _config
+import openpi.training.data_loader as _data_loader
+import openpi.training.dataset_split as _dataset_split
+
+LOGGER = logging.getLogger("openpi.rl_token_extract")
+
+
+@dataclasses.dataclass(frozen=True)
+class Args:
+    config_name: str = "pi05_rl_token_build_block_tower"
+    checkpoint_path: str = tyro.MISSING
+    assets_dir: str | None = None
+    id_dataset: str = "villekuosmanen/build_block_tower"
+    ood_dataset: str = "villekuosmanen/eval_dAgger_drop_footbag_into_dice_tower_1.7.0"
+    episodes_per_dataset: int = 1
+    batch_size: int = 8
+    num_denoising_steps: int = 10
+    output_dir: str = tyro.MISSING
+    seed: int = 42
+
+
+def _init_logging() -> None:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+
+
+def _resolve_checkpoint_path(checkpoint_path: pathlib.Path) -> pathlib.Path:
+    if checkpoint_path.name == "params":
+        return checkpoint_path
+    candidate = checkpoint_path / "params"
+    if candidate.exists():
+        return candidate.resolve()
+    raise ValueError(f"Checkpoint path must point to Orbax params dir or its parent. Got: {checkpoint_path}")
+
+
+def _resolve_assets_dir(args: Args, checkpoint_path: pathlib.Path) -> pathlib.Path:
+    if args.assets_dir is not None:
+        return pathlib.Path(args.assets_dir).resolve()
+    if (checkpoint_path / "assets").exists():
+        return (checkpoint_path / "assets").resolve()
+    if checkpoint_path.name == "params":
+        candidate = checkpoint_path.parent / "assets"
+        if candidate.exists():
+            return candidate.resolve()
+    raise ValueError("Could not infer assets dir. Pass --assets-dir explicitly.")
+
+
+def _stack_trees(items: list[dict[str, Any]]) -> dict[str, Any]:
+    return jax.tree.map(lambda *xs: np.stack([np.asarray(x) for x in xs], axis=0), *items)
+
+
+def _get_episode_indices(dataset: Any, episode_ids: set[str]) -> dict[str, list[int]]:
+    """Return {episode_id: [frame_indices]} for requested episodes."""
+    all_episode_ids = _dataset_split.get_episode_ids_from_dataset(dataset)
+    result: dict[str, list[int]] = defaultdict(list)
+    for i, eid in enumerate(all_episode_ids):
+        if eid in episode_ids:
+            result[eid].append(i)
+    return dict(result)
+
+
+def _pick_episodes(dataset: Any, n: int) -> list[str]:
+    """Pick the first n unique episode IDs from a dataset."""
+    seen: list[str] = []
+    seen_set: set[str] = set()
+    for i in range(len(dataset)):
+        eid = _dataset_split.get_episode_id(dataset[i])
+        if eid not in seen_set:
+            seen.append(eid)
+            seen_set.add(eid)
+            if len(seen) >= n:
+                break
+    return seen
+
+
+def _extract_rl_tokens(
+    model: Any,
+    transformed_dataset: Any,
+    indices: list[int],
+    *,
+    batch_size: int,
+    base_rng: jax.Array,
+    num_denoising_steps: int,
+) -> np.ndarray:
+    """Extract RL token embeddings for the given frame indices. Returns [N, emb]."""
+    all_tokens: list[np.ndarray] = []
+
+    for batch_idx, start in enumerate(range(0, len(indices), batch_size)):
+        batch_indices = indices[start : start + batch_size]
+        items = [transformed_dataset[i] for i in batch_indices]
+
+        batch = _stack_trees(items)
+        batch = jax.tree.map(lambda x: jnp.asarray(x) if isinstance(x, np.ndarray) else x, batch)
+        observation = _model.Observation.from_dict(batch)
+        rng = jax.random.fold_in(base_rng, batch_idx)
+
+        _, batch_rl_tokens = model.sample_actions_with_rl_token(
+            rng, observation, num_steps=num_denoising_steps
+        )
+        all_tokens.append(np.asarray(jax.device_get(batch_rl_tokens)))
+
+        if (batch_idx + 1) % 5 == 0 or start + batch_size >= len(indices):
+            LOGGER.info("  batch %d/%d", batch_idx + 1, (len(indices) + batch_size - 1) // batch_size)
+
+    return np.concatenate(all_tokens, axis=0).astype(np.float32)
+
+
+def _create_dataset_for_repo(
+    data_config: _config.DataConfig,
+    repo_id: str,
+    action_horizon: int,
+    model_config: _model.BaseModelConfig,
+) -> tuple[Any, Any]:
+    """Create raw + transformed datasets for a given repo_id, reusing the ID data config."""
+    override_config = dataclasses.replace(data_config, repo_id=repo_id)
+    raw = _data_loader.create_torch_dataset(override_config, action_horizon, model_config)
+    transformed = _data_loader.transform_dataset(raw, data_config)
+    return raw, transformed
+
+
+def main(args: Args) -> None:
+    _init_logging()
+
+    checkpoint_path = _resolve_checkpoint_path(pathlib.Path(args.checkpoint_path).resolve())
+    assets_dir = _resolve_assets_dir(args, checkpoint_path)
+    output_dir = pathlib.Path(args.output_dir).resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    config = _config.get_config(args.config_name)
+    config = dataclasses.replace(config, assets_dir=str(assets_dir))
+    data_config = config.data.create(config.assets_dirs, config.model)
+
+    LOGGER.info("Loading model from %s", checkpoint_path)
+    params = _model.restore_params(checkpoint_path, restore_type=np.ndarray)
+    model = config.model.load(params)
+    model.eval()
+
+    base_rng = jax.random.key(args.seed)
+    results: dict[str, Any] = {}
+
+    for label, repo_id in [("id", args.id_dataset), ("ood", args.ood_dataset)]:
+        LOGGER.info("Processing %s dataset: %s", label.upper(), repo_id)
+        raw_ds, transformed_ds = _create_dataset_for_repo(
+            data_config, repo_id, config.model.action_horizon, config.model
+        )
+        LOGGER.info("  dataset size: %d frames", len(raw_ds))
+
+        episode_ids = _pick_episodes(raw_ds, args.episodes_per_dataset)
+        LOGGER.info("  selected episodes: %s", episode_ids)
+
+        ep_index_map = _get_episode_indices(raw_ds, set(episode_ids))
+
+        for ep_id in episode_ids:
+            indices = ep_index_map[ep_id]
+            LOGGER.info("  extracting %d frames for episode %s", len(indices), ep_id)
+            tokens = _extract_rl_tokens(
+                model,
+                transformed_ds,
+                indices,
+                batch_size=args.batch_size,
+                base_rng=jax.random.fold_in(base_rng, hash(ep_id) % (2**31)),
+                num_denoising_steps=args.num_denoising_steps,
+            )
+            key = f"{label}_ep{ep_id}"
+            results[key] = tokens
+            LOGGER.info("  %s: shape %s", key, tokens.shape)
+
+    npz_path = output_dir / "rl_token_embeddings.npz"
+    np.savez_compressed(npz_path, **results)
+    LOGGER.info("Saved embeddings to %s", npz_path)
+
+    meta = {
+        "config_name": args.config_name,
+        "checkpoint_path": str(checkpoint_path),
+        "id_dataset": args.id_dataset,
+        "ood_dataset": args.ood_dataset,
+        "episodes_per_dataset": args.episodes_per_dataset,
+        "num_denoising_steps": args.num_denoising_steps,
+        "embedding_keys": list(results.keys()),
+        "embedding_shapes": {k: list(v.shape) for k, v in results.items()},
+    }
+    meta_path = output_dir / "extraction_meta.json"
+    meta_path.write_text(json.dumps(meta, indent=2))
+    LOGGER.info("Saved metadata to %s", meta_path)
+
+
+if __name__ == "__main__":
+    main(tyro.cli(Args))
