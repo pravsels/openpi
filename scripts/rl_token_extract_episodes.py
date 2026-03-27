@@ -39,7 +39,14 @@ class Args:
 
 
 def _init_logging() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(message)s",
+        # Force handler creation even if root logger was already configured by
+        # an import (e.g. JAX, lerobot). Without force=True, basicConfig is a
+        # no-op if any handler already exists and all LOGGER output is lost.
+        force=True,
+    )
 
 
 def _resolve_checkpoint_path(checkpoint_path: pathlib.Path) -> pathlib.Path:
@@ -67,28 +74,79 @@ def _stack_trees(items: list[dict[str, Any]]) -> dict[str, Any]:
     return jax.tree.map(lambda *xs: np.stack([np.asarray(x) for x in xs], axis=0), *items)
 
 
-def _get_episode_indices(dataset: Any, episode_ids: set[str]) -> dict[str, list[int]]:
-    """Return {episode_id: [frame_indices]} for requested episodes."""
-    all_episode_ids = _dataset_split.get_episode_ids_from_dataset(dataset)
-    result: dict[str, list[int]] = defaultdict(list)
-    for i, eid in enumerate(all_episode_ids):
-        if eid in episode_ids:
-            result[eid].append(i)
-    return dict(result)
+def _unwrap_dataset(dataset: Any) -> Any:
+    """Walk through TransformedDataset / IndexedDataset wrappers to reach the
+    underlying dataset that has episode metadata (hf_dataset, _datasets, etc.).
+    Without this, episode enumeration falls back to dataset[i] for every frame
+    which triggers full image I/O and takes 20+ minutes on large datasets."""
+    inner = dataset
+    while hasattr(inner, "_dataset"):
+        inner = inner._dataset
+    return inner
+
+
+def _get_episode_ids_fast(dataset: Any) -> list[str]:
+    """Get per-frame episode IDs without loading images.
+
+    The default get_episode_ids_from_dataset falls back to dataset[i] for every
+    frame when it can't find _datasets/_dataset_lengths. That loads images from
+    disk and is extremely slow (20+ min for ~2k frames). This function walks
+    through wrapper layers to find the HF dataset and reads the episode_index
+    column directly — no image I/O, runs in seconds."""
+    inner = _unwrap_dataset(dataset)
+
+    # Multi-dataset (ConcatDataset with _datasets list)
+    wrapped = getattr(inner, "_datasets", None)
+    lengths = getattr(inner, "_dataset_lengths", None)
+    if wrapped is not None and lengths is not None:
+        ids: list[str] = []
+        for sub, length in zip(wrapped, lengths):
+            hf = getattr(sub, "hf_dataset", None)
+            if hf is not None and "episode_index" in hf.column_names:
+                # Column access reads only the episode_index column, no images.
+                col = hf["episode_index"]
+                ids.extend(str(col[i]) for i in range(length))
+            else:
+                LOGGER.warning("Falling back to slow episode enumeration for subdataset")
+                ids.extend(_dataset_split.get_episode_id(sub[i]) for i in range(length))
+        return ids
+
+    # Single dataset with hf_dataset
+    hf = getattr(inner, "hf_dataset", None)
+    if hf is not None and "episode_index" in hf.column_names:
+        col = hf["episode_index"]
+        return [str(x) for x in col]
+
+    # Last resort: slow path (loads every item including images)
+    LOGGER.warning(
+        "No hf_dataset with episode_index column found — falling back to slow "
+        "episode enumeration. This will load every frame including images."
+    )
+    return [_dataset_split.get_episode_id(dataset[i]) for i in range(len(dataset))]
 
 
 def _pick_episodes(dataset: Any, n: int) -> list[str]:
-    """Pick the first n unique episode IDs from a dataset."""
+    """Pick the first n unique episode IDs using fast column access."""
+    all_ids = _get_episode_ids_fast(dataset)
     seen: list[str] = []
     seen_set: set[str] = set()
-    for i in range(len(dataset)):
-        eid = _dataset_split.get_episode_id(dataset[i])
+    for eid in all_ids:
         if eid not in seen_set:
             seen.append(eid)
             seen_set.add(eid)
             if len(seen) >= n:
                 break
     return seen
+
+
+def _get_episode_indices(dataset: Any, episode_ids: set[str]) -> dict[str, list[int]]:
+    """Return {episode_id: [frame_indices]} using fast column access."""
+    all_ids = _get_episode_ids_fast(dataset)
+    result: dict[str, list[int]] = defaultdict(list)
+    for i, eid in enumerate(all_ids):
+        if eid in episode_ids:
+            result[eid].append(i)
+    return dict(result)
 
 
 def _extract_rl_tokens(
@@ -102,12 +160,17 @@ def _extract_rl_tokens(
 ) -> np.ndarray:
     """Extract RL token embeddings for the given frame indices. Returns [N, emb]."""
     all_tokens: list[np.ndarray] = []
+    total_batches = (len(indices) + batch_size - 1) // batch_size
 
     for batch_idx, start in enumerate(range(0, len(indices), batch_size)):
         batch_indices = indices[start : start + batch_size]
+        # transformed_dataset[i] loads and transforms a single frame (including
+        # images). This is the only place where full data I/O happens — keep
+        # batch_size small to avoid OOM.
         items = [transformed_dataset[i] for i in batch_indices]
 
         batch = _stack_trees(items)
+        # gemma.Module.embed expects JAX arrays, not numpy.
         batch = jax.tree.map(lambda x: jnp.asarray(x) if isinstance(x, np.ndarray) else x, batch)
         observation = _model.Observation.from_dict(batch)
         rng = jax.random.fold_in(base_rng, batch_idx)
@@ -116,9 +179,7 @@ def _extract_rl_tokens(
             rng, observation, num_steps=num_denoising_steps
         )
         all_tokens.append(np.asarray(jax.device_get(batch_rl_tokens)))
-
-        if (batch_idx + 1) % 5 == 0 or start + batch_size >= len(indices):
-            LOGGER.info("  batch %d/%d", batch_idx + 1, (len(indices) + batch_size - 1) // batch_size)
+        LOGGER.info("  batch %d/%d done", batch_idx + 1, total_batches)
 
     return np.concatenate(all_tokens, axis=0).astype(np.float32)
 
@@ -129,7 +190,12 @@ def _create_dataset_for_repo(
     action_horizon: int,
     model_config: _model.BaseModelConfig,
 ) -> tuple[Any, Any]:
-    """Create raw + transformed datasets for a given repo_id, reusing the ID data config."""
+    """Create raw + transformed datasets for a given repo_id.
+
+    Uses the ID data config's norm stats and transforms for all datasets so the
+    model sees consistently normalized inputs. The OOD dataset will have "wrong"
+    normalization for state/actions, but the RL token is primarily driven by
+    images + text so this is acceptable for embedding comparison."""
     override_config = dataclasses.replace(data_config, repo_id=repo_id)
     raw = _data_loader.create_torch_dataset(override_config, action_horizon, model_config)
     transformed = _data_loader.transform_dataset(raw, data_config)
@@ -138,6 +204,7 @@ def _create_dataset_for_repo(
 
 def main(args: Args) -> None:
     _init_logging()
+    LOGGER.info("Starting RL token extraction")
 
     checkpoint_path = _resolve_checkpoint_path(pathlib.Path(args.checkpoint_path).resolve())
     assets_dir = _resolve_assets_dir(args, checkpoint_path)
@@ -152,17 +219,19 @@ def main(args: Args) -> None:
     params = _model.restore_params(checkpoint_path, restore_type=np.ndarray)
     model = config.model.load(params)
     model.eval()
+    LOGGER.info("Model loaded")
 
     base_rng = jax.random.key(args.seed)
     results: dict[str, Any] = {}
 
     for label, repo_id in [("id", args.id_dataset), ("ood", args.ood_dataset)]:
-        LOGGER.info("Processing %s dataset: %s", label.upper(), repo_id)
+        LOGGER.info("=== Processing %s dataset: %s ===", label.upper(), repo_id)
         raw_ds, transformed_ds = _create_dataset_for_repo(
             data_config, repo_id, config.model.action_horizon, config.model
         )
         LOGGER.info("  dataset size: %d frames", len(raw_ds))
 
+        LOGGER.info("  enumerating episodes (fast path, no image I/O)...")
         episode_ids = _pick_episodes(raw_ds, args.episodes_per_dataset)
         LOGGER.info("  selected episodes: %s", episode_ids)
 
