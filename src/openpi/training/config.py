@@ -18,11 +18,13 @@ import tyro
 import openpi.models.model as _model
 import openpi.models.pi0_config as pi0_config
 import openpi.models.pi0_fast as pi0_fast
+import openpi.models.pi0_rl_config as pi0_rl_config
 import openpi.models.pi05_config as pi05_config
 import openpi.models.tokenizer as _tokenizer
 import openpi.policies.aloha_policy as aloha_policy
 import openpi.policies.arx5_multitask_policy as arx5_multitask_policy
 import openpi.policies.bin_pack_policy as bin_pack_policy
+import openpi.policies.block_tower_policy as block_tower_policy
 import openpi.policies.arx_policy as arx_policy
 import openpi.policies.droid_policy as droid_policy
 import openpi.policies.libero_policy as libero_policy
@@ -98,6 +100,10 @@ class DataConfig:
 
     # If true, will use the LeRobot dataset task to define the prompt.
     prompt_from_task: bool = False
+    # If true, will override the prompt with the per-episode subtask description (when available).
+    prompt_from_subtask: bool = False
+    # Optional deterministic episode-level train/validation split.
+    episode_split: "EpisodeSplitConfig | None" = None
 
     # Only used for RLDS data loader (ie currently only used for DROID).
     rlds_data_dir: str | None = None
@@ -110,6 +116,12 @@ class DataConfig:
 class GroupFactory(Protocol):
     def __call__(self, model_config: _model.BaseModelConfig) -> _transforms.Group:
         """Create a group."""
+
+
+@dataclasses.dataclass(frozen=True)
+class EpisodeSplitConfig:
+    val_ratio: float = 0.1
+    seed: int = 42
 
 
 @dataclasses.dataclass(frozen=True)
@@ -438,6 +450,8 @@ class LeRobotBinPackDataConfig(DataConfigFactory):
     """Data config for the bin_pack_coffee_capsules LeRobot dataset."""
 
     default_prompt: str | None = "pack coffee capsules into the cardboard bin container"
+    use_control_mode_advantage_prompt: bool = False
+    advantage_prompt_mode: Literal["positive_only", "mixed"] = "mixed"
     # If true, will convert actions to deltas relative to the current state. When mask is None,
     # all action dimensions shared with state will be treated as delta dimensions.
     use_delta_actions: bool = False
@@ -452,8 +466,18 @@ class LeRobotBinPackDataConfig(DataConfigFactory):
         # so (pos(7) + eef(7)) becomes (pos(7) + eef(10)) = 17 dims.
         _ROT6D_SLICE = slice(10, 16)  # indices of rot6d inside the 17D state/action vector
 
+        input_transforms: list[_transforms.DataTransformFn] = []
+        if self.use_control_mode_advantage_prompt:
+            input_transforms.append(
+                _transforms.InjectAdvantagePrompt(
+                    mode=self.advantage_prompt_mode,
+                    default_prompt=self.default_prompt,
+                )
+            )
+        input_transforms.append(bin_pack_policy.BinPackInputs())
+
         data_transforms = _transforms.Group(
-            inputs=[bin_pack_policy.BinPackInputs()],
+            inputs=input_transforms,
             # Slice to the 17D "semantic" action, then decode rot6d back to RPY for downstream consumers.
             outputs=[bin_pack_policy.BinPackOutputs(action_dim=17, output_rpy=True)],
         )
@@ -518,6 +542,62 @@ class LeRobotBinPackDataConfig(DataConfigFactory):
             data_transforms=data_transforms,
             model_transforms=model_transforms,
             action_sequence_keys=("action.pos", "action.eef_pose"),
+            use_per_timestep_action_norm=use_per_timestep_action_norm,
+        )
+
+
+@dataclasses.dataclass(frozen=True)
+class LeRobotBlockTowerDataConfig(DataConfigFactory):
+    """Data config for build_block_tower datasets (LeRobot v2.1 format).
+
+    State and actions are both 7D joint-space (no EEF actions in this dataset).
+    Delta actions work naturally since dimensions match.
+    """
+
+    default_prompt: str | None = "build a block tower"
+    use_control_mode_advantage_prompt: bool = False
+    advantage_prompt_mode: Literal["positive_only", "mixed"] = "mixed"
+    use_delta_actions: bool = False
+    delta_action_mask: Sequence[bool] | None = None
+    output_delta_actions: bool = False
+
+    @override
+    def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
+        input_transforms: list[_transforms.DataTransformFn] = []
+        if self.use_control_mode_advantage_prompt:
+            input_transforms.append(
+                _transforms.InjectAdvantagePrompt(
+                    mode=self.advantage_prompt_mode,
+                    default_prompt=self.default_prompt,
+                )
+            )
+        input_transforms.append(block_tower_policy.BlockTowerInputs())
+
+        data_transforms = _transforms.Group(
+            inputs=input_transforms,
+            outputs=[block_tower_policy.BlockTowerOutputs(action_dim=7)],
+        )
+        if self.use_delta_actions:
+            delta_action_mask = self.delta_action_mask
+            output_transforms = []
+            if not self.output_delta_actions:
+                output_transforms.append(_transforms.AbsoluteActionsFromState(delta_action_mask))
+            data_transforms = data_transforms.push(
+                inputs=[_transforms.DeltaActionsFromState(delta_action_mask)],
+                outputs=output_transforms,
+            )
+
+        model_transforms = ModelTransformFactory(default_prompt=self.default_prompt)(model_config)
+        base_config = self.create_base_config(assets_dirs, model_config)
+
+        use_per_timestep_action_norm = base_config.use_per_timestep_action_norm
+        if self.use_delta_actions and use_per_timestep_action_norm is None:
+            use_per_timestep_action_norm = True
+        return dataclasses.replace(
+            base_config,
+            data_transforms=data_transforms,
+            model_transforms=model_transforms,
+            action_sequence_keys=("action",),
             use_per_timestep_action_norm=use_per_timestep_action_norm,
         )
 
@@ -783,6 +863,10 @@ class TrainConfig:
 
     # How often (in steps) to log training metrics.
     log_interval: int = 100
+    # How often (in steps) to run validation when a validation split is enabled.
+    val_interval: int | None = None
+    # Number of validation batches to average when validation is enabled.
+    val_num_batches: int = 10
     # How often (in steps) to save checkpoints.
     save_interval: int = 1000
     # If set, any existing checkpoints matching step % keep_period == 0 will not be deleted.
@@ -1035,9 +1119,7 @@ _CONFIGS = [
                 inputs=[droid_policy.DroidInputs(model_type=ModelType.PI0)],
                 outputs=[droid_policy.DroidOutputs()],
             ),
-            base_config=DataConfig(
-                prompt_from_task=True,
-            ),
+            base_config=DataConfig(prompt_from_task=True),
         ),
     ),
     TrainConfig(
@@ -1049,9 +1131,7 @@ _CONFIGS = [
                 inputs=[droid_policy.DroidInputs(model_type=ModelType.PI0_FAST)],
                 outputs=[droid_policy.DroidOutputs()],
             ),
-            base_config=DataConfig(
-                prompt_from_task=True,
-            ),
+            base_config=DataConfig(prompt_from_task=True),
         ),
     ),
     TrainConfig(
@@ -1063,9 +1143,7 @@ _CONFIGS = [
                 inputs=[droid_policy.DroidInputs(model_type=ModelType.PI05)],
                 outputs=[droid_policy.DroidOutputs()],
             ),
-            base_config=DataConfig(
-                prompt_from_task=True,
-            ),
+            base_config=DataConfig(prompt_from_task=True),
         ),
     ),
     #
@@ -1088,12 +1166,7 @@ _CONFIGS = [
         # Also modify the DataConfig to use the new config you made for your dataset above.
         data=LeRobotLiberoDataConfig(
             repo_id="physical-intelligence/libero",
-            base_config=DataConfig(
-                # This flag determines whether we load the prompt (i.e. the task instruction) from the
-                # ``task`` field in the LeRobot dataset. If set to True, the prompt will show up in
-                # a field called ``prompt`` in the input dict. The recommended setting is True.
-                prompt_from_task=True,
-            ),
+            base_config=DataConfig(prompt_from_task=True),
             extra_delta_transform=True,
         ),
         # Here you define which pre-trained checkpoint you want to load to initialize the model.
@@ -1279,6 +1352,213 @@ _CONFIGS = [
         ema_decay=0.999,
         weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
         num_train_steps=30_000,
+    ),
+    # Reward recap bootstrap configs for bin-pack.
+    # "from_base" variants start from pi05 base weights.
+    # The others resume from an existing task-trained bin-pack checkpoint.
+    TrainConfig(
+        name="pi05_bin_pack_coffee_capsules_reward_recap_positive_only_from_base",
+        model=pi0_config.Pi0Config(pi05=True, action_horizon=50),
+        data=LeRobotBinPackDataConfig(
+            repo_id=(
+                "["
+                "villekuosmanen/bin_pick_pack_coffee_capsules, "
+                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.0.0, "
+                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.1.0, "
+                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.2.0, "
+                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.3.1, "
+                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.4.0, "
+                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.5.0, "
+                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.5.1, "
+                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.7.0"
+                "]"
+            ),
+            base_config=DataConfig(prompt_from_task=True),
+            use_control_mode_advantage_prompt=True,
+            advantage_prompt_mode="positive_only",
+            use_delta_actions=True,
+            output_delta_actions=True,
+        ),
+        batch_size=36,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=10_000,
+            peak_lr=5e-5,
+            decay_steps=1_000_000,
+            decay_lr=5e-5,
+        ),
+        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
+        ema_decay=0.999,
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
+        num_train_steps=100_000,
+    ),
+    TrainConfig(
+        name="pi05_bin_pack_coffee_capsules_reward_recap_mixed_from_base",
+        model=pi0_config.Pi0Config(pi05=True, action_horizon=50),
+        data=LeRobotBinPackDataConfig(
+            repo_id=(
+                "["
+                "villekuosmanen/bin_pick_pack_coffee_capsules, "
+                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.0.0, "
+                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.1.0, "
+                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.2.0, "
+                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.3.1, "
+                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.4.0, "
+                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.5.0, "
+                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.5.1, "
+                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.7.0"
+                "]"
+            ),
+            base_config=DataConfig(prompt_from_task=True),
+            use_control_mode_advantage_prompt=True,
+            advantage_prompt_mode="mixed",
+            use_delta_actions=True,
+            output_delta_actions=True,
+        ),
+        batch_size=36,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=10_000,
+            peak_lr=5e-5,
+            decay_steps=1_000_000,
+            decay_lr=5e-5,
+        ),
+        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
+        ema_decay=0.999,
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
+        num_train_steps=100_000,
+    ),
+    TrainConfig(
+        name="pi05_bin_pack_coffee_capsules_reward_recap_positive_only",
+        model=pi0_config.Pi0Config(pi05=True, action_horizon=50),
+        data=LeRobotBinPackDataConfig(
+            repo_id=(
+                "["
+                "villekuosmanen/bin_pick_pack_coffee_capsules, "
+                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.0.0, "
+                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.1.0, "
+                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.2.0, "
+                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.3.1, "
+                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.4.0, "
+                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.5.0, "
+                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.5.1, "
+                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.7.0"
+                "]"
+            ),
+            base_config=DataConfig(prompt_from_task=True),
+            use_control_mode_advantage_prompt=True,
+            advantage_prompt_mode="positive_only",
+            use_delta_actions=True,
+            output_delta_actions=True,
+        ),
+        batch_size=36,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=10_000,
+            peak_lr=5e-5,
+            decay_steps=1_000_000,
+            decay_lr=5e-5,
+        ),
+        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
+        ema_decay=0.999,
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_bin_pack_coffee_capsules_delta_single_dataset/1_dataset/29999/params"
+        ),
+        num_train_steps=100_000,
+    ),
+    TrainConfig(
+        name="pi05_bin_pack_coffee_capsules_reward_recap_mixed",
+        model=pi0_config.Pi0Config(pi05=True, action_horizon=50),
+        data=LeRobotBinPackDataConfig(
+            repo_id=(
+                "["
+                "villekuosmanen/bin_pick_pack_coffee_capsules, "
+                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.0.0, "
+                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.1.0, "
+                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.2.0, "
+                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.3.1, "
+                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.4.0, "
+                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.5.0, "
+                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.5.1, "
+                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.7.0"
+                "]"
+            ),
+            base_config=DataConfig(prompt_from_task=True),
+            use_control_mode_advantage_prompt=True,
+            advantage_prompt_mode="mixed",
+            use_delta_actions=True,
+            output_delta_actions=True,
+        ),
+        batch_size=36,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=10_000,
+            peak_lr=5e-5,
+            decay_steps=1_000_000,
+            decay_lr=5e-5,
+        ),
+        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
+        ema_decay=0.999,
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_bin_pack_coffee_capsules_delta_single_dataset/1_dataset/29999/params"
+        ),
+        num_train_steps=100_000,
+    ),
+    #
+    # Build block tower configs.
+    #
+    TrainConfig(
+        name="pi05_build_block_tower_baseline",
+        model=pi0_config.Pi0Config(pi05=True, action_horizon=50),
+        data=LeRobotBlockTowerDataConfig(
+            repo_id=(
+                "["
+                "villekuosmanen/build_block_tower"
+                "]"
+            ),
+            base_config=DataConfig(prompt_from_task=True),
+            use_delta_actions=True,
+            output_delta_actions=True,
+        ),
+        batch_size=36,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=10_000,
+            peak_lr=5e-5,
+            decay_steps=1_000_000,
+            decay_lr=5e-5,
+        ),
+        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
+        ema_decay=0.999,
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
+        num_train_steps=100_000,
+    ),
+    TrainConfig(
+        name="pi05_build_block_tower_dyna",
+        model=pi0_config.Pi0Config(pi05=True, action_horizon=50),
+        data=LeRobotBlockTowerDataConfig(
+            repo_id=(
+                "["
+                "villekuosmanen/build_block_tower, "
+                "villekuosmanen/dAgger_build_block_tower_1.0.0, "
+                "villekuosmanen/dAgger_build_block_tower_1.1.0, "
+                "villekuosmanen/dAgger_build_block_tower_1.2.0, "
+                "villekuosmanen/dAgger_build_block_tower_1.3.0, "
+                "villekuosmanen/dAgger_build_block_tower_1.4.0"
+                "]"
+            ),
+            base_config=DataConfig(prompt_from_task=True),
+            use_control_mode_advantage_prompt=True,
+            advantage_prompt_mode="positive_only",
+            use_delta_actions=True,
+            output_delta_actions=True,
+        ),
+        batch_size=36,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=10_000,
+            peak_lr=5e-5,
+            decay_steps=1_000_000,
+            decay_lr=5e-5,
+        ),
+        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
+        ema_decay=0.999,
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
+        num_train_steps=100_000,
     ),
     #
     # Fine-tuning Aloha configs.
@@ -1524,8 +1804,90 @@ _CONFIGS = [
         wandb_enabled=True,
     ),
     #
+    # RL Token (RLT Stage 1) configs.
+    #
+    TrainConfig(
+        name="pi05_rl_token_build_block_tower",
+        model=pi0_rl_config.Pi0RLConfig(pi05=True, action_horizon=50, rl_vla_loss_weight=0.0),
+        data=LeRobotBlockTowerDataConfig(
+            repo_id=(
+                "["
+                "villekuosmanen/build_block_tower"
+                "]"
+            ),
+            base_config=DataConfig(
+                prompt_from_task=True,
+                episode_split=EpisodeSplitConfig(val_ratio=0.1, seed=42),
+            ),
+            use_delta_actions=True,
+            output_delta_actions=True,
+        ),
+        batch_size=36,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=5e-5,
+            decay_steps=10_000,
+            decay_lr=5e-5,
+        ),
+        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
+        ema_decay=0.999,
+        freeze_filter=pi0_rl_config.Pi0RLConfig(
+            pi05=True, action_horizon=50, rl_vla_loss_weight=0.0
+        ).get_rl_freeze_filter(),
+        weight_loader=weight_loaders.RLTokenCheckpointWeightLoader(
+            "checkpoints/pi05_build_block_tower_baseline/baseline_v1/55000/params"
+        ),
+        num_train_steps=10_000,
+        val_interval=1000,
+        val_num_batches=10,
+    ),
+    TrainConfig(
+        name="pi05_rl_token_bin_pack_coffee_capsules",
+        model=pi0_rl_config.Pi0RLConfig(pi05=True, action_horizon=50),
+        data=LeRobotBinPackDataConfig(
+            repo_id=(
+                "["
+                "villekuosmanen/bin_pick_pack_coffee_capsules, "
+                "villekuosmanen/bin_pick_pack_coffee_capsules_continuous, "
+                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.0.0, "
+                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.1.0, "
+                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.2.0, "
+                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.3.1, "
+                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.4.0, "
+                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.5.0, "
+                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.5.1, "
+                "villekuosmanen/free_play_bin_pick_pack_coffee_capsules"
+                "]"
+            ),
+            base_config=DataConfig(prompt_from_task=True),
+        ),
+        batch_size=1,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=5e-5,
+            decay_steps=100_000,
+            decay_lr=5e-5,
+        ),
+        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
+        ema_decay=0.999,
+        weight_loader=weight_loaders.RLTokenCheckpointWeightLoader(
+            "gs://openpi-assets/checkpoints/pi05_base/params"
+        ),
+        num_train_steps=10_000,
+    ),
+    #
     # Debugging configs.
     #
+    TrainConfig(
+        name="debug_pi0_rl",
+        model=pi0_rl_config.Pi0RLConfig(pi05=True, paligemma_variant="dummy", action_expert_variant="dummy"),
+        data=FakeDataConfig(),
+        batch_size=2,
+        num_train_steps=10,
+        overwrite=True,
+        exp_name="debug_pi0_rl",
+        wandb_enabled=False,
+    ),
     TrainConfig(
         name="debug",
         data=FakeDataConfig(),

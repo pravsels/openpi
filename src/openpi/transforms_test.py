@@ -85,6 +85,46 @@ def test_tokenize_no_prompt():
         transform({})
 
 
+def test_inject_advantage_prompt_marks_policy_negative():
+    transform = _transforms.InjectAdvantagePrompt()
+
+    data = transform({"prompt": np.asarray("pick up the fork"), "control_mode": np.asarray("policy")})
+
+    assert data["prompt"] == "pick up the fork. Advantage: negative"
+
+
+def test_inject_advantage_prompt_treats_unknown_as_positive():
+    transform = _transforms.InjectAdvantagePrompt()
+
+    data = transform({"prompt": "pick up the fork", "control_mode": "unknown"})
+
+    assert data["prompt"] == "pick up the fork. Advantage: positive"
+
+
+def test_inject_advantage_prompt_positive_only_skips_policy():
+    transform = _transforms.InjectAdvantagePrompt(mode="positive_only")
+
+    result = transform({"prompt": "pick up the fork", "control_mode": "policy"})
+
+    assert result is None
+
+
+def test_inject_advantage_prompt_positive_only_keeps_human():
+    transform = _transforms.InjectAdvantagePrompt(mode="positive_only")
+
+    data = transform({"prompt": "pick up the fork", "control_mode": "human"})
+
+    assert data["prompt"] == "pick up the fork. Advantage: positive"
+
+
+def test_inject_advantage_prompt_positive_only_missing_control_mode():
+    transform = _transforms.InjectAdvantagePrompt(mode="positive_only")
+
+    data = transform({"prompt": "pick up the fork"})
+
+    assert data["prompt"] == "pick up the fork. Advantage: positive"
+
+
 def test_transform_dict():
     # Rename and remove keys.
     input = {"a": {"b": 1, "c": 2}}

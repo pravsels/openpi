@@ -38,9 +38,7 @@ def get_roboarena_configs():
                     inputs=[droid_policy.DroidInputs(action_dim=model.action_dim, model_type=ModelType.PI0_FAST)],
                     outputs=[droid_policy.DroidOutputs()],
                 ),
-                base_config=DataConfig(
-                    prompt_from_task=True,
-                ),
+                base_config=DataConfig(prompt_from_task=True),
             ),
         ),
         TrainConfig(
@@ -53,9 +51,7 @@ def get_roboarena_configs():
                     inputs=[droid_policy.DroidInputs(action_dim=model.action_dim, model_type=ModelType.PI0_FAST)],
                     outputs=[droid_policy.DroidOutputs()],
                 ),
-                base_config=DataConfig(
-                    prompt_from_task=True,
-                ),
+                base_config=DataConfig(prompt_from_task=True),
             ),
         ),
         TrainConfig(
@@ -73,9 +69,7 @@ def get_roboarena_configs():
                     inputs=[droid_policy.DroidInputs(action_dim=model.action_dim, model_type=ModelType.PI0_FAST)],
                     outputs=[droid_policy.DroidOutputs()],
                 ),
-                base_config=DataConfig(
-                    prompt_from_task=True,
-                ),
+                base_config=DataConfig(prompt_from_task=True),
             ),
         ),
         TrainConfig(
@@ -93,9 +87,7 @@ def get_roboarena_configs():
                     inputs=[droid_policy.DroidInputs(action_dim=model.action_dim, model_type=ModelType.PI0_FAST)],
                     outputs=[droid_policy.DroidOutputs()],
                 ),
-                base_config=DataConfig(
-                    prompt_from_task=True,
-                ),
+                base_config=DataConfig(prompt_from_task=True),
             ),
         ),
         TrainConfig(
@@ -108,9 +100,7 @@ def get_roboarena_configs():
                     inputs=[droid_policy.DroidInputs(action_dim=model.action_dim)],
                     outputs=[droid_policy.DroidOutputs()],
                 ),
-                base_config=DataConfig(
-                    prompt_from_task=True,
-                ),
+                base_config=DataConfig(prompt_from_task=True),
             ),
         ),
     ]

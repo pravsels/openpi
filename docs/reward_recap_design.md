@@ -21,12 +21,14 @@ Our north star is the RECAP idea from the paper:
 However, we are making one deliberate architectural change:
 
 - we are **not** training a separate value function
-- we are using Robometer as the source of quality / progress signal instead
+- the long-term target uses Robometer as the source of quality / progress signal instead
 
 So this document should be read as:
 
 - paper RECAP as the conceptual reference
 - `reward_recap` as our intentionally modified implementation
+- the long-term target design uses Robometer-based labeling
+- the first bootstrap experiment for `bin_pick_pack` uses control-mode metadata to assign labels
 
 Instead of using the paper’s value-function stage, we want to use an existing reward model from
 `../robometer` that already produces:
@@ -52,6 +54,11 @@ The intended picture is:
   - run Robometer on trajectory chunks
   - derive future-gain scores from the coarse Robometer progress trajectory
   - threshold those scores into binary improvement indicator `I_t`
+  - train policy conditioned on `I_t`
+- `reward_recap` bootstrap for `bin_pick_pack`:
+  - read per-episode control-mode annotations
+  - assign `I_t = 0` only for chunks explicitly marked `mode: policy`
+  - assign `I_t = 1` for everything else
   - train policy conditioned on `I_t`
 
 So the main change is:
@@ -207,18 +214,19 @@ We expect to have several types of trajectories:
 This matters because the relabeling pipeline should work across mixed-quality data from multiple
 sources.
 
-Even though version 1 does **not** force labels from source metadata, we still expect these sources
-to contain very different behavior patterns:
+Even though the long-term design does **not** force labels from source metadata, we still expect
+these sources to contain very different behavior patterns:
 
 - expert data is often cleaner and more goal-directed
 - autonomous rollouts can include both progress and regressions
 - DAgger-style data may contain both failure drift and recovery behavior
 - external failure data may look very different from in-distribution success data
 
-So `reward_recap` must be:
+So `reward_recap` has two layers:
 
-- reward-model driven
-- with labels derived from Robometer outputs alone
+- long-term target: reward-model driven, with labels derived from Robometer outputs
+- first `bin_pick_pack` bootstrap: metadata driven, with labels derived from explicit control-mode
+  spans
 - with optional human curation to exclude data where the Robometer reward curves look untrustworthy
 
 ## 5. Core Decision: Chunk-Level Labels, Not Episode-Level Labels
@@ -387,16 +395,87 @@ So in version 1:
 
 There is no ignored middle bucket in this design.
 
+### 7.4 Bootstrap simplification for `bin_pick_pack`
+
+For the first implementation on `bin_pick_pack`, we are intentionally using a simpler labeler
+before integrating Robometer.
+
+In this bootstrap experiment, `I_t` is derived from control-mode metadata rather than from
+Robometer scores.
+
+Preferred source of control-mode labels:
+
+- first, read the per-sample `control_mode` field exposed by the `robocandywrapper`
+  `ControlModePlugin`
+- if that field is unavailable or unreliable for a given dataset version, fall back to raw
+  per-episode mode-span metadata
+
+This is preferable because it lets the starter implementation consume the same wrapped dataset path
+already used by training, instead of duplicating control-mode parsing immediately.
+
+Fallback raw annotation format:
+
+```json
+{
+  "0": [
+    {"start_index": 0, "end_index": 190, "mode": "policy"},
+    {"start_index": 191, "end_index": 242, "mode": "human"},
+    {"start_index": 243, "end_index": 318, "mode": "policy"}
+  ]
+}
+```
+
+Bootstrap labeling rule:
+
+- if `control_mode == "policy"`, assign `I_t = 0` and use `"Advantage: negative"`
+- if `control_mode == "human"`, assign `I_t = 1` and use `"Advantage: positive"`
+- if `control_mode` is missing, unknown, or there is no matching fallback mode span, assign
+  `I_t = 1`
+- equivalently: anything not explicitly marked `"policy"` is treated as advantage-positive
+
+Bootstrap experiment split:
+
+- run A: positive-only conditioning
+  - force every training example to `"Advantage: positive"`
+  - do not use negative conditioning at all
+- run B: mixed positive / negative conditioning
+  - use the bootstrap labeling rule above
+  - `policy` becomes negative, everything else becomes positive
+
+For a clean comparison between the two runs:
+
+- use the same dataset
+- use the same starting checkpoint
+- change only the label-assignment rule
+
+Recommended alignment rule for the starter implementation:
+
+- preferred path: use the `control_mode` value already attached to the training sample by the
+  plugin
+- fallback path: determine the label from the chunk's start index and look up the raw mode span
+  covering that start index
+- default to positive when there is no explicit `policy` signal
+
+This reflects the initial working assumption for the bootstrap experiment:
+
+- human teleoperation is advantage-positive
+- unlabeled data is assumed to be teleoperated and therefore advantage-positive
+- only behavior explicitly marked as policy-generated is advantage-negative
+
 ## 8. Role Of Metadata
 
-Source metadata may still be stored in the relabeled dataset, but in version 1 it is **not** part
-of the labeling rule.
+For the long-term Robometer design, source metadata is not part of the labeling rule.
+
+However, for the first `bin_pick_pack` bootstrap experiment, control-mode metadata **is** part of
+the labeling rule, preferably via the plugin-exposed `control_mode` field and otherwise via
+explicit control-mode spans.
 
 That means:
 
-- the policy never sees source metadata directly
-- the labeler does not force labels based on source type
-- demos, corrections, successes, and failures are all labeled from Robometer outputs alone
+- the policy still does not see raw metadata directly
+- the policy only sees the binary prompt condition
+- the bootstrap labeler does force labels from control-mode metadata
+- specifically, explicit `mode: policy` means negative and everything else means positive
 
 We still keep source metadata because it is useful for:
 
@@ -407,32 +486,42 @@ We still keep source metadata because it is useful for:
 ## 9. Proposed Training Recipe
 
 The training recipe should preserve the useful parts of RECAP while replacing the value-function
-stage with Robometer-based offline labeling.
+stage with offline labeling. The long-term target uses Robometer; the first `bin_pick_pack`
+bootstrap uses control-mode metadata.
 
 ### Stage 0: Offline relabeling
 
 1. collect all trajectory sources
-2. run Robometer over episode segments, obtaining a 16-step coarse score trajectory for each segment
-3. save the subsampled frame indices used to build that trajectory
-4. write out:
-   - Robometer progress trajectory `r_0, ..., r_T`
-   - optional success trajectory
-   - future-gain scores `g_t^(H)`
+2. for the first `bin_pick_pack` experiment, load control mode from the dataset/plugin path
+3. if the plugin field is unavailable, fall back to per-episode control-mode annotations
+4. assign `I_t` with the bootstrap rule:
+   - explicit `control_mode == "policy"` -> `I_t = 0`
+   - anything else -> `I_t = 1`
+5. write out:
    - `I_t`
    - source metadata
+   - plugin-derived or fallback mode metadata used to derive the label
+6. later, replace this bootstrap labeler with Robometer-based relabeling
 
 This stage should be a preprocessing step, not on-the-fly training logic.
 
-### Stage 1: Policy warmup / SFT
+### Stage 1: Initialize from an existing task-trained checkpoint
 
 Purpose:
 
-- establish the base action manifold
-- avoid making the model solve the conditional problem before it knows the task
+- start from a `pi05` checkpoint that was already trained normally for the target task
+- examples include a task specialist such as `bin_pick_pack`
+- use that existing task policy as the initialization for `reward_recap`
 
-### Stage 2: Conditioned training
+Version-1 assumption:
 
-Train the policy with the binary label `I_t` on all relabeled coarse intervals.
+- do **not** plan around a separate warmup / SFT phase
+- the existing task-trained checkpoint already plays that role
+
+### Stage 2: Advantage-conditioned fine-tuning
+
+Train the policy with the binary label `I_t` on all relabeled coarse intervals, starting from the
+existing task-trained checkpoint from Stage 1.
 
 At this stage:
 
@@ -504,6 +593,39 @@ For `reward_recap`, use the same wording:
 `../exla_openpi/src/fla/recap/pi0_recap.py` can still be consulted as a reference point, but it is
 not the spec.
 
+### Decision: use the original `pi05` prompt path
+
+For version 1, we are explicitly targeting the original open-source `pi05` conditioning path in
+upstream `openpi`, not the later subtask / high-low prompt / FAST-token training extensions that
+were added in this fork.
+
+That means:
+
+- use the standard `prompt` field
+- use the standard `ModelTransformFactory` path for `ModelType.PI05`
+- use `_transforms.TokenizePrompt(...)`
+- do **not** use `SubtaskModelTransformFactory`
+- do **not** use `TokenizeHighLowPrompt(...)`
+- do **not** use FAST-token training machinery as part of `reward_recap` conditioning
+
+The practical implication is:
+
+- version 1 does **not** need a new reward-conditioned `pi05` model architecture
+- version 1 should inject the condition as plain text into the existing `pi05` prompt path
+
+Concrete prompt form for version 1:
+
+- positive: `<task prompt>. Advantage: positive`
+- negative: `<task prompt>. Advantage: negative`
+
+So the condition is still represented with the paper-aligned strings:
+
+- `"Advantage: positive"`
+- `"Advantage: negative"`
+
+but it is carried through the ordinary `pi05` prompt-tokenization path rather than any later
+hierarchical prompt path.
+
 ## 11. Concrete Implementation Plan
 
 This section is intentionally low-level enough that an engineer should be able to turn it
@@ -519,18 +641,19 @@ Candidate name:
 
 - `scripts/label_reward_recap.py`
 
-Responsibilities:
+Responsibilities for the first implementation:
 
-1. load trajectories from all configured sources
-2. run Robometer over episode segments or clips
-3. call Robometer inference
-4. collect the coarse score trajectory and sampled frame indices
-5. compute `g_t^(H)`
-6. apply the threshold rule
-7. assign `I_t`
-8. save relabeled dataset or per-interval metadata
+1. load trajectories from `bin_pick_pack`
+2. read `control_mode` from the `robocandywrapper` plugin output when available
+3. fall back to per-episode control-mode annotations only when the plugin signal is unavailable
+4. assign `I_t` from control mode
+5. save relabeled dataset or per-interval metadata
 
-### 11.2 Robometer adapter
+Later extension:
+
+6. replace or augment the metadata labeler with Robometer inference
+
+### 11.2 Robometer adapter (later, not first pass)
 
 Likely wrap or reuse:
 
@@ -550,6 +673,9 @@ Responsibilities:
   - coarse success trajectory
   - sampled frame indices
 
+This adapter is part of the long-term target design, but it is **not** required for the first
+`bin_pick_pack` bootstrap implementation.
+
 ### 11.3 Labeling logic
 
 Create:
@@ -558,29 +684,69 @@ Create:
 
 Responsibilities:
 
-- compute `g_t^(H)` from the Robometer coarse trajectory
-- implement the threshold rule
+- first pass: map mode spans to `I_t`
+- implement the bootstrap rule:
+  - explicit `mode: policy` -> negative
+  - anything else -> positive
+- later: compute `g_t^(H)` from the Robometer coarse trajectory
+- later: implement the threshold rule for Robometer labels
 - export `I_t`
 
 This module should contain the exact labeling rules in one place.
 
 ### 11.4 Policy conditioning
 
-The policy should follow the paper’s conditioning interface as closely as possible:
+Version 1 should reuse the existing `pi05` model and prompt pipeline rather than introduce a new
+reward-conditioned model file.
 
-1. represent the indicator as text
-2. insert it into the token sequence before action prediction
-3. condition action prediction on that indicator
+Do **not** do the following in version 1:
 
-Candidate location:
+- do **not** create `src/openpi/reward_recap/pi0_reward_recap.py`
+- do **not** modify `src/openpi/models/pi05.py` to add a new conditioning branch
+- do **not** route reward conditioning through `TokenizeHighLowPrompt(...)`
+- do **not** use the subtask / FAST-token training path for `reward_recap`
 
-- `src/openpi/reward_recap/pi0_reward_recap.py`
+Instead, make the condition flow through the existing prompt path.
 
-Specifically:
+#### Exact change we will make
 
-- create `"Advantage: positive"` / `"Advantage: negative"` prompt fragments
-- ensure they appear in the correct part of the policy input sequence
-- keep action prediction conditioned on that indicator, per the paper
+1. In `src/openpi/transforms.py`, add a small input transform, e.g. `InjectAdvantagePrompt`, that:
+   - reads the raw task `prompt`
+   - reads the relabeled binary indicator `I_t`
+   - rewrites the prompt text to append exactly one of:
+     - `"Advantage: positive"`
+     - `"Advantage: negative"`
+2. The recommended rewrite rule is:
+   - base prompt `pick up the fork` -> `pick up the fork. Advantage: positive`
+   - base prompt `pick up the fork` -> `pick up the fork. Advantage: negative`
+3. In `src/openpi/training/config.py`, add a reward-recap-specific transform path for
+   `ModelType.PI05` that inserts `InjectAdvantagePrompt` immediately before
+   `_transforms.TokenizePrompt(...)` in the standard `ModelTransformFactory` prompt pipeline.
+4. In `scripts/label_reward_recap.py`, for the starter `bin_pick_pack` experiment:
+   - first read `control_mode` from the `robocandywrapper` plugin field already present on the
+     dataset sample
+   - if that field is missing or unusable, fall back to the raw mode-span JSON
+   - support two modes:
+     - positive-only: assign `I_t = 1` for every example
+     - mixed: assign `I_t = 0` only for examples explicitly marked `policy`, otherwise `I_t = 1`
+5. In `scripts/train_reward_recap.py`, ensure each relabeled training example carries that binary
+   label and feeds it into the prompt-rewrite transform.
+6. In the relabeled dataset writer / loader, store the binary label as a dataset field, but do not
+   expose raw mode metadata or Robometer scalars directly to the policy.
+
+Resulting data flow:
+
+```text
+prompt + I_t -> InjectAdvantagePrompt -> TokenizePrompt -> tokenized_prompt -> existing pi05 model
+```
+
+Important non-changes for version 1:
+
+- `src/openpi/models/tokenizer.py`: no new high/low prompt path for `reward_recap`
+- `src/openpi/models/pi05.py`: no model-architecture change for `reward_recap`
+- `src/openpi/models/pi05.py`: keep the existing flow-matching action head
+- `src/openpi/training/config.py`: continue to use the standard `ModelTransformFactory`, not the
+  subtask-specific factory, for `reward_recap`
 
 ### 11.5 Training entrypoint
 
@@ -592,10 +758,11 @@ Candidate:
 
 Phases:
 
-1. load Robometer-relabeled data with `I_t`
-2. warmup / SFT policy stage
-3. conditioned policy training
-4. save checkpoints
+1. load `bin_pick_pack` data relabeled with `I_t`
+2. load an existing task-trained `pi05` checkpoint for the target task
+3. run the positive-only conditioning experiment
+4. run the mixed positive / negative conditioning experiment
+5. save checkpoints
 
 ## 12. Expected Dataset Semantics
 
@@ -615,18 +782,22 @@ Each row should contain something like:
   - autonomous_success
   - autonomous_failure
   - external_failure
-- raw reward-model outputs:
+- optional raw reward-model outputs for later Robometer integration:
   - coarse Robometer progress trajectory
   - optional coarse success trajectory
+- optional control-mode metadata:
+  - plugin-derived `control_mode` when available
+  - per-episode spans with `start_index`, `end_index`, and `mode`
 - derived fields:
-  - `g_t^(H)`
+  - optional `g_t^(H)` when using the Robometer labeler
   - `I_t`
 
 This makes the system reproducible and auditable.
 
 ## 13. Open Questions
 
-These are follow-up questions. They should not block a version-1 implementation.
+These are follow-up questions for the longer-term Robometer-based design. They should not block the
+current metadata-bootstrap implementation for `bin_pick_pack`.
 
 ### Q1. Exactly how should the score be defined?
 
@@ -659,26 +830,36 @@ Current recommendation:
 
 Current answer:
 
-- no
-- demos, corrections, and failures are labeled from Robometer outputs the same way as other data
+- long-term Robometer design: no
+- first `bin_pick_pack` bootstrap: yes, intentionally
+- explicit `mode: policy` is negative
+- anything else is positive
 
 ## 14. Recommended First Experiment
 
-The first implementable version is exactly the version-1 design above:
+The first implementable version is the bootstrap version described above:
 
-1. run Robometer offline to produce a `16`-step coarse trajectory
-2. compute `g_t^(H)` with default `H = -1`
-3. derive `epsilon_task` from a quantile of the `g_t^(H)` distribution
-4. threshold into `I_t`
-5. train warmup, then conditioned policy training
-6. evaluate success rate, recovery behavior, and whether negative conditioning suppresses bad chunks
+1. start from an existing task-trained `pi05` checkpoint for `bin_pick_pack`
+2. load the per-episode control-mode annotations
+3. run experiment A with every sample forced to `"Advantage: positive"`
+4. run experiment B with the default-positive bootstrap rule:
+   - explicit `mode: policy` -> negative
+   - anything else -> positive
+5. inject `"Advantage: positive"` / `"Advantage: negative"` into the ordinary `pi05` prompt path
+6. fine-tune the same starting checkpoint for both runs
+7. keep the underlying `pi05` architecture unchanged
+8. compare positive-only vs mixed conditioning
+9. after this bootstrap works, replace the metadata labeler with the Robometer labeler
 
 ## 15. Bottom Line
 
 `reward_recap` is a RECAP-inspired conditioning method that replaces the paper’s value-function
-stage with Robometer-based offline labeling. Version 1 operates on the 16-step coarse Robometer
-trajectory, computes future-gain scores `g_t^(H)` with default `H = -1`, thresholds those scores
-into binary labels `I_t`, and uses those labels for policy conditioning.
+stage with offline labels used to drive binary policy conditioning. The long-term target design uses
+Robometer-based labels. The first `bin_pick_pack` bootstrap experiment instead uses control-mode
+metadata, treating anything not explicitly marked `mode: policy` as advantage-positive. For `pi05`,
+the bootstrap version starts from an existing task-trained checkpoint, reuses the original upstream
+prompt path, injects `"Advantage: positive"` / `"Advantage: negative"` into the prompt via a data
+transform, and keeps the underlying model architecture unchanged.
 
 ## References
 
@@ -690,3 +871,4 @@ into binary labels `I_t`, and uses those labels for policy conditioning.
 - `../robometer/scripts/example_libero_robometer_wrapper.py`
 - `../exla_openpi/src/fla/recap/pi0_recap.py`
 - `../exla_openpi/scripts/train_recap_full.py`
+- [Physical-Intelligence/openpi](https://github.com/Physical-Intelligence/openpi)

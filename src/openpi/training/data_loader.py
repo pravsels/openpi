@@ -5,6 +5,7 @@ import math
 import multiprocessing
 import os
 import pathlib
+import random
 import typing
 from typing import Literal, Protocol, SupportsIndex, TypeVar
 
@@ -41,6 +42,7 @@ def _coerce_task_mapping(tasks) -> dict[int, str]:
 import openpi.models.model as _model
 import openpi.shared.normalize as _normalize
 import openpi.training.config as _config
+import openpi.training.dataset_split as _dataset_split
 from openpi.training.droid_rlds_dataset import DroidRldsDataset
 import openpi.transforms as _transforms
 
@@ -82,9 +84,22 @@ class TransformedDataset(Dataset[T_co]):
     def __init__(self, dataset: Dataset, transforms: Sequence[_transforms.DataTransformFn]):
         self._dataset = dataset
         self._transform = _transforms.compose(transforms)
+        self._rng = random.Random(0)
 
     def __getitem__(self, index: SupportsIndex) -> T_co:
-        return self._transform(self._dataset[index])
+        result = self._transform(self._dataset[index])
+        max_retries = 100
+        retries = 0
+        while result is None:
+            if retries >= max_retries:
+                raise RuntimeError(
+                    f"TransformedDataset: {max_retries} consecutive samples filtered out. "
+                    "Check that the dataset contains samples that pass the transform filters."
+                )
+            index = self._rng.randint(0, len(self._dataset) - 1)
+            result = self._transform(self._dataset[index])
+            retries += 1
+        return result
 
     def __len__(self) -> int:
         return len(self._dataset)
@@ -155,6 +170,18 @@ class FakeDataset(Dataset):
         return self._num_samples
 
 
+class IndexedDataset(Dataset[T_co]):
+    def __init__(self, dataset: Dataset[T_co], indices: Sequence[int]):
+        self._dataset = dataset
+        self._indices = list(indices)
+
+    def __getitem__(self, index: SupportsIndex) -> T_co:
+        return self._dataset[self._indices[index.__index__()]]
+
+    def __len__(self) -> int:
+        return len(self._indices)
+
+
 @dataclasses.dataclass(frozen=True)
 class _InjectDatasetRepoId(_transforms.DataTransformFn):
     """Map the integer ``dataset_index`` added by WrappedRobotDataset to the
@@ -222,7 +249,6 @@ def create_torch_dataset(
             'observation.images.cam_high': 'observation.images.front',
             'observation.images.cam_left_wrist': 'observation.images.left_wrist',
             'observation.images.cam_right_wrist': 'observation.images.right_wrist',
-            'observation.images.wrist': 'observation.images.left_wrist',
         },
         pad_to_max_dim=True,
         fill_missing_images="disable",
@@ -238,10 +264,9 @@ def create_torch_dataset(
         task_mapping = _coerce_task_mapping(dataset_meta.tasks)
         if task_mapping:
             transforms.append(_transforms.PromptFromLeRobotTask(task_mapping))
-        else:
-            logging.warning("prompt_from_task=True but dataset task mapping is empty; skipping PromptFromLeRobotTask.")
 
-    transforms.append(_PromptFromSubtask())
+    if data_config.prompt_from_subtask:
+        transforms.append(_PromptFromSubtask())
 
     if transforms:
         dataset = TransformedDataset(dataset, transforms)
@@ -336,6 +361,7 @@ def create_data_loader(
     num_batches: int | None = None,
     skip_norm_stats: bool = False,
     framework: Literal["jax", "pytorch"] = "jax",
+    dataset_split: Literal["train", "val"] | None = None,
 ) -> DataLoader[tuple[_model.Observation, _model.Actions]]:
     """Create a data loader for training.
 
@@ -386,6 +412,8 @@ def create_data_loader(
         skip_norm_stats=skip_norm_stats,
         framework=framework,
         valid_indices_path=valid_indices_path,
+        assets_dir=config.assets_dirs,
+        dataset_split=dataset_split,
     )
 
 
@@ -403,6 +431,8 @@ def create_torch_data_loader(
     seed: int = 0,
     framework: str = "jax",
     valid_indices_path: pathlib.Path | str | None = None,
+    assets_dir: pathlib.Path | str | None = None,
+    dataset_split: Literal["train", "val"] | None = None,
 ) -> DataLoader[tuple[_model.Observation, _model.Actions]]:
     """Create a data loader for training.
 
@@ -425,9 +455,16 @@ def create_torch_data_loader(
     """
     dataset = create_torch_dataset(data_config, action_horizon, model_config)
 
+    split_indices = None
+    if dataset_split is not None:
+        split_indices = _get_dataset_split_indices(dataset, data_config, assets_dir, dataset_split)
+
     sampler = None
     if valid_indices_path is not None:
         valid_indices = _load_valid_indices(valid_indices_path)
+        if split_indices is not None:
+            valid_index_set = set(valid_indices)
+            valid_indices = [idx for idx in split_indices if idx in valid_index_set]
         logging.info("Loaded %d valid indices from %s", len(valid_indices), valid_indices_path)
         if framework == "pytorch":
             if torch.distributed.is_initialized():
@@ -446,7 +483,25 @@ def create_torch_data_loader(
             sampler = FilteredSampler(valid_indices, shuffle=True)
             local_batch_size = batch_size // jax.process_count()
     else:
-        if framework == "pytorch":
+        if split_indices is not None:
+            if framework == "pytorch":
+                if torch.distributed.is_initialized():
+                    sampler = FilteredDistributedSampler(
+                        split_indices,
+                        num_replicas=torch.distributed.get_world_size(),
+                        rank=torch.distributed.get_rank(),
+                        shuffle=shuffle,
+                        drop_last=True,
+                        seed=seed,
+                    )
+                    local_batch_size = batch_size // torch.distributed.get_world_size()
+                else:
+                    sampler = FilteredSampler(split_indices, shuffle=shuffle, seed=seed)
+                    local_batch_size = batch_size
+            else:
+                sampler = FilteredSampler(split_indices, shuffle=shuffle, seed=seed)
+                local_batch_size = batch_size // jax.process_count()
+        elif framework == "pytorch":
             local_batch_size = (
                 batch_size // torch.distributed.get_world_size()
                 if torch.distributed.is_initialized()
@@ -471,6 +526,52 @@ def create_torch_data_loader(
     )
 
     return DataLoaderImpl(data_config, data_loader)
+
+
+def _get_dataset_split_indices(
+    dataset: Dataset,
+    data_config: _config.DataConfig,
+    assets_dir: pathlib.Path | str | None,
+    split_name: Literal["train", "val"],
+) -> list[int]:
+    split_config = data_config.episode_split
+    if split_config is None:
+        raise ValueError("dataset_split was requested, but data_config.episode_split is not configured.")
+    if assets_dir is None:
+        raise ValueError("assets_dir is required when using episode-level dataset splits.")
+
+    assets_path = pathlib.Path(assets_dir)
+    split_path = assets_path / _dataset_split.EPISODE_SPLIT_FILENAME
+    if split_path.exists():
+        split = _dataset_split.load_episode_split(assets_path)
+        if split.seed != split_config.seed or not np.isclose(split.val_ratio, split_config.val_ratio):
+            raise ValueError(
+                "Existing episode split does not match requested config: "
+                f"stored(seed={split.seed}, val_ratio={split.val_ratio}) vs "
+                f"requested(seed={split_config.seed}, val_ratio={split_config.val_ratio})."
+            )
+    else:
+        episode_ids = _dataset_split.get_episode_ids_from_dataset(dataset)
+        split = _dataset_split.compute_episode_split(
+            episode_ids,
+            val_ratio=split_config.val_ratio,
+            seed=split_config.seed,
+        )
+        _dataset_split.save_episode_split(assets_path, split)
+        logging.info("Wrote episode split to %s", split_path)
+
+    indices = _dataset_split.filter_dataset_indices_by_episode_split(dataset, split, split_name=split_name)
+    logging.info("Resolved %d %s indices from persisted episode split", len(indices), split_name)
+    return indices
+
+
+# Re-export pure helpers for callers/tests that already reach through data_loader.
+EpisodeSplit = _dataset_split.EpisodeSplit
+compute_episode_split = _dataset_split.compute_episode_split
+save_episode_split = _dataset_split.save_episode_split
+load_episode_split = _dataset_split.load_episode_split
+filter_indices_by_episode_split = _dataset_split.filter_indices_by_episode_split
+filter_dataset_indices_by_episode_split = _dataset_split.filter_dataset_indices_by_episode_split
 
 
 def create_rlds_data_loader(
