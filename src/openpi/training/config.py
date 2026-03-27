@@ -1777,7 +1777,7 @@ _CONFIGS = [
         optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
         ema_decay=0.999,
         weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
-        num_train_steps=20_000,
+        num_train_steps=30_000,
         wandb_enabled=True,
     ),
     TrainConfig(
@@ -1800,7 +1800,7 @@ _CONFIGS = [
         optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
         ema_decay=0.999,
         weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
-        num_train_steps=20_000,
+        num_train_steps=30_000,
         wandb_enabled=True,
     ),
     #
