@@ -45,17 +45,33 @@ Sanity check: does the frozen RLT Stage 1 RL token (2048-dim, step 9999) produce
 - ood_self_sim_mean: 0.9879 (std=0.0055) — all-pairs cosine sim between frames within the OOD episode (upper triangle, 118k pairs)
 - cross_frame_sim_mean: 0.9741 (std=0.0056) — cosine sim between every ID frame and every OOD frame (500k pairs)
 
+## Follow-up: Reconstruction Ablation
+- follow-up job_id: 3394831
+- report: `/scratch/u6cr/pravsels.u6cr/openpi/eval_outputs/build_block_tower_rlt_stage2/rl_token_recon_ablation_9999.json`
+- split: train
+- sampled_batches: 4
+- batch_size: 8
+- sampled_examples: 32
+- real_recon_loss: 226.2
+- zero_recon_loss: 1038.3 (gap: +812.2) — decoder reconstruction loss when `z_rl` is replaced with zeros
+- shuffled_recon_loss: 316.3 (gap: +90.1) — decoder reconstruction loss when each sample receives another sample's `z_rl`
+- rl_token_pairwise_cosine_mean: 0.9698 (std=0.0065)
+
 ## Qualitative
 The heatmap and distribution plots are saved locally at `eval_outputs/rl_token_cosine_sim/`.
 
 The cross-episode heatmap shows near-uniform high similarity (~0.97) across all ID-OOD frame pairs with no visible structure — no block-diagonal patterns, no gradient, no low-similarity regions. The distribution histogram confirms overlap: cross-episode, ID self-sim, and OOD self-sim distributions sit in the same narrow band (0.93–1.0).
 
-The RL token embeddings are effectively constant regardless of input task/episode.
+The follow-up reconstruction ablation changes the interpretation. The decoder is not ignoring `z_rl`: zeroing the token makes reconstruction much worse, and shuffling tokens across samples also hurts. So `z_rl` contains real sample-specific information that the decoder uses.
+
+At the same time, pairwise cosine between RL tokens is still extremely high (~0.97). The most likely picture is not "dead token" but "token dominated by a large shared component, with smaller residual directions carrying useful information." In other words, the RL token is not task-discriminative in raw cosine space even though it is informative for reconstruction.
 
 ## Verdict
-**Negative result.** The frozen Stage 1 RL token (step 9999) does not produce task-discriminative embeddings. Cross-episode (ID vs OOD) cosine similarity (0.974) is comparable to within-episode self-similarity (ID: 0.972, OOD: 0.988). The mean-pooled episode-level sim is 0.994 — nearly identical. The RL token appears to be collapsing to a near-constant representation that does not meaningfully distinguish build_block_tower from drop_footbag_into_dice_tower.
+**Mixed negative result.** The frozen Stage 1 RL token (step 9999) is not task-discriminative under raw cosine similarity: cross-episode (ID vs OOD) similarity (0.974) is comparable to within-episode self-similarity (ID: 0.972, OOD: 0.988), and the mean-pooled episode-level sim is 0.994. So the token does not cleanly separate tasks in embedding space.
+
+However, the follow-up reconstruction ablation shows the token is still being used. Replacing `z_rl` with zeros increases reconstruction loss from 226.2 to 1038.3, and shuffling `z_rl` across samples also degrades reconstruction to 316.3. This means the token is not ignored and does carry sample-specific information. The failure mode is therefore more subtle than complete collapse: the representation appears to be dominated by a shared component, with useful information compressed into smaller residual directions.
 
 ## Next
-- Investigate whether the RL token is collapsing due to training (e.g. mode collapse during Stage 1 RL) or architecture (e.g. the token is dominated by the language prompt rather than visual/state information)
-- Try comparing embeddings from different checkpoints (early vs late training) to see if collapse is progressive
-- Consider whether the RL token needs to be unfrozen or re-trained with a contrastive/discriminative objective to encode task structure
+- Re-run similarity analysis after centering / whitening / PCA to test whether task information is hiding in low-variance residual directions rather than the dominant shared component
+- Compare this reconstruction-ablation result at step 19999 to see whether task separation improves or degrades later in training
+- Run the same ablation on val / OOD batches to test whether decoder dependence on `z_rl` generalizes beyond sampled train batches

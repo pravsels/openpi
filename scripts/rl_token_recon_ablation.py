@@ -224,7 +224,13 @@ def _compute_batch_metrics(
 def aggregate_batch_metrics(batch_metrics: list[Mapping[str, float]]) -> dict[str, float]:
     if not batch_metrics:
         raise ValueError("Need at least one batch of metrics to aggregate.")
-    keys = sorted(batch_metrics[0].keys())
+
+    def _is_aggregate_metric(key: str, value: Any) -> bool:
+        if key in {"batch_idx", "batch_size", "indices"}:
+            return False
+        return isinstance(value, (int, float, np.integer, np.floating))
+
+    keys = sorted(key for key, value in batch_metrics[0].items() if _is_aggregate_metric(key, value))
     return {key: float(np.mean([metrics[key] for metrics in batch_metrics])) for key in keys}
 
 
