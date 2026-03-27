@@ -86,10 +86,32 @@
 - node: nid010956
 - failure: checkpoint `rlt_v1/9999/params` did not exist on scratch — the training run saved at steps 5000/15000/19999, not 9999. Downloaded step 9999 params from [HuggingFace](https://huggingface.co/pravsels/pi05-build-block-tower-rlt-v1/tree/main/checkpoints/9999) and copied assets from the 19999 checkpoint (identical across all steps).
 
-## Job (resubmit)
+## Job (resubmit 1 — failed)
 - job_id: 3380023
 - submitted: `2026-03-26T20:22:00+00:00`
-- start_human: Thursday, Mar 26th, 2026
+- start: `2026-03-26T20:27:05+00:00`
+- end: `2026-03-26T21:09:06+00:00`
+- runtime: 00:42:01
+- node: nid010854
+- failure: `jaxtyping.TypeCheckError` — `tokenized_prompt` was a numpy array (`i64[32,200]`) but `gemma.Module.embed` expects `Int[Array, 'b t']` or `Int[Tensor, 'b t']`. Fix: convert batch to JAX arrays via `jnp.asarray` before `Observation.from_dict` (`2ac69d8`).
+
+## Job (resubmit 2 — cancelled)
+- job_id: 3386267 → cancelled before start
+- note: replaced by resubmit 3 to pick up cleanup commit `1a88f37`.
+
+## Job (resubmit 3 — failed)
+- job_id: 3386482
+- submitted: `2026-03-26T21:20:00+00:00`
+- start: `2026-03-26T22:22:53+00:00`
+- end: `2026-03-26T23:19:42+00:00`
+- runtime: 00:56:49
+- node: nid010651
+- failure: `RESOURCE_EXHAUSTED` OOM in RL encoder FFN layer (`pi0_rl.py:113`) — batch_size=32 exceeds GPU memory for the full PaliGemma + RL encoder forward pass. Fix: reduce batch_size to 8 (`1c3095f`).
+
+## Job (resubmit 4)
+- job_id: 3391484
+- submitted: `2026-03-27T09:00:00+00:00`
+- start_human: Thursday, Mar 27th, 2026
 - end: pending
 - end_human: pending
 - runtime: pending
@@ -101,6 +123,9 @@
 - 2026-03-26 17:22 UTC — job `3378883` is pending in Slurm.
 - 2026-03-26 20:14 UTC — job `3378883` failed after 1s: checkpoint `rlt_v1/9999/params` not found on scratch.
 - 2026-03-26 20:22 UTC — downloaded step 9999 params from HuggingFace, copied assets from step 19999. Resubmitted as job `3380023`.
+- 2026-03-26 21:09 UTC — job `3380023` failed after 42min: `tokenized_prompt` passed as numpy array, `gemma.Module.embed` requires JAX array. Fixed in `2ac69d8` by converting batch via `jnp.asarray`. Merged `main` into worktree, resubmitted as job `3386267`.
+- 2026-03-26 21:20 UTC — cancelled pending job `3386267` to pick up cleanup commit `1a88f37` (avoid redundant GPU roundtrip, free JAX memory before probe training). Resubmitted as job `3386482`.
+- 2026-03-26 23:19 UTC — job `3386482` OOM after 57min: XLA allocator exhausted during RL encoder FFN with batch_size=32. Reduced to batch_size=8 in `1c3095f`. Resubmitted as job `3391484`.
 
 ## Results
 - runtime: pending
