@@ -1560,6 +1560,38 @@ _CONFIGS = [
         weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
         num_train_steps=100_000,
     ),
+    TrainConfig(
+        name="pi05_build_block_tower_mixed",
+        model=pi0_config.Pi0Config(pi05=True, action_horizon=50),
+        data=LeRobotBlockTowerDataConfig(
+            repo_id=(
+                "["
+                "villekuosmanen/build_block_tower, "
+                "villekuosmanen/dAgger_build_block_tower_1.0.0, "
+                "villekuosmanen/dAgger_build_block_tower_1.1.0, "
+                "villekuosmanen/dAgger_build_block_tower_1.2.0, "
+                "villekuosmanen/dAgger_build_block_tower_1.3.0, "
+                "villekuosmanen/dAgger_build_block_tower_1.4.0"
+                "]"
+            ),
+            base_config=DataConfig(prompt_from_task=True),
+            use_control_mode_advantage_prompt=True,
+            advantage_prompt_mode="mixed",
+            use_delta_actions=True,
+            output_delta_actions=True,
+        ),
+        batch_size=36,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=10_000,
+            peak_lr=5e-5,
+            decay_steps=1_000_000,
+            decay_lr=5e-5,
+        ),
+        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
+        ema_decay=0.999,
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
+        num_train_steps=100_000,
+    ),
     #
     # Fine-tuning Aloha configs.
     #
