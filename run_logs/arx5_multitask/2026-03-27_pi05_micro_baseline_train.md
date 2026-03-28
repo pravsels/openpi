@@ -26,24 +26,39 @@
 
 ## Job
 - job_id: 3396391
-- submitted: 2026-03-27T14:50:00Z
+- submitted/start: `2026-03-27T14:53:03+00:00`
 - start_human: Friday, Mar 27th, 2026
+- end: `2026-03-27T19:47:49+00:00`
+- end_human: Friday, Mar 27th, 2026
+- runtime: `04:54:46`
 - node: nid010735
-- end:
-- end_human:
-- runtime:
 
 ## Status
-- 2026-03-27 14:50 — submitted and running on nid010735
+- 2026-03-27 14:53 — submitted and running on nid010735
+- 2026-03-27 19:47 — completed, exit code 0, step 29999
 
 ## Results
-- *(fill on completion: final step, loss bracket, checkpoint path)*
+- final step: 29999
+- start_train_loss: 0.1664 (step 0)
+- loss@5k: 0.0274
+- loss@10k: 0.0197
+- loss@15k: 0.0159
+- loss@20k: 0.0133
+- loss@25k: 0.0119
+- end_train_loss: 0.0107 (step 29900)
+- loss_one_liner: Steep drop from 0.17 to ~0.03 in the first 5k, then steady decline to 0.011 by 30k; no plateau or overfitting.
+- checkpoint: `/scratch/u6cr/pravsels.u6cr/openpi/checkpoints/pi05_arx5_multitask_micro_baseline/micro_baseline_v1/29999`
+- checkpoints kept: 25000, 29999 (pruned 5k, 10k, 15k, 20k)
 
 ## W&B
-- local: *(under `${WANDB_DIR}` / scratch `.cache/wandb` as configured in script)*
-- synced:
+- local: `/scratch/u6cr/pravsels.u6cr/openpi/wandb/offline-run-20260327_145436-gtk5f6zw`
+- synced: https://wandb.ai/pravsels/arx5_multitask/runs/gtk5f6zw
 - notes:
 
+## HuggingFace
+- repo: https://huggingface.co/pravsels/pi05-arx5-multitask-micro-baseline
+- uploaded checkpoints: 25k, 29999 (params only)
+- includes: assets (norm stats, valid_indices.txt, training_mix_micro.json), README.md, TRAINING_LOG.md
+
 ## Next
-- After completion: optional eval + checkpoint promotion; run `pi05_arx5_multitask_micro_advantaged` with same mix if comparing valid-index strategies.
-- Update this file with `job_id`, timelines, and qualitative W&B notes after you submit and monitor.
+- Run `pi05_arx5_multitask_micro_advantaged` with same mix if comparing valid-index strategies.

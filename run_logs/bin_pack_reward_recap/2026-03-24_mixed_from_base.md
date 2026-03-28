@@ -8,7 +8,7 @@
 - script: `slurm/train_bin_pack_reward_recap_slurm.sh mixed_from_base`
 - config: `pi05_bin_pack_coffee_capsules_reward_recap_mixed_from_base` (in `src/openpi/training/config.py`)
 - dataset: 9 datasets (bin_pick_pack + 8 dAgger rounds) on HuggingFace
-- key settings: delta actions, 100k steps, batch_size=36, lr=5e-5 cosine, weights from `weights/pi05_base/params`
+- key settings: 17D action space (7D joints + 7D EEF with RPY→rot6d), delta actions (joints+xyz+gripper delta, rot6d absolute), per-timestep action normalization, rot6d identity normalization, 100k steps, batch_size=36, lr=5e-5 cosine, weights from `weights/pi05_base/params`
 
 ## Job
 - job_id: 3310330
