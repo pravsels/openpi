@@ -25,16 +25,16 @@
   - `valid_indices.txt`
 
 ## Job
-- job_id: *(after `sbatch` — e.g. `squeue -u $USER`)*
-- submitted: *(ISO timestamp)*
-- start_human: *(update when running)*
-- end: *(fill when done)*
+- job_id: 3396391
+- submitted: 2026-03-27T14:50:00Z
+- start_human: Friday, Mar 27th, 2026
+- node: nid010735
+- end:
 - end_human:
 - runtime:
-- node:
 
 ## Status
-- *(append checks: steps advancing, loss, checkpoint writes, scratch quota)*
+- 2026-03-27 14:50 — submitted and running on nid010735
 
 ## Results
 - *(fill on completion: final step, loss bracket, checkpoint path)*
