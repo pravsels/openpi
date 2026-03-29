@@ -1817,8 +1817,6 @@ _CONFIGS = [
         model=pi0_config.Pi0Config(pi05=True, action_horizon=50),
         data=LeRobotARX5MultiTaskDataConfig(
             repo_id="training_mix_micro.json",
-            # Load norm stats from the baseline dir (same dataset mix)
-            assets=AssetsConfig(assets_dir="./assets/pi05_arx5_multitask_micro_baseline"),
             base_config=DataConfig(prompt_from_task=True),
             use_delta_actions=True,
         ),

@@ -35,11 +35,6 @@ EXP_NAME="micro_advantaged_v1"
 CHECKPOINT_DIR="${data_dir}/checkpoints/${CONFIG_NAME}/${EXP_NAME}"
 ASSETS_DIR="${CHECKPOINT_DIR}/assets"
 
-# The advantaged config loads norm stats from ./assets/pi05_arx5_multitask_micro_baseline
-# (via AssetsConfig). This resolves inside the container where assets/ is bind-mounted
-# from ${data_dir}/assets. Ensure the baseline norm stats exist there.
-BASELINE_NORM_DIR="${data_dir}/assets/pi05_arx5_multitask_micro_baseline"
-
 if [ -z "${ASSETS_DIR}" ]; then
     echo "ERROR: ASSETS_DIR is empty; refusing to run."
     exit 1
@@ -49,7 +44,7 @@ if [[ "${ASSETS_DIR}" != */assets ]]; then
     exit 1
 fi
 
-mkdir -p "${HF_CACHE}" "${WANDB_DIR}" "${WANDB_CACHE_DIR}" "${WANDB_CONFIG_DIR}" "${XDG_CACHE_HOME}" "${XDG_CONFIG_HOME}" "${data_dir}/checkpoints" "${data_dir}/assets" "${data_dir}/weights" "${data_dir}/.venv" "${ASSETS_DIR}" "${BASELINE_NORM_DIR}"
+mkdir -p "${HF_CACHE}" "${WANDB_DIR}" "${WANDB_CACHE_DIR}" "${WANDB_CONFIG_DIR}" "${XDG_CACHE_HOME}" "${XDG_CONFIG_HOME}" "${data_dir}/checkpoints" "${data_dir}/assets" "${data_dir}/weights" "${data_dir}/.venv" "${ASSETS_DIR}"
 
 start_time="$(date -Is --utc)"
 echo "===================================="
@@ -60,7 +55,7 @@ echo "===================================="
 
 MIX_JSON="${ASSETS_DIR}/training_mix_micro.json"
 VALID_INDICES_PATH="${ASSETS_DIR}/valid_indices.txt"
-BASELINE_NORM_STATS="${BASELINE_NORM_DIR}/norm_stats.json"
+NORM_STATS_PATH="${ASSETS_DIR}/norm_stats.json"
 
 if [ ! -f "${MIX_JSON}" ]; then
     echo "ERROR: training_mix_micro.json not found at ${MIX_JSON}"
@@ -68,9 +63,9 @@ if [ ! -f "${MIX_JSON}" ]; then
     exit 1
 fi
 
-if [ ! -f "${BASELINE_NORM_STATS}" ]; then
-    echo "ERROR: baseline norm_stats.json not found at ${BASELINE_NORM_STATS}"
-    echo "Copy baseline norm_stats.json to ${BASELINE_NORM_DIR}/ before submitting."
+if [ ! -f "${NORM_STATS_PATH}" ]; then
+    echo "ERROR: norm_stats.json not found at ${NORM_STATS_PATH}"
+    echo "Rsync precomputed assets to ${ASSETS_DIR} before submitting."
     exit 1
 fi
 
