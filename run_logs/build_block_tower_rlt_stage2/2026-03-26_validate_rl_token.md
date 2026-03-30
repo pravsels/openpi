@@ -108,12 +108,23 @@
 - node: nid010651
 - failure: `RESOURCE_EXHAUSTED` OOM in RL encoder FFN layer (`pi0_rl.py:113`) — batch_size=32 exceeds GPU memory for the full PaliGemma + RL encoder forward pass. Fix: reduce batch_size to 8 (`1c3095f`).
 
-## Job (resubmit 4)
+## Job (resubmit 4 — timed out)
 - job_id: 3391484
 - submitted: `2026-03-27T09:00:00+00:00`
 - start_human: Friday, Mar 27th, 2026
-- end: pending
-- end_human: pending
+- end: cancelled by Slurm (walltime)
+- runtime: 12:00:00 (hit 12h limit)
+- node: unknown
+- failure: feature extraction too slow — processed ~6,357 of ~8,750 batches (batch_size=8, ~70k total samples) in 12h. No errors, no OOM; the script simply ran out of time during `_extract_split_features`. Root cause: full VLA forward pass + 10-step denoising per batch at batch_size=8 is ~530 batches/hr, needing ~16.5h total. Compounded by zero progress logging — appeared hung but was silently working.
+
+## Job (resubmit 5)
+- job_id: 3460713
+- submitted: `2026-03-30`
+- start: pending
+- fixes applied:
+  - added progress logging every 50 batches in `_extract_split_features` (`e822cca`)
+  - capped samples: `--max-train-samples 5000 --max-val-samples 1000` (750 total batches, ~1.5h estimated extraction time)
+  - added state-only action baseline (Probe 1b) and chance accuracy for subtask classifier (`e6c9752`)
 - runtime: pending
 - node: pending
 
@@ -126,21 +137,25 @@
 - 2026-03-26 21:09 UTC — job `3380023` failed after 42min: `tokenized_prompt` passed as numpy array, `gemma.Module.embed` requires JAX array. Fixed in `2ac69d8` by converting batch via `jnp.asarray`. Merged `main` into worktree, resubmitted as job `3386267`.
 - 2026-03-26 21:20 UTC — cancelled pending job `3386267` to pick up cleanup commit `1a88f37` (avoid redundant GPU roundtrip, free JAX memory before probe training). Resubmitted as job `3386482`.
 - 2026-03-26 23:19 UTC — job `3386482` OOM after 57min: XLA allocator exhausted during RL encoder FFN with batch_size=32. Reduced to batch_size=8 in `1c3095f`. Resubmitted as job `3391484`.
+- 2026-03-30 — job `3391484` timed out after 12h. Diagnosed: extraction was working but too slow for the full dataset. Added progress logging and sample caps. Merged `origin/main` into `task/rlt_block_tower` worktree. Resubmitted as job `3460713`.
 
 ## Results
 - runtime: pending
 - output_dir: pending
-- num_train_samples: pending
-- num_val_samples: pending
+- num_train_samples: pending (capped at 5,000)
+- num_val_samples: pending (capped at 1,000)
 - probe_suite_status: pending
 - action_probe.val_mse_to_vla: pending
 - action_probe.val_l2_to_vla: pending
 - action_probe.val_mse_to_ground_truth: pending
 - action_probe.val_l2_to_ground_truth: pending
+- state_only_baseline.val_mse_to_vla: pending
+- state_only_baseline.val_l2_to_vla: pending
 - linear_probe.val_mse: pending
 - linear_probe.random_baseline_val_mse: pending
 - subtask_classifier.enabled: pending
 - subtask_classifier.val_accuracy: pending
+- subtask_classifier.chance_accuracy: pending
 - verdict: pending
 
 ## W&B
@@ -149,5 +164,5 @@
 - notes: This script writes JSON/NPZ artifacts rather than using the training W&B flow by default.
 
 ## Next
-- submit `slurm/validate_build_block_tower_rlt_stage2_slurm.sh` on Isambard
+- monitor job `3460713` — progress logs should appear every 50 batches
 - after completion, copy the metrics for every probe variant into this file and decide whether Stage 3 critic training is justified
