@@ -26,17 +26,38 @@
 
 ## Job
 - job_id: 3440925
-- submitted: 2026-03-29
-- node: (pending)
+- submitted/start: `2026-03-29T14:15:10+00:00`
+- start_human: Sunday, Mar 29th, 2026
+- end: `2026-03-29T19:07:13+00:00`
+- end_human: Sunday, Mar 29th, 2026
+- runtime: `04:52:03`
+- node: nid010769
 
 ## Status
-- 2026-03-29 — submitted
+- 2026-03-29 14:15 — submitted and running on nid010769
+- 2026-03-29 19:07 — completed, exit code 0, step 29999
 
 ## Results
-- (pending)
+- final step: 29999
+- start_train_loss: 0.1770 (step 0)
+- loss@5k: 0.0215
+- loss@10k: 0.0146
+- loss@15k: 0.0118
+- loss@20k: 0.0101
+- loss@25k: 0.0089
+- end_train_loss: 0.0080 (step 29900)
+- loss_one_liner: Steep drop from 0.18 to ~0.02 in the first 5k, then steady decline to 0.008 by 30k; lower final loss than baseline (0.0080 vs 0.0107).
+- checkpoint: `/scratch/u6cr/pravsels.u6cr/openpi/checkpoints/pi05_arx5_multitask_micro_advantaged/micro_advantaged_v1/29999`
+- checkpoints kept: 25000, 29999 (pruned 5k, 10k, 15k, 20k)
 
 ## W&B
-- (pending)
+- local: `/scratch/u6cr/pravsels.u6cr/openpi/wandb/offline-run-20260329_141552-jik4rmpl`
+- synced: https://wandb.ai/pravsels/arx5_multitask/runs/jik4rmpl
+
+## HuggingFace
+- repo: https://huggingface.co/pravsels/pi05-arx5-multitask-micro-advantaged
+- uploaded checkpoints: 25k, 29999 (params only)
+- includes: assets (norm stats, valid_indices.txt, training_mix_micro.json), README.md, TRAINING_LOG.md
 
 ## Next
 - Compare loss curves and eval metrics against `pi05_arx5_multitask_micro_baseline`.
