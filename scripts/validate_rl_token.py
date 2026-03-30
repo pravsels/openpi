@@ -446,7 +446,12 @@ def _extract_split_features(
     gt_actions: list[np.ndarray] = []
     subtasks: list[str] = []
 
+    total_batches = (len(indices) + batch_size - 1) // batch_size
+    LOGGER.info("Extracting features: %d samples in %d batches (batch_size=%d)", len(indices), total_batches, batch_size)
+
     for batch_idx, start in enumerate(range(0, len(indices), batch_size)):
+        if batch_idx % 50 == 0 or batch_idx == total_batches - 1:
+            LOGGER.info("  batch %d / %d (%.0f%%)", batch_idx + 1, total_batches, 100 * (batch_idx + 1) / total_batches)
         batch_indices = indices[start : start + batch_size]
         transformed_items = [transformed_dataset[i] for i in batch_indices]
         raw_items = [raw_dataset[i] for i in batch_indices]
