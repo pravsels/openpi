@@ -1,3 +1,35 @@
+"""Stage 2 RL token validation — full probe suite.
+
+Tests whether the frozen Stage 1 RL token is informative enough for
+downstream actor-critic work. Runs four probes on held-out episodes:
+
+  1. Action probe:        concat(rl_token, state) → VLA action chunk via 2-layer MLP.
+                          Evaluates reconstruction against both VLA actions and
+                          ground-truth demo actions.
+  1b. State-only baseline: state → VLA action chunk via the same MLP architecture.
+                          If this matches (1), the RL token isn't adding anything
+                          beyond what proprioceptive state already provides.
+  2. Linear probe:        rl_token → normalized state via a single linear layer.
+                          Tests whether low-dim control info is linearly recoverable.
+  2b. Random baseline:    random_vector → normalized state via a single linear layer.
+                          Sanity check that the linear probe is learning real structure
+                          rather than exploiting target dimensionality alone.
+  3. Subtask classifier:  rl_token → subtask logits via 2-layer MLP (if labels exist).
+                          Tests whether the RL token separates semantic task phases.
+                          Reports chance accuracy (1/num_classes) for comparison.
+
+Pipeline:
+  - Load frozen Pi0RL model and dataset.
+  - Split into train/val by whole episodes (no timestep leakage).
+  - Extract features: run every example through the frozen VLA + RL encoder
+    to get (rl_token, state, vla_action, gt_action, subtask_label) per timestep.
+  - Free JAX model from GPU, then train PyTorch probes on the extracted features.
+  - Write metrics.json and features_and_predictions.npz to the output directory.
+
+NOTE: Feature extraction is the bottleneck — it runs the full VLA forward pass
++ denoising loop for every example. For large datasets this can take hours.
+"""
+
 import dataclasses
 import gc
 import json
@@ -26,17 +58,23 @@ LOGGER = logging.getLogger("openpi.rlt_validate")
 
 @dataclasses.dataclass(frozen=True)
 class Args:
+    """CLI arguments (parsed by tyro)."""
+
     config_name: str = "pi05_rl_token_build_block_tower"
     checkpoint_path: str = tyro.MISSING
     assets_dir: str | None = None
     output_dir: str | None = None
+    # Batch size for feature extraction (VLA forward pass — GPU-bound).
     batch_size: int = 32
+    # Batch size for probe training (lightweight PyTorch MLPs).
     probe_batch_size: int = 256
     probe_epochs: int = 40
     hidden_dim: int = 256
     lr: float = 1e-3
     seed: int = 42
+    # Number of denoising steps when sampling VLA actions.
     num_denoising_steps: int = 10
+    # Cap the number of examples per split (None = use all).
     max_train_samples: int | None = None
     max_val_samples: int | None = None
     device: str = "cuda"
@@ -47,6 +85,7 @@ def init_logging() -> None:
 
 
 def _decode_text(value: Any) -> str:
+    """Coerce subtask labels from various HF/numpy types to a plain string."""
     if value is None:
         return ""
     if isinstance(value, (bytes, np.bytes_)):
@@ -62,10 +101,12 @@ def _decode_text(value: Any) -> str:
 
 
 def _stack_trees(items: list[dict[str, Any]]) -> dict[str, Any]:
+    """Collate a list of per-example dicts into a single batched dict."""
     return jax.tree.map(lambda *xs: np.stack([np.asarray(x) for x in xs], axis=0), *items)
 
 
 def _resolve_assets_dir(args: Args, checkpoint_path: pathlib.Path) -> pathlib.Path:
+    """Find the assets dir (norm_stats, episode_split, etc.) next to the checkpoint."""
     if args.assets_dir is not None:
         return pathlib.Path(args.assets_dir).resolve()
     if (checkpoint_path / "assets").exists():
@@ -103,6 +144,11 @@ def _resolve_episode_split(
     data_config: _config.DataConfig,
     assets_dir: pathlib.Path,
 ) -> _dataset_split.EpisodeSplit:
+    """Load or compute the deterministic episode-level train/val split.
+
+    Uses whole-episode splitting (not timestep) to avoid data leakage.
+    If a saved split exists in assets_dir, validates parameters match config.
+    """
     if data_config.episode_split is None:
         raise ValueError("Stage 2 validation requires data_config.episode_split to be configured.")
 
@@ -134,7 +180,18 @@ def _maybe_limit(indices: list[int], limit: int | None) -> list[int]:
     return indices[:limit]
 
 
+# ---------------------------------------------------------------------------
+# Probe architectures
+# ---------------------------------------------------------------------------
+
+
 class ActionMLP(nn.Module):
+    """2-layer MLP: concat(rl_token, state) → predicted action chunk.
+
+    Tests whether the RL token + state together contain enough information
+    to reconstruct what the frozen VLA would output.
+    """
+
     def __init__(self, input_dim: int, output_dim: int, hidden_dim: int):
         super().__init__()
         self.net = nn.Sequential(
@@ -150,6 +207,12 @@ class ActionMLP(nn.Module):
 
 
 class LinearProbe(nn.Module):
+    """Single linear layer: rl_token → state.
+
+    Tests whether low-dimensional control information (joint positions, etc.)
+    is linearly recoverable from the RL token embedding.
+    """
+
     def __init__(self, input_dim: int, output_dim: int):
         super().__init__()
         self.linear = nn.Linear(input_dim, output_dim)
@@ -159,6 +222,12 @@ class LinearProbe(nn.Module):
 
 
 class ClassifierMLP(nn.Module):
+    """2-layer MLP: rl_token → subtask class logits.
+
+    Tests whether the RL token separates semantic phases of the task
+    (e.g. "reaching", "grasping", "stacking").
+    """
+
     def __init__(self, input_dim: int, num_classes: int, hidden_dim: int):
         super().__init__()
         self.net = nn.Sequential(
@@ -173,15 +242,23 @@ class ClassifierMLP(nn.Module):
         return self.net(x)
 
 
+# ---------------------------------------------------------------------------
+# Evaluation metrics
+# ---------------------------------------------------------------------------
+
+
 def _l2_per_example(pred: np.ndarray, target: np.ndarray) -> float:
+    """Mean L2 distance per example (averaged over the batch)."""
     return float(np.linalg.norm(pred - target, axis=-1).mean())
 
 
 def _mse(pred: np.ndarray, target: np.ndarray) -> float:
+    """Mean squared error (averaged over all elements)."""
     return float(np.mean(np.square(pred - target)))
 
 
 def _accuracy(logits: np.ndarray, labels: np.ndarray) -> float:
+    """Top-1 classification accuracy."""
     preds = np.argmax(logits, axis=-1)
     return float(np.mean(preds == labels))
 
@@ -203,6 +280,10 @@ def _train_regressor(
     lr: float,
     device: torch.device,
 ) -> tuple[nn.Module, list[dict[str, float]]]:
+    """Train a regression probe with early-stopping by best val loss.
+
+    Returns the model (restored to best checkpoint) and per-epoch history.
+    """
     model = model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     loss_fn = nn.MSELoss()
@@ -260,6 +341,11 @@ def _train_classifier(
     lr: float,
     device: torch.device,
 ) -> tuple[nn.Module, list[dict[str, float]]]:
+    """Train a classification probe (cross-entropy) with early-stopping.
+
+    Returns the model (restored to best checkpoint) and per-epoch history
+    including val_accuracy.
+    """
     model = model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     loss_fn = nn.CrossEntropyLoss()
@@ -338,6 +424,19 @@ def _extract_split_features(
     base_rng: jax.Array,
     num_denoising_steps: int,
 ) -> dict[str, np.ndarray | list[str]]:
+    """Run every example through the frozen VLA + RL encoder to extract features.
+
+    For each timestep this produces:
+      - rl_token:   (dim,) — the RL token from the encoder
+      - state:      (state_dim,) — normalized proprioceptive state
+      - vla_action: (action_horizon * action_dim,) — flattened VLA action chunk
+                    (sampled via denoising, so depends on rng)
+      - gt_action:  (action_horizon * action_dim,) — flattened ground-truth demo actions
+      - subtask:    str — subtask label if available, empty string otherwise
+
+    This is the slow part of the pipeline: every example requires a full
+    PaliGemma forward pass + multi-step action denoising loop.
+    """
     if not indices:
         raise ValueError("Cannot extract features for an empty split.")
 
@@ -353,15 +452,16 @@ def _extract_split_features(
         raw_items = [raw_dataset[i] for i in batch_indices]
 
         batch = _stack_trees(transformed_items)
-        # Keep numpy copies of probe targets before moving batch to JAX/GPU.
         batch_state_np = np.asarray(batch["state"], dtype=np.float32)
         batch_actions_np = np.asarray(batch["actions"], dtype=np.float32).reshape(len(batch_indices), -1)
 
-        # gemma.Module.embed expects JAX arrays, not numpy.
         batch = jax.tree.map(lambda x: jnp.asarray(x) if isinstance(x, np.ndarray) else x, batch)
         observation = _model.Observation.from_dict(batch)
+        # Fold batch_idx into the rng so each batch gets a unique but deterministic key.
         rng = jax.random.fold_in(base_rng, batch_idx)
 
+        # Full forward pass: VLA prefix → RL encoder → action denoising.
+        # Returns both the sampled actions and the RL token.
         pred_actions, batch_rl_tokens = model.sample_actions_with_rl_token(
             rng, observation, num_steps=num_denoising_steps
         )
@@ -384,6 +484,7 @@ def _extract_split_features(
 
 
 def _encode_labels(train_labels: list[str], val_labels: list[str]) -> tuple[np.ndarray, np.ndarray, list[str]]:
+    """Map string subtask labels to integer class IDs for the classifier probe."""
     non_empty_train = [label for label in train_labels if label]
     non_empty_val = [label for label in val_labels if label]
     all_labels = sorted(set(non_empty_train) | set(non_empty_val))
@@ -406,6 +507,7 @@ def main(args: Args) -> None:
     output_dir = _resolve_output_dir(args, checkpoint_path)
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    # ---- Phase 1: Load model + dataset ----
     config = _config.get_config(args.config_name)
     config = dataclasses.replace(config, assets_dir=str(assets_dir))
     data_config = config.data.create(config.assets_dirs, config.model)
@@ -419,6 +521,7 @@ def main(args: Args) -> None:
     raw_dataset = _data_loader.create_torch_dataset(data_config, config.model.action_horizon, config.model)
     transformed_dataset = _data_loader.transform_dataset(raw_dataset, data_config)
 
+    # Episode-level split: no timestep leakage between train and val.
     split = _resolve_episode_split(raw_dataset, data_config, assets_dir)
     train_indices = _dataset_split.filter_dataset_indices_by_episode_split(raw_dataset, split, split_name="train")
     val_indices = _dataset_split.filter_dataset_indices_by_episode_split(raw_dataset, split, split_name="val")
@@ -432,6 +535,7 @@ def main(args: Args) -> None:
 
     LOGGER.info("Resolved %d train samples and %d val samples", len(train_indices), len(val_indices))
 
+    # ---- Phase 2: Feature extraction (slow — full VLA forward pass per example) ----
     base_rng = jax.random.key(args.seed)
     train_features = _extract_split_features(
         model,
@@ -458,6 +562,10 @@ def main(args: Args) -> None:
     gc.collect()
     LOGGER.info("Released JAX model before probe training")
 
+    # ---- Phase 3: Probe training (lightweight PyTorch MLPs on extracted features) ----
+
+    # Action probe input: concat(rl_token, state) — tests whether the RL token
+    # adds information beyond what raw state provides for action prediction.
     train_x = np.concatenate([train_features["rl_token"], train_features["state"]], axis=-1)
     val_x = np.concatenate([val_features["rl_token"], val_features["state"]], axis=-1)
     train_vla = train_features["vla_action"]
@@ -469,6 +577,7 @@ def main(args: Args) -> None:
 
     device = torch.device(args.device)
 
+    # Probe 1: Action MLP — can we reconstruct the VLA's action output?
     LOGGER.info("Training action prediction MLP")
     action_model, action_history = _train_regressor(
         ActionMLP(train_x.shape[-1], train_vla.shape[-1], args.hidden_dim),
@@ -483,6 +592,24 @@ def main(args: Args) -> None:
     )
     val_action_pred = _predict_regressor(action_model, val_x)
 
+    # Probe 1b: State-only action baseline — same MLP architecture but trained
+    # on state alone (no RL token). If this matches Probe 1, the RL token isn't
+    # contributing anything beyond what proprioceptive state already provides.
+    LOGGER.info("Training state-only action baseline")
+    state_only_action_model, state_only_action_history = _train_regressor(
+        ActionMLP(train_state.shape[-1], train_vla.shape[-1], args.hidden_dim),
+        train_state,
+        train_vla,
+        val_state,
+        val_vla,
+        batch_size=args.probe_batch_size,
+        epochs=args.probe_epochs,
+        lr=args.lr,
+        device=device,
+    )
+    val_action_pred_state_only = _predict_regressor(state_only_action_model, val_state)
+
+    # Probe 2: Linear state probe — is state linearly recoverable from rl_token alone?
     LOGGER.info("Training linear state probe")
     linear_model, linear_history = _train_regressor(
         LinearProbe(train_features["rl_token"].shape[-1], train_state.shape[-1]),
@@ -497,6 +624,9 @@ def main(args: Args) -> None:
     )
     val_state_pred = _predict_regressor(linear_model, val_features["rl_token"])
 
+    # Probe 3: Random baseline — same architecture as the linear probe but with
+    # random inputs instead of rl_tokens. If this does nearly as well, the linear
+    # probe isn't learning real structure from the RL token.
     LOGGER.info("Training random-feature linear baseline")
     rng = np.random.default_rng(args.seed)
     random_train_x = rng.standard_normal(train_features["rl_token"].shape).astype(np.float32)
@@ -514,6 +644,9 @@ def main(args: Args) -> None:
     )
     val_state_pred_random = _predict_regressor(random_linear_model, random_val_x)
 
+    # Probe 4: Subtask classifier — only runs if the dataset has subtask labels
+    # on both splits (e.g. from a SubtaskPlugin). If labels are missing/sparse,
+    # skip and note why.
     subtask_report: dict[str, Any]
     train_subtasks = train_features["subtask"]
     val_subtasks = val_features["subtask"]
@@ -536,6 +669,7 @@ def main(args: Args) -> None:
             "enabled": True,
             "label_vocab": label_vocab,
             "num_classes": len(label_vocab),
+            "chance_accuracy": 1.0 / len(label_vocab),
             "history": classifier_history,
             "val_accuracy": _accuracy(val_logits, val_subtask_ids),
         }
@@ -550,6 +684,12 @@ def main(args: Args) -> None:
             ),
         }
 
+    # ---- Phase 4: Write outputs ----
+
+    # metrics.json: all probe results in one file for easy comparison.
+    # The action probe reports error against both VLA actions (should be low)
+    # and ground-truth demo actions (expected to be higher, since the probe
+    # is trained to match VLA output, not demo output).
     metrics = {
         "config_name": args.config_name,
         "checkpoint_path": str(checkpoint_path),
@@ -564,6 +704,14 @@ def main(args: Args) -> None:
             "val_l2_to_vla": _l2_per_example(val_action_pred, val_vla),
             "val_mse_to_ground_truth": _mse(val_action_pred, val_gt),
             "val_l2_to_ground_truth": _l2_per_example(val_action_pred, val_gt),
+            "state_only_baseline": {
+                "input": "state",
+                "history": state_only_action_history,
+                "val_mse_to_vla": _mse(val_action_pred_state_only, val_vla),
+                "val_l2_to_vla": _l2_per_example(val_action_pred_state_only, val_vla),
+                "val_mse_to_ground_truth": _mse(val_action_pred_state_only, val_gt),
+                "val_l2_to_ground_truth": _l2_per_example(val_action_pred_state_only, val_gt),
+            },
         },
         "linear_probe": {
             "target": "state",
@@ -579,6 +727,9 @@ def main(args: Args) -> None:
     metrics_path.write_text(json.dumps(metrics, indent=2))
     LOGGER.info("Wrote metrics to %s", metrics_path)
 
+    # features_and_predictions.npz: cached arrays for downstream analysis
+    # (e.g. plotting, rerunning probes with different hyperparams without
+    # re-extracting features).
     np.savez_compressed(
         output_dir / "features_and_predictions.npz",
         train_rl_token=train_features["rl_token"],
@@ -586,6 +737,7 @@ def main(args: Args) -> None:
         train_state=train_state,
         val_state=val_state,
         val_action_pred=val_action_pred,
+        val_action_pred_state_only=val_action_pred_state_only,
         val_vla_action=val_vla,
         val_gt_action=val_gt,
         val_state_pred=val_state_pred,

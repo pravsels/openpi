@@ -49,11 +49,43 @@ Verify integrity with `find params -type f | sort | xargs sha256sum | sha256sum`
 
 - [pravsels/openpi-rlt-block-tower/runs/oa2o0o0z](https://wandb.ai/pravsels/openpi-rlt-block-tower/runs/oa2o0o0z)
 
+## Evaluation
+
+Evaluation artifacts for the frozen `9999` checkpoint are available in `evals/2026-03-27_rl_token_eval/`.
+
+This evaluation depends on two artifacts together:
+- the frozen base pi0.5 VLA: `pravsels/pi05-build-block-tower-baseline`
+- the Stage 1 RLT encoder-decoder checkpoint in this repo: step `9999`
+
+### Cosine Similarity (ID vs OOD)
+
+- Raw cosine similarity does **not** cleanly separate ID (`build_block_tower`) from OOD (`drop_footbag_into_dice_tower`) episodes.
+- Mean-pooled ID-vs-OOD cosine similarity is `0.9941`, indicating weak task separation in embedding space.
+- The most likely failure mode is not a dead token, but a token dominated by a large shared component with useful information compressed into smaller residual directions.
+
+See `evals/2026-03-27_rl_token_eval/eval_log.md` for the full interpretation and the accompanying JSON/plot artifacts.
+
+### Reconstruction Ablation (step 5k vs 10k)
+
+Tests whether the RL token carries meaningful information by comparing decoder reconstruction loss under three conditions: real token, zero vector, and shuffled (batch-neighbour's) token.
+
+| Metric | Step 5,000 | Step 9,999 | Change |
+|--------|-----------|-----------|--------|
+| Real recon loss | 365.4 | 226.2 | −38% (better reconstruction) |
+| Zero gap | 484.8 | 812.2 | +68% (token carries more information) |
+| Shuffle gap | 36.0 | 90.1 | +150% (more per-example discrimination) |
+| Pairwise cosine | 0.990 | 0.970 | −0.020 (tokens differentiating more) |
+
+All metrics improve monotonically from step 5k to 10k, confirming the RL token is learning genuine information rather than collapsing. The modest shuffle gap is expected for a single-task dataset (100 episodes, same prompt) — tokens are legitimately similar across same-task observations.
+
+See `evals/2026-03-27_rl_token_eval/recon_ablation_progression.md` for full analysis and per-batch breakdowns.
+
 ## Repo Structure
 
 ```
-assets/                      # Norm stats plus deterministic episode split metadata
-checkpoints/9999/params/     # Model weights (params only)
-README.md                    # This file
-TRAINING_LOG.md              # Training log
+assets/                                # Norm stats plus deterministic episode split metadata
+checkpoints/9999/params/               # Model weights (params only)
+evals/2026-03-27_rl_token_eval/        # Evaluation artifacts (cosine analysis, ablation JSONs, plots)
+README.md                              # This file
+TRAINING_LOG.md                        # Training log
 ```
