@@ -81,7 +81,7 @@ class Args:
 
 
 def init_logging() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", force=True)
 
 
 def _decode_text(value: Any) -> str:
@@ -580,7 +580,11 @@ def main(args: Args) -> None:
     train_state = train_features["state"]
     val_state = val_features["state"]
 
-    device = torch.device(args.device)
+    if args.device == "cuda" and not torch.cuda.is_available():
+        LOGGER.warning("CUDA requested but not available in this PyTorch build — falling back to CPU for probe training")
+        device = torch.device("cpu")
+    else:
+        device = torch.device(args.device)
 
     # Probe 1: Action MLP — can we reconstruct the VLA's action output?
     LOGGER.info("Training action prediction MLP")
