@@ -117,16 +117,35 @@
 - node: unknown
 - failure: feature extraction too slow — processed ~6,357 of ~8,750 batches (batch_size=8, ~70k total samples) in 12h. No errors, no OOM; the script simply ran out of time during `_extract_split_features`. Root cause: full VLA forward pass + 10-step denoising per batch at batch_size=8 is ~530 batches/hr, needing ~16.5h total. Compounded by zero progress logging — appeared hung but was silently working.
 
-## Job (resubmit 5)
+## Job (resubmit 5 — failed)
 - job_id: 3460713
-- submitted: `2026-03-30`
-- start: pending
+- submitted: `2026-03-30T10:12:13+00:00`
+- start: `2026-03-30T10:12:13+00:00`
+- end: `2026-03-30T12:06:58+00:00`
+- runtime: 01:54:45
+- node: nid011067
 - fixes applied:
   - added progress logging every 50 batches in `_extract_split_features` (`e822cca`)
   - capped samples: `--max-train-samples 5000 --max-val-samples 1000` (750 total batches, ~1.5h estimated extraction time)
   - added state-only action baseline (Probe 1b) and chance accuracy for subtask classifier (`e6c9752`)
-- runtime: pending
-- node: pending
+- failure: feature extraction completed successfully (750 batches in ~1h55m), but PyTorch probe training crashed with `AssertionError: Torch not compiled with CUDA enabled`. The venv has `torch==2.7.1+cpu` and no aarch64 CUDA wheel exists for 2.7.1. Progress logging also did not appear — `logging.basicConfig()` was a no-op because the root logger was already configured by JAX/HuggingFace imports.
+
+## Job (resubmit 6 — success)
+- job_id: 3467830
+- submitted: `2026-03-30T13:45:38+00:00`
+- start: `2026-03-30T13:45:38+00:00`
+- end: `2026-03-30T15:47:00+00:00`
+- runtime: 02:01:22
+- node: nid010884
+- fixes applied:
+  - CPU fallback for PyTorch probe training when CUDA unavailable (`6a46bf3`)
+  - fixed silent logging with `force=True` in `basicConfig` (`6a46bf3`)
+- timing breakdown:
+  - dataset split resolution: ~42 min (iterating 70k items for episode IDs)
+  - train extraction (5k samples, 625 batches): ~61 min
+  - val extraction (1k samples, 125 batches): ~13 min
+  - probe training (5 probes on CPU): ~5 min
+  - total: 02:01:22
 
 ## Status
 - 2026-03-26 — created pre-submit Stage 2 validation log and recorded expected probe behavior before HPC launch.
@@ -138,25 +157,47 @@
 - 2026-03-26 21:20 UTC — cancelled pending job `3386267` to pick up cleanup commit `1a88f37` (avoid redundant GPU roundtrip, free JAX memory before probe training). Resubmitted as job `3386482`.
 - 2026-03-26 23:19 UTC — job `3386482` OOM after 57min: XLA allocator exhausted during RL encoder FFN with batch_size=32. Reduced to batch_size=8 in `1c3095f`. Resubmitted as job `3391484`.
 - 2026-03-30 — job `3391484` timed out after 12h. Diagnosed: extraction was working but too slow for the full dataset. Added progress logging and sample caps. Merged `origin/main` into `task/rlt_block_tower` worktree. Resubmitted as job `3460713`.
+- 2026-03-30 — job `3460713` failed after ~2h: extraction completed (750 batches) but PyTorch probe training hit `Torch not compiled with CUDA enabled`. No aarch64 CUDA wheel exists for the pinned `torch==2.7.1`. Added CPU fallback + fixed silent logging (`6a46bf3`). Resubmitted as job `3467830`.
+- 2026-03-30 — job `3467830` completed successfully in 02:01:22. All probes trained, metrics and features written.
 
 ## Results
-- runtime: pending
-- output_dir: pending
-- num_train_samples: pending (capped at 5,000)
-- num_val_samples: pending (capped at 1,000)
-- probe_suite_status: pending
-- action_probe.val_mse_to_vla: pending
-- action_probe.val_l2_to_vla: pending
-- action_probe.val_mse_to_ground_truth: pending
-- action_probe.val_l2_to_ground_truth: pending
-- state_only_baseline.val_mse_to_vla: pending
-- state_only_baseline.val_l2_to_vla: pending
-- linear_probe.val_mse: pending
-- linear_probe.random_baseline_val_mse: pending
-- subtask_classifier.enabled: pending
-- subtask_classifier.val_accuracy: pending
-- subtask_classifier.chance_accuracy: pending
-- verdict: pending
+- runtime: 02:01:22
+- output_dir: `/scratch/u6cr/pravsels.u6cr/openpi/eval_outputs/build_block_tower_rlt_stage2/validate_rl_token_9999`
+- num_train_samples: 5,000
+- num_val_samples: 1,000
+
+### Action Probe — concat(rl_token, state) → VLA action chunk
+- val_mse_to_vla: **0.1517**
+- val_l2_to_vla: 15.56
+- val_mse_to_ground_truth: **0.0088**
+- val_l2_to_ground_truth: 3.28
+- train_loss (final): 0.1455
+
+### State-Only Action Baseline — state → VLA action chunk
+- val_mse_to_vla: **0.1612**
+- val_l2_to_vla: 16.00
+- comparison: rl_token + state (0.1517) beats state-only (0.1612) — **6% improvement**, confirming the RL token contributes beyond raw proprioceptive state.
+
+### Linear State Probe — rl_token → normalized state
+- val_mse: **0.0555**
+- random_baseline_val_mse: **0.0785**
+- comparison: linear probe (0.0555) beats random baseline (0.0785) by **29%**, confirming state info is linearly recoverable from the RL token.
+- generalisation: val loss decreases monotonically (0.85 → 0.056 over 40 epochs, never diverges). Train/val gap exists (0.005 vs 0.056) but val keeps improving — no overfitting.
+- correction: originally reported as 0.0266 (66% margin), but `metrics.json` shows 0.0555. The 0.0266 was an error.
+
+### Subtask Classifier — rl_token → 11 subtask classes
+- enabled: true
+- num_classes: 11
+- val_accuracy: **19.9%**
+- chance_accuracy: **9.1%**
+- comparison: 2.2x above chance, confirming some subtask structure is encoded.
+- note: heavy overfitting — train loss drops to ~0.03 while val loss diverges (2.0 → 5.3). The RL token has subtask signal but the classifier can't generalize well with 11 classes and limited per-class data.
+
+### Verdict: **pass (moderate)**
+- The RL token adds information beyond raw state for action prediction (6% MSE reduction).
+- Low-dim state is linearly decodable from the RL token (29% below random baseline).
+- Subtask classification is above chance but limited by data/class imbalance.
+- Stage 3 critic training is justified — the RL token carries sufficient information for value estimation.
 
 ## W&B
 - local: n/a
@@ -164,5 +205,5 @@
 - notes: This script writes JSON/NPZ artifacts rather than using the training W&B flow by default.
 
 ## Next
-- monitor job `3460713` — progress logs should appear every 50 batches
-- after completion, copy the metrics for every probe variant into this file and decide whether Stage 3 critic training is justified
+- upload `metrics.json` and evaluation summary to HuggingFace repo
+- decide on Stage 3 critic architecture and training plan
