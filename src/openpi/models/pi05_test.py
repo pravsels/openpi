@@ -4,6 +4,7 @@ import flax.nnx as nnx
 import jax
 import jax.numpy as jnp
 
+from openpi.models.pi05 import Pi05
 import openpi.models.pi05_config as _pi05_config
 import openpi.shared.nnx_utils as nnx_utils
 
@@ -65,3 +66,104 @@ def test_pi05_flow_prefix_stop_gradient():
     assert insulated_non_action_grad == 0
     assert action_grad > 0
     assert insulated_action_grad > 0
+
+
+def test_pi05_sample_actions_cfg_guidance_scale_one_delegates():
+    config = _pi05_config.Pi05Config(
+        paligemma_variant="dummy",
+        action_expert_variant="dummy",
+        action_dim=8,
+        action_horizon=4,
+        max_token_len=16,
+        subtask_loss_weight=0.0,
+        fast_token_loss_weight=0.0,
+        flow_matching_loss_weight=1.0,
+    )
+    model = config.create(jax.random.key(0))
+    obs = config.fake_obs(batch_size=1)
+
+    expected_actions = jnp.ones((1, config.action_horizon, config.action_dim))
+    expected_tokens = jnp.array([[1, 2, 0]], dtype=jnp.int32)
+
+    model.sample_actions = lambda rng, observation, *, num_steps=10, noise=None: (expected_actions, expected_tokens)
+
+    actions, tokens = model.sample_actions_cfg(jax.random.key(1), obs, obs, guidance_scale=1.0)
+
+    assert jnp.array_equal(actions, expected_actions)
+    assert jnp.array_equal(tokens, expected_tokens)
+
+
+def test_pi05_cfg_velocity_combination():
+    v_cond = jnp.array([[2.0, 4.0]])
+    v_uncond = jnp.array([[1.0, 3.0]])
+
+    result = Pi05._combine_cfg_velocity(v_cond, v_uncond, 2.5)
+
+    assert jnp.allclose(result, jnp.array([[3.5, 5.5]]))
+
+
+def test_pi05_sample_actions_cfg_reuses_conditional_subtask_tokens():
+    config = _pi05_config.Pi05Config(
+        paligemma_variant="dummy",
+        action_expert_variant="dummy",
+        action_dim=8,
+        action_horizon=4,
+        max_token_len=16,
+        subtask_loss_weight=0.0,
+        fast_token_loss_weight=0.0,
+        flow_matching_loss_weight=1.0,
+    )
+    model = config.create(jax.random.key(0))
+    obs = config.fake_obs(batch_size=1)
+    uncond_obs = config.fake_obs(batch_size=1)
+
+    expected_tokens = jnp.array([[7, 3, 0]], dtype=jnp.int32)
+    expected_actions = jnp.full((1, config.action_horizon, config.action_dim), 2.0)
+    cond_prefix_mask = jnp.array([[True, True, True, False]])
+    uncond_prefix_mask = jnp.array([[True, False, False, False]])
+    noise = jnp.full((1, config.action_horizon, config.action_dim), -1.0)
+
+    model.sample_low_level_task = (
+        lambda rng, observation, *, max_decoding_steps, paligemma_eos_token, temperature: (
+            expected_tokens,
+            "cond-cache",
+            cond_prefix_mask,
+            None,
+        )
+    )
+
+    def build_uncond_cache(observation, output_tokens):
+        assert jnp.array_equal(output_tokens, expected_tokens)
+        return "uncond-cache", uncond_prefix_mask
+
+    model._build_prefix_cache_from_output_tokens = build_uncond_cache
+
+    def sample_cfg_from_caches(
+        observation,
+        cond_kv_cache,
+        cond_prefix_mask_arg,
+        uncond_observation,
+        uncond_kv_cache,
+        uncond_prefix_mask_arg,
+        *,
+        guidance_scale,
+        num_steps,
+        noise: jax.Array,
+    ):
+        assert cond_kv_cache == "cond-cache"
+        assert uncond_kv_cache == "uncond-cache"
+        assert jnp.array_equal(cond_prefix_mask_arg, cond_prefix_mask)
+        assert jnp.array_equal(uncond_prefix_mask_arg, uncond_prefix_mask)
+        assert guidance_scale == 2.0
+        assert num_steps == 7
+        assert jnp.array_equal(noise, jnp.full((1, config.action_horizon, config.action_dim), -1.0))
+        return expected_actions
+
+    model._sample_actions_cfg_with_prefix_caches = sample_cfg_from_caches
+
+    actions, tokens = model.sample_actions_cfg(
+        jax.random.key(1), obs, uncond_obs, guidance_scale=2.0, num_steps=7, noise=noise
+    )
+
+    assert jnp.array_equal(actions, expected_actions)
+    assert jnp.array_equal(tokens, expected_tokens)

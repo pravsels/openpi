@@ -452,6 +452,7 @@ class LeRobotBinPackDataConfig(DataConfigFactory):
     default_prompt: str | None = "pack coffee capsules into the cardboard bin container"
     use_control_mode_advantage_prompt: bool = False
     advantage_prompt_mode: Literal["positive_only", "mixed"] = "mixed"
+    advantage_dropout_rate: float = 0.0
     # If true, will convert actions to deltas relative to the current state. When mask is None,
     # all action dimensions shared with state will be treated as delta dimensions.
     use_delta_actions: bool = False
@@ -472,6 +473,7 @@ class LeRobotBinPackDataConfig(DataConfigFactory):
                 _transforms.InjectAdvantagePrompt(
                     mode=self.advantage_prompt_mode,
                     default_prompt=self.default_prompt,
+                    dropout_rate=self.advantage_dropout_rate,
                 )
             )
         input_transforms.append(bin_pack_policy.BinPackInputs())
@@ -557,6 +559,7 @@ class LeRobotBlockTowerDataConfig(DataConfigFactory):
     default_prompt: str | None = "build a block tower"
     use_control_mode_advantage_prompt: bool = False
     advantage_prompt_mode: Literal["positive_only", "mixed"] = "mixed"
+    advantage_dropout_rate: float = 0.0
     use_delta_actions: bool = False
     delta_action_mask: Sequence[bool] | None = None
     output_delta_actions: bool = False
@@ -569,6 +572,7 @@ class LeRobotBlockTowerDataConfig(DataConfigFactory):
                 _transforms.InjectAdvantagePrompt(
                     mode=self.advantage_prompt_mode,
                     default_prompt=self.default_prompt,
+                    dropout_rate=self.advantage_dropout_rate,
                 )
             )
         input_transforms.append(block_tower_policy.BlockTowerInputs())
@@ -1353,11 +1357,10 @@ _CONFIGS = [
         weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
         num_train_steps=30_000,
     ),
-    # Reward recap bootstrap configs for bin-pack.
-    # "from_base" variants start from pi05 base weights.
-    # The others resume from an existing task-trained bin-pack checkpoint.
+    # Reward recap configs for bin-pack.
+    # Keep only the canonical positive_only and mixed variants, both starting from pi05 base weights.
     TrainConfig(
-        name="pi05_bin_pack_coffee_capsules_reward_recap_positive_only_from_base",
+        name="pi05_bin_pack_coffee_capsules_recap_positive_only",
         model=pi0_config.Pi0Config(pi05=True, action_horizon=50),
         data=LeRobotBinPackDataConfig(
             repo_id=(
@@ -1376,6 +1379,7 @@ _CONFIGS = [
             base_config=DataConfig(prompt_from_task=True),
             use_control_mode_advantage_prompt=True,
             advantage_prompt_mode="positive_only",
+            advantage_dropout_rate=0.3,
             use_delta_actions=True,
             output_delta_actions=True,
         ),
@@ -1392,7 +1396,7 @@ _CONFIGS = [
         num_train_steps=100_000,
     ),
     TrainConfig(
-        name="pi05_bin_pack_coffee_capsules_reward_recap_mixed_from_base",
+        name="pi05_bin_pack_coffee_capsules_recap_mixed",
         model=pi0_config.Pi0Config(pi05=True, action_horizon=50),
         data=LeRobotBinPackDataConfig(
             repo_id=(
@@ -1411,6 +1415,7 @@ _CONFIGS = [
             base_config=DataConfig(prompt_from_task=True),
             use_control_mode_advantage_prompt=True,
             advantage_prompt_mode="mixed",
+            advantage_dropout_rate=0.3,
             use_delta_actions=True,
             output_delta_actions=True,
         ),
@@ -1424,80 +1429,6 @@ _CONFIGS = [
         optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
         ema_decay=0.999,
         weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
-        num_train_steps=100_000,
-    ),
-    TrainConfig(
-        name="pi05_bin_pack_coffee_capsules_reward_recap_positive_only",
-        model=pi0_config.Pi0Config(pi05=True, action_horizon=50),
-        data=LeRobotBinPackDataConfig(
-            repo_id=(
-                "["
-                "villekuosmanen/bin_pick_pack_coffee_capsules, "
-                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.0.0, "
-                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.1.0, "
-                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.2.0, "
-                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.3.1, "
-                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.4.0, "
-                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.5.0, "
-                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.5.1, "
-                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.7.0"
-                "]"
-            ),
-            base_config=DataConfig(prompt_from_task=True),
-            use_control_mode_advantage_prompt=True,
-            advantage_prompt_mode="positive_only",
-            use_delta_actions=True,
-            output_delta_actions=True,
-        ),
-        batch_size=36,
-        lr_schedule=_optimizer.CosineDecaySchedule(
-            warmup_steps=10_000,
-            peak_lr=5e-5,
-            decay_steps=1_000_000,
-            decay_lr=5e-5,
-        ),
-        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
-        ema_decay=0.999,
-        weight_loader=weight_loaders.CheckpointWeightLoader(
-            "./checkpoints/pi05_bin_pack_coffee_capsules_delta_single_dataset/1_dataset/29999/params"
-        ),
-        num_train_steps=100_000,
-    ),
-    TrainConfig(
-        name="pi05_bin_pack_coffee_capsules_reward_recap_mixed",
-        model=pi0_config.Pi0Config(pi05=True, action_horizon=50),
-        data=LeRobotBinPackDataConfig(
-            repo_id=(
-                "["
-                "villekuosmanen/bin_pick_pack_coffee_capsules, "
-                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.0.0, "
-                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.1.0, "
-                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.2.0, "
-                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.3.1, "
-                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.4.0, "
-                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.5.0, "
-                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.5.1, "
-                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.7.0"
-                "]"
-            ),
-            base_config=DataConfig(prompt_from_task=True),
-            use_control_mode_advantage_prompt=True,
-            advantage_prompt_mode="mixed",
-            use_delta_actions=True,
-            output_delta_actions=True,
-        ),
-        batch_size=36,
-        lr_schedule=_optimizer.CosineDecaySchedule(
-            warmup_steps=10_000,
-            peak_lr=5e-5,
-            decay_steps=1_000_000,
-            decay_lr=5e-5,
-        ),
-        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
-        ema_decay=0.999,
-        weight_loader=weight_loaders.CheckpointWeightLoader(
-            "./checkpoints/pi05_bin_pack_coffee_capsules_delta_single_dataset/1_dataset/29999/params"
-        ),
         num_train_steps=100_000,
     ),
     #
@@ -1513,70 +1444,6 @@ _CONFIGS = [
                 "]"
             ),
             base_config=DataConfig(prompt_from_task=True),
-            use_delta_actions=True,
-            output_delta_actions=True,
-        ),
-        batch_size=36,
-        lr_schedule=_optimizer.CosineDecaySchedule(
-            warmup_steps=10_000,
-            peak_lr=5e-5,
-            decay_steps=1_000_000,
-            decay_lr=5e-5,
-        ),
-        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
-        ema_decay=0.999,
-        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
-        num_train_steps=100_000,
-    ),
-    TrainConfig(
-        name="pi05_build_block_tower_dyna",
-        model=pi0_config.Pi0Config(pi05=True, action_horizon=50),
-        data=LeRobotBlockTowerDataConfig(
-            repo_id=(
-                "["
-                "villekuosmanen/build_block_tower, "
-                "villekuosmanen/dAgger_build_block_tower_1.0.0, "
-                "villekuosmanen/dAgger_build_block_tower_1.1.0, "
-                "villekuosmanen/dAgger_build_block_tower_1.2.0, "
-                "villekuosmanen/dAgger_build_block_tower_1.3.0, "
-                "villekuosmanen/dAgger_build_block_tower_1.4.0"
-                "]"
-            ),
-            base_config=DataConfig(prompt_from_task=True),
-            use_control_mode_advantage_prompt=True,
-            advantage_prompt_mode="positive_only",
-            use_delta_actions=True,
-            output_delta_actions=True,
-        ),
-        batch_size=36,
-        lr_schedule=_optimizer.CosineDecaySchedule(
-            warmup_steps=10_000,
-            peak_lr=5e-5,
-            decay_steps=1_000_000,
-            decay_lr=5e-5,
-        ),
-        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
-        ema_decay=0.999,
-        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
-        num_train_steps=100_000,
-    ),
-    TrainConfig(
-        name="pi05_build_block_tower_mixed",
-        model=pi0_config.Pi0Config(pi05=True, action_horizon=50),
-        data=LeRobotBlockTowerDataConfig(
-            repo_id=(
-                "["
-                "villekuosmanen/build_block_tower, "
-                "villekuosmanen/dAgger_build_block_tower_1.0.0, "
-                "villekuosmanen/dAgger_build_block_tower_1.1.0, "
-                "villekuosmanen/dAgger_build_block_tower_1.2.0, "
-                "villekuosmanen/dAgger_build_block_tower_1.3.0, "
-                "villekuosmanen/dAgger_build_block_tower_1.4.0"
-                "]"
-            ),
-            base_config=DataConfig(prompt_from_task=True),
-            use_control_mode_advantage_prompt=True,
-            advantage_prompt_mode="mixed",
             use_delta_actions=True,
             output_delta_actions=True,
         ),

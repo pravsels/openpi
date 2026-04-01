@@ -125,6 +125,40 @@ def test_inject_advantage_prompt_positive_only_missing_control_mode():
     assert data["prompt"] == "pick up the fork. Advantage: positive"
 
 
+def test_inject_advantage_prompt_dropout_omits_suffix_for_kept_example(monkeypatch):
+    transform = _transforms.InjectAdvantagePrompt(dropout_rate=0.3)
+    monkeypatch.setattr(np.random, "random", lambda: 0.1)
+
+    data = transform({"prompt": "pick up the fork", "control_mode": "human"})
+
+    assert data["prompt"] == "pick up the fork."
+
+
+def test_inject_advantage_prompt_positive_only_still_skips_policy_before_dropout(monkeypatch):
+    transform = _transforms.InjectAdvantagePrompt(mode="positive_only", dropout_rate=0.3)
+    monkeypatch.setattr(np.random, "random", lambda: 0.1)
+
+    result = transform({"prompt": "pick up the fork", "control_mode": "policy"})
+
+    assert result is None
+
+
+def test_quantile_normalize_uses_q01_q99_without_extra_clipping():
+    stats = {
+        "actions": _transforms.NormStats(
+            mean=np.zeros(1),
+            std=np.ones(1),
+            q01=np.array([0.0]),
+            q99=np.array([10.0]),
+        )
+    }
+    transform = _transforms.Normalize(stats, use_quantiles=True)
+
+    data = transform({"actions": np.array([[-10.0], [5.0], [20.0]])})
+
+    assert np.allclose(data["actions"], np.array([[-3.0], [0.0], [3.0]]), atol=1e-6)
+
+
 def test_transform_dict():
     # Rename and remove keys.
     input = {"a": {"b": 1, "c": 2}}

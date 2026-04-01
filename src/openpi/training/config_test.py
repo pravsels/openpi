@@ -102,15 +102,42 @@ def test_binpack_config_can_select_positive_only_advantage_mode(tmp_path):
     assert transform.mode == "positive_only"
 
 
+def test_binpack_config_passes_advantage_dropout_rate(tmp_path):
+    factory = _config.LeRobotBinPackDataConfig(
+        repo_id="repo",
+        use_control_mode_advantage_prompt=True,
+        advantage_dropout_rate=0.3,
+    )
+    model_config = pi0_config.Pi0Config(pi05=True, action_horizon=2)
+    data_config = factory.create(tmp_path, model_config)
+
+    transform = data_config.data_transforms.inputs[0]
+    assert isinstance(transform, _transforms.InjectAdvantagePrompt)
+    assert transform.dropout_rate == 0.3
+
+
 def test_reward_recap_binpack_configs_exist():
     positive_only = _config.get_config("pi05_bin_pack_coffee_capsules_reward_recap_positive_only")
     mixed = _config.get_config("pi05_bin_pack_coffee_capsules_reward_recap_mixed")
-    positive_only_base = _config.get_config("pi05_bin_pack_coffee_capsules_reward_recap_positive_only_from_base")
-    mixed_base = _config.get_config("pi05_bin_pack_coffee_capsules_reward_recap_mixed_from_base")
 
-    for cfg in [positive_only, positive_only_base]:
+    for cfg in [positive_only]:
         assert cfg.data.use_control_mode_advantage_prompt is True
         assert cfg.data.advantage_prompt_mode == "positive_only"
-    for cfg in [mixed, mixed_base]:
+        assert cfg.data.advantage_dropout_rate == 0.3
+    for cfg in [mixed]:
         assert cfg.data.use_control_mode_advantage_prompt is True
         assert cfg.data.advantage_prompt_mode == "mixed"
+        assert cfg.data.advantage_dropout_rate == 0.3
+
+
+def test_reward_recap_block_tower_configs_exist():
+    positive_only = _config.get_config("pi05_build_block_tower_positive_only")
+    mixed = _config.get_config("pi05_build_block_tower_mixed")
+
+    assert positive_only.data.use_control_mode_advantage_prompt is True
+    assert positive_only.data.advantage_prompt_mode == "positive_only"
+    assert positive_only.data.advantage_dropout_rate == 0.3
+
+    assert mixed.data.use_control_mode_advantage_prompt is True
+    assert mixed.data.advantage_prompt_mode == "mixed"
+    assert mixed.data.advantage_dropout_rate == 0.3

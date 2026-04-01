@@ -1,10 +1,12 @@
 import dataclasses
 
 import jax
+import numpy as np
 import pytest
 import torch
 
 from openpi.models import pi0_config
+import openpi.shared.normalize as _normalize
 import openpi.transforms as _transforms
 from openpi.training import config as _config
 from openpi.training import data_loader as _data_loader
@@ -246,3 +248,57 @@ def test_filtered_distributed_sampler_deterministic_per_epoch():
     expected = expected[: sampler.total_size]
     expected = expected[0 : sampler.total_size : sampler.num_replicas]
     assert list(iter(sampler)) == expected
+
+
+class _TinyDataset:
+    def __init__(self, samples: list[dict]):
+        self._samples = samples
+
+    def __getitem__(self, index):
+        return self._samples[index]
+
+    def __len__(self):
+        return len(self._samples)
+
+
+def test_create_torch_data_loader_computes_missing_per_timestep_action_stats(tmp_path, monkeypatch):
+    model_config = pi0_config.Pi0Config(action_dim=2, action_horizon=2, max_token_len=4)
+    samples = [
+        {
+            "state": np.array([0.0, 1.0], dtype=np.float32),
+            "actions": np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32),
+        },
+        {
+            "state": np.array([1.0, 2.0], dtype=np.float32),
+            "actions": np.array([[5.0, 6.0], [7.0, 8.0]], dtype=np.float32),
+        },
+    ]
+    dataset = _TinyDataset(samples)
+    norm_stats = {
+        "state": _normalize.NormStats(mean=np.zeros(2), std=np.ones(2)),
+        "actions": _normalize.NormStats(mean=np.zeros(2), std=np.ones(2)),
+    }
+    data_config = _config.DataConfig(
+        repo_id="repo",
+        asset_id="asset",
+        norm_stats=norm_stats,
+        use_per_timestep_action_norm=True,
+        per_timestep_action_norm_stats=None,
+    )
+
+    monkeypatch.setattr(_data_loader, "create_torch_dataset", lambda *args, **kwargs: dataset)
+
+    loader = _data_loader.create_torch_data_loader(
+        data_config,
+        model_config=model_config,
+        action_horizon=model_config.action_horizon,
+        batch_size=2,
+        num_batches=1,
+        assets_dir=tmp_path,
+    )
+
+    computed_stats = loader.data_config().per_timestep_action_norm_stats
+    assert computed_stats is not None
+    assert computed_stats.mean.shape == (2, 2)
+    assert np.allclose(computed_stats.mean, np.array([[3.0, 4.0], [5.0, 6.0]]))
+    assert (tmp_path / "asset" / "norm_stats_actions_per_timestep.json").exists()

@@ -353,6 +353,96 @@ def transform_iterable_dataset(
     )
 
 
+def _get_data_assets_dir(data_config: _config.DataConfig, assets_dir: pathlib.Path | str | None) -> pathlib.Path | None:
+    if assets_dir is None:
+        return None
+    assets_path = pathlib.Path(assets_dir)
+    if data_config.asset_id is not None:
+        return assets_path / data_config.asset_id
+    return assets_path
+
+
+def _compute_per_timestep_action_norm_stats(
+    dataset: Dataset,
+    data_config: _config.DataConfig,
+) -> _transforms.NormStats:
+    transform = _transforms.compose(
+        [
+            *data_config.repack_transforms.inputs,
+            *data_config.data_transforms.inputs,
+        ]
+    )
+
+    running_stats: list[list[_normalize.RunningStats]] | None = None
+    for index in range(len(dataset)):
+        sample = transform(dataset[index])
+        if sample is None:
+            continue
+
+        actions = np.asarray(sample["actions"])
+        if actions.ndim != 2:
+            raise ValueError(f"Expected unbatched action chunks with shape (ah, ad), got {actions.shape}")
+
+        action_dim_mask = sample.get("action_dim_mask")
+        if action_dim_mask is None:
+            mask = np.ones(actions.shape, dtype=bool)
+        else:
+            mask = np.broadcast_to(np.asarray(action_dim_mask, dtype=bool), actions.shape)
+
+        if running_stats is None:
+            running_stats = [
+                [_normalize.RunningStats() for _ in range(actions.shape[1])] for _ in range(actions.shape[0])
+            ]
+
+        for timestep in range(actions.shape[0]):
+            for dim in range(actions.shape[1]):
+                if mask[timestep, dim]:
+                    running_stats[timestep][dim].update(actions[timestep : timestep + 1, dim : dim + 1])
+
+    if running_stats is None:
+        raise ValueError("Could not compute per-timestep action stats: all samples were filtered out.")
+
+    mean = np.zeros((len(running_stats), len(running_stats[0])), dtype=np.float32)
+    std = np.ones_like(mean)
+    q01 = -np.ones_like(mean)
+    q99 = np.ones_like(mean)
+
+    for timestep, timestep_stats in enumerate(running_stats):
+        for dim, dim_stats in enumerate(timestep_stats):
+            if dim_stats._count < 2:
+                continue
+            stats = dim_stats.get_statistics()
+            mean[timestep, dim] = float(stats.mean[0])
+            std[timestep, dim] = float(stats.std[0])
+            q01[timestep, dim] = float(stats.q01[0]) if stats.q01 is not None else -1.0
+            q99[timestep, dim] = float(stats.q99[0]) if stats.q99 is not None else 1.0
+
+    return _normalize.NormStats(mean=mean, std=std, q01=q01, q99=q99)
+
+
+def _maybe_compute_missing_per_timestep_action_norm_stats(
+    dataset: Dataset,
+    data_config: _config.DataConfig,
+    *,
+    assets_dir: pathlib.Path | str | None,
+) -> _config.DataConfig:
+    if not data_config.use_per_timestep_action_norm:
+        return data_config
+    if data_config.per_timestep_action_norm_stats is not None:
+        return data_config
+
+    output_dir = _get_data_assets_dir(data_config, assets_dir)
+    if output_dir is None:
+        logging.warning("Per-timestep action norm stats missing and no assets_dir provided; using global stats.")
+        return data_config
+
+    logging.info("Per-timestep action norm stats missing; computing them from the training dataset.")
+    action_stats = _compute_per_timestep_action_norm_stats(dataset, data_config)
+    _normalize.save_actions_per_timestep(output_dir, action_stats)
+    logging.info("Saved per-timestep action norm stats to %s", output_dir)
+    return dataclasses.replace(data_config, per_timestep_action_norm_stats=action_stats)
+
+
 def create_data_loader(
     config: _config.TrainConfig,
     *,
@@ -454,6 +544,12 @@ def create_torch_data_loader(
             scripts/compute_valid_indices.py). If provided, only these indices are sampled.
     """
     dataset = create_torch_dataset(data_config, action_horizon, model_config)
+    if not skip_norm_stats and data_config.repo_id != "fake":
+        data_config = _maybe_compute_missing_per_timestep_action_norm_stats(
+            dataset,
+            data_config,
+            assets_dir=assets_dir,
+        )
 
     split_indices = None
     if dataset_split is not None:

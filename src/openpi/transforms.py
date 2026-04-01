@@ -126,28 +126,35 @@ class InjectAdvantagePrompt(DataTransformFn):
     mode: Literal["positive_only", "mixed"] = "mixed"
     default_prompt: str | None = None
     negative_control_modes: tuple[str, ...] = ("policy",)
+    dropout_rate: float = 0.0
 
     def __call__(self, data: DataDict) -> DataDict | None:
         prompt = self._extract_prompt(data)
         if prompt is None:
             return data
 
+        control_mode = self._extract_control_mode(data.get("control_mode"))
         if self.mode == "positive_only":
-            control_mode = self._extract_control_mode(data.get("control_mode"))
             if control_mode in self.negative_control_modes:
                 return None
             advantage = "positive"
         elif self.mode == "mixed":
-            control_mode = self._extract_control_mode(data.get("control_mode"))
             advantage = "negative" if control_mode in self.negative_control_modes else "positive"
         else:
             raise ValueError(f"Unsupported advantage prompt mode: {self.mode}")
 
+        if self.dropout_rate > 0 and np.random.random() < self.dropout_rate:
+            return {**data, "prompt": np.asarray(self._format_prompt(prompt))}
+
+        prompt = f"{self._format_prompt(prompt)} Advantage: {advantage}".strip()
+        return {**data, "prompt": np.asarray(prompt)}
+
+    @staticmethod
+    def _format_prompt(prompt: str) -> str:
         prompt = prompt.strip()
         if prompt and prompt[-1] not in ".!?":
             prompt += "."
-        prompt = f"{prompt} Advantage: {advantage}".strip()
-        return {**data, "prompt": np.asarray(prompt)}
+        return prompt
 
     def _extract_prompt(self, data: DataDict) -> str | None:
         for key in ("prompt", "task"):

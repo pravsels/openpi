@@ -126,11 +126,12 @@ def normalize_state(state: np.ndarray, norm_stats: dict, pad_to_dim: int = 32, u
     normalized = state.copy().astype(np.float32)
     
     if use_quantiles:
-        # Quantile normalization: (x - q01) / (q99 - q01) * 2 - 1 -> maps to [-1, 1]
         q01 = np.array(stats["q01"], dtype=np.float32)
         q99 = np.array(stats["q99"], dtype=np.float32)
         state_dim = min(state.shape[-1], len(q01))
-        normalized[..., :state_dim] = (state[..., :state_dim] - q01[:state_dim]) / (q99[:state_dim] - q01[:state_dim] + 1e-6) * 2.0 - 1.0
+        normalized[..., :state_dim] = (
+            (state[..., :state_dim] - q01[:state_dim]) / (q99[:state_dim] - q01[:state_dim] + 1e-6) * 2.0 - 1.0
+        )
     else:
         # Z-score normalization
         mean = np.array(stats["mean"], dtype=np.float32)
@@ -164,11 +165,14 @@ def unnormalize_actions(actions: np.ndarray, norm_stats: dict, use_quantiles: bo
     unnormalized = actions.copy()
     
     if use_quantiles:
-        # Quantile unnormalization: (x + 1) / 2 * (q99 - q01) + q01 -> maps from [-1, 1] to [q01, q99]
+        # Quantile unnormalization maps [-1, 1] back into the [q01, q99] interval.
         q01 = np.array(stats["q01"], dtype=np.float32)
         q99 = np.array(stats["q99"], dtype=np.float32)
         action_dim = min(actions.shape[-1], len(q01))
-        unnormalized[..., :action_dim] = (actions[..., :action_dim] + 1.0) / 2.0 * (q99[:action_dim] - q01[:action_dim] + 1e-6) + q01[:action_dim]
+        unnormalized[..., :action_dim] = (
+            (actions[..., :action_dim] + 1.0) / 2.0 * (q99[:action_dim] - q01[:action_dim] + 1e-6)
+            + q01[:action_dim]
+        )
     else:
         # Z-score unnormalization
         mean = np.array(stats["mean"], dtype=np.float32)

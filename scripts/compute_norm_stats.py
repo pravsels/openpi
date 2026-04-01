@@ -1,8 +1,8 @@
 """Compute normalization statistics for a config.
 
-This script is used to compute the normalization statistics for a given config. It
-will compute the mean and standard deviation of the data in the dataset and save it
-to the config assets directory.
+This script computes global normalization statistics for a given config and saves
+them to the config assets directory. Quantile stats follow the repo default:
+1st/99th percentiles map to [-1, 1] during quantile normalization.
 """
 
 import numpy as np

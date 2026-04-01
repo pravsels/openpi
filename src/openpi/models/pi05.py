@@ -438,6 +438,206 @@ class Pi05(_model.BaseModel):
         #  ar_mask [prefix_len+max_decoding_steps]
         return output_tokens, kv_cache, mask, ar_mask
 
+    @staticmethod
+    def _combine_cfg_velocity(
+        v_cond: jax.Array,
+        v_uncond: jax.Array,
+        guidance_scale: float | jax.Array,
+    ) -> jax.Array:
+        return v_uncond + guidance_scale * (v_cond - v_uncond)
+
+    def _build_prefix_cache_from_output_tokens(
+        self,
+        observation: _model.Observation,
+        output_tokens: jax.Array,
+    ) -> tuple[object, jax.Array]:
+        prefix_token_embeddings, prefix_mask, prefix_ar_mask = self.embed_prefix(observation)
+        output_tokens = output_tokens.astype(jnp.int32)
+        output_mask = (output_tokens != 0).astype(jnp.bool_)
+        output_token_embeddings = self.PaliGemma.llm(output_tokens, method="embed")
+
+        full_prefix_tokens = jnp.concatenate([prefix_token_embeddings, output_token_embeddings], axis=1)
+        full_prefix_mask = jnp.concatenate([prefix_mask, output_mask], axis=1)
+        full_prefix_ar_mask = jnp.concatenate([prefix_ar_mask, jnp.ones(output_tokens.shape[1], dtype=jnp.bool_)], axis=0)
+        full_prefix_attn_mask = make_attn_mask(full_prefix_mask, full_prefix_ar_mask)
+        full_prefix_positions = jnp.cumsum(full_prefix_mask, axis=-1) - 1
+        (_, _), kv_cache = self.PaliGemma.llm(
+            [full_prefix_tokens, None],
+            mask=full_prefix_attn_mask,
+            positions=full_prefix_positions,
+            adarms_cond=[None, None],
+        )
+        return kv_cache, full_prefix_mask
+
+    def _sample_actions_with_prefix_cache(
+        self,
+        observation: _model.Observation,
+        kv_cache: object,
+        prefix_mask: jax.Array,
+        *,
+        num_steps: int | jax.Array,
+        noise: jax.Array,
+    ) -> _model.Actions:
+        # note that we use the convention more common in diffusion literature, where t=1 is noise and t=0 is the target
+        # distribution. yes, this is the opposite of the pi0 paper, and I'm sorry.
+        dt = -1.0 / num_steps
+        batch_size = observation.state.shape[0]
+
+        def step(carry):
+            x_t, time = carry
+            suffix_tokens, suffix_mask, suffix_ar_mask, adarms_cond = self.embed_suffix(
+                observation, x_t, jnp.broadcast_to(time, batch_size)
+            )
+            suffix_attn_mask = make_attn_mask(suffix_mask, suffix_ar_mask)
+            prefix_attn_mask = einops.repeat(prefix_mask, "b p -> b s p", s=suffix_tokens.shape[1])
+            full_attn_mask = jnp.concatenate([prefix_attn_mask, suffix_attn_mask], axis=-1)
+            query_attn_mask = full_attn_mask[:, -suffix_tokens.shape[1] :, :]
+
+            assert full_attn_mask.shape == (
+                batch_size,
+                suffix_tokens.shape[1],
+                prefix_mask.shape[1] + suffix_tokens.shape[1],
+            )
+            positions = jnp.sum(prefix_mask, axis=-1)[:, None] + jnp.cumsum(suffix_mask, axis=-1) - 1
+
+            (prefix_out, suffix_out), _ = self.PaliGemma.llm(
+                [None, suffix_tokens],
+                mask=query_attn_mask,
+                positions=positions,
+                kv_cache=kv_cache,
+                adarms_cond=[None, adarms_cond],
+            )
+            assert prefix_out is None
+            v_t = self.action_out_proj(suffix_out[:, -self.action_horizon :])
+
+            return x_t + dt * v_t, time + dt
+
+        def cond(carry):
+            _x_t, time = carry
+            return time >= -dt / 2
+
+        x_0, _ = jax.lax.while_loop(cond, step, (noise, 1.0))
+        return x_0
+
+    def _sample_actions_cfg_with_prefix_caches(
+        self,
+        observation: _model.Observation,
+        cond_kv_cache: object,
+        cond_prefix_mask: jax.Array,
+        uncond_observation: _model.Observation,
+        uncond_kv_cache: object,
+        uncond_prefix_mask: jax.Array,
+        *,
+        guidance_scale: float | jax.Array,
+        num_steps: int | jax.Array,
+        noise: jax.Array,
+    ) -> _model.Actions:
+        dt = -1.0 / num_steps
+        batch_size = observation.state.shape[0]
+
+        def step(carry):
+            x_t, time = carry
+            suffix_tokens, suffix_mask, suffix_ar_mask, adarms_cond = self.embed_suffix(
+                observation, x_t, jnp.broadcast_to(time, batch_size)
+            )
+            uncond_suffix_tokens, uncond_suffix_mask, uncond_suffix_ar_mask, uncond_adarms_cond = self.embed_suffix(
+                uncond_observation, x_t, jnp.broadcast_to(time, batch_size)
+            )
+
+            cond_suffix_attn_mask = make_attn_mask(suffix_mask, suffix_ar_mask)
+            uncond_suffix_attn_mask = make_attn_mask(uncond_suffix_mask, uncond_suffix_ar_mask)
+            cond_prefix_attn_mask = einops.repeat(cond_prefix_mask, "b p -> b s p", s=suffix_tokens.shape[1])
+            uncond_prefix_attn_mask = einops.repeat(
+                uncond_prefix_mask, "b p -> b s p", s=uncond_suffix_tokens.shape[1]
+            )
+
+            cond_query_attn_mask = jnp.concatenate([cond_prefix_attn_mask, cond_suffix_attn_mask], axis=-1)[
+                :, -suffix_tokens.shape[1] :, :
+            ]
+            uncond_query_attn_mask = jnp.concatenate([uncond_prefix_attn_mask, uncond_suffix_attn_mask], axis=-1)[
+                :, -uncond_suffix_tokens.shape[1] :, :
+            ]
+
+            cond_positions = jnp.sum(cond_prefix_mask, axis=-1)[:, None] + jnp.cumsum(suffix_mask, axis=-1) - 1
+            uncond_positions = (
+                jnp.sum(uncond_prefix_mask, axis=-1)[:, None] + jnp.cumsum(uncond_suffix_mask, axis=-1) - 1
+            )
+
+            (cond_prefix_out, cond_suffix_out), _ = self.PaliGemma.llm(
+                [None, suffix_tokens],
+                mask=cond_query_attn_mask,
+                positions=cond_positions,
+                kv_cache=cond_kv_cache,
+                adarms_cond=[None, adarms_cond],
+            )
+            (uncond_prefix_out, uncond_suffix_out), _ = self.PaliGemma.llm(
+                [None, uncond_suffix_tokens],
+                mask=uncond_query_attn_mask,
+                positions=uncond_positions,
+                kv_cache=uncond_kv_cache,
+                adarms_cond=[None, uncond_adarms_cond],
+            )
+            assert cond_prefix_out is None
+            assert uncond_prefix_out is None
+
+            v_cond = self.action_out_proj(cond_suffix_out[:, -self.action_horizon :])
+            v_uncond = self.action_out_proj(uncond_suffix_out[:, -self.action_horizon :])
+            v_t = self._combine_cfg_velocity(v_cond, v_uncond, guidance_scale)
+
+            return x_t + dt * v_t, time + dt
+
+        def cond(carry):
+            _x_t, time = carry
+            return time >= -dt / 2
+
+        x_0, _ = jax.lax.while_loop(cond, step, (noise, 1.0))
+        return x_0
+
+    def sample_actions_cfg(
+        self,
+        rng: at.KeyArrayLike,
+        observation: _model.Observation,
+        uncond_observation: _model.Observation,
+        *,
+        guidance_scale: float = 1.0,
+        num_steps: int | jax.Array = 10,
+        noise: jax.Array | None = None,
+    ) -> _model.Actions:
+        if guidance_scale == 1.0:
+            return self.sample_actions(rng, observation, num_steps=num_steps, noise=noise)
+
+        observation = _model.preprocess_observation(
+            None, observation, train=False, image_keys=list(observation.images.keys())
+        )
+        uncond_observation = _model.preprocess_observation(
+            None, uncond_observation, train=False, image_keys=list(uncond_observation.images.keys())
+        )
+
+        batch_size = observation.state.shape[0]
+        assert batch_size == 1, "Batch size must be 1 for sample_actions_cfg, subtask can be of different length"
+        assert uncond_observation.state.shape[0] == batch_size, "Conditional and unconditional batches must match"
+        if noise is None:
+            noise = jax.random.normal(rng, (batch_size, self.action_horizon, self.action_dim))
+
+        output_tokens, cond_kv_cache, cond_prefix_mask, _ = self.sample_low_level_task(
+            rng, observation, max_decoding_steps=20, paligemma_eos_token=1, temperature=0.0
+        )
+        uncond_kv_cache, uncond_prefix_mask = self._build_prefix_cache_from_output_tokens(
+            uncond_observation, output_tokens
+        )
+        x_0 = self._sample_actions_cfg_with_prefix_caches(
+            observation,
+            cond_kv_cache,
+            cond_prefix_mask,
+            uncond_observation,
+            uncond_kv_cache,
+            uncond_prefix_mask,
+            guidance_scale=guidance_scale,
+            num_steps=num_steps,
+            noise=noise,
+        )
+        return (x_0, output_tokens)
+
     @override
     def sample_actions(
         self,
@@ -450,62 +650,15 @@ class Pi05(_model.BaseModel):
         observation = _model.preprocess_observation(
             None, observation, train=False, image_keys=list(observation.images.keys())
         )
-        # note that we use the convention more common in diffusion literature, where t=1 is noise and t=0 is the target
-        # distribution. yes, this is the opposite of the pi0 paper, and I'm sorry.
-        dt = -1.0 / num_steps
         batch_size = observation.state.shape[0]
         assert batch_size == 1, "Batch size must be 1 for sample_actions, subtask can be of different length"
         if noise is None:
             noise = jax.random.normal(rng, (batch_size, self.action_horizon, self.action_dim))
 
-        # Get all the prefix tokens, mask, and ar mask
         output_tokens, kv_cache, prefix_mask, _prefix_ar_mask = self.sample_low_level_task(
             rng, observation, max_decoding_steps=20, paligemma_eos_token=1, temperature=0.0
         )
-
-        def step(carry):
-            x_t, time = carry
-            suffix_tokens, suffix_mask, suffix_ar_mask, adarms_cond = self.embed_suffix(
-                observation, x_t, jnp.broadcast_to(time, batch_size)
-            )
-            # `suffix_attn_mask` is shape (b, suffix_len, suffix_len) indicating how the suffix tokens can attend to each
-            # other
-            suffix_attn_mask = make_attn_mask(suffix_mask, suffix_ar_mask)
-            # `prefix_attn_mask` is shape (b, suffix_len, prefix_len) indicating how the suffix tokens can attend to the
-            # prefix tokens
-            prefix_attn_mask = einops.repeat(prefix_mask, "b p -> b s p", s=suffix_tokens.shape[1])
-            # `combined_mask` is shape (b, suffix_len, prefix_len + suffix_len) indicating how the suffix tokens (which
-            # generate the queries) can attend to the full prefix + suffix sequence (which generates the keys and values)
-            full_attn_mask = jnp.concatenate([prefix_attn_mask, suffix_attn_mask], axis=-1)
-            query_attn_mask = full_attn_mask[
-                :, -suffix_tokens.shape[1] :, :
-            ]  # [B, suffix_len, prefix_len + suffix_len]
-
-            assert full_attn_mask.shape == (
-                batch_size,
-                suffix_tokens.shape[1],
-                prefix_mask.shape[1] + suffix_tokens.shape[1],
-            )
-            # `positions` is shape (b, suffix_len) indicating the positions of the suffix tokens
-            positions = jnp.sum(prefix_mask, axis=-1)[:, None] + jnp.cumsum(suffix_mask, axis=-1) - 1
-
-            (prefix_out, suffix_out), _ = self.PaliGemma.llm(
-                [None, suffix_tokens],
-                mask=query_attn_mask,
-                positions=positions,
-                kv_cache=kv_cache,  # kv_cache is not updated during multiple denoising steps
-                adarms_cond=[None, adarms_cond],
-            )
-            assert prefix_out is None
-            v_t = self.action_out_proj(suffix_out[:, -self.action_horizon :])
-
-            return x_t + dt * v_t, time + dt
-
-        def cond(carry):
-            _x_t, time = carry
-            # robust to floating-point error
-            return time >= -dt / 2
-
-        x_0, _ = jax.lax.while_loop(cond, step, (noise, 1.0))
-
+        x_0 = self._sample_actions_with_prefix_cache(
+            observation, kv_cache, prefix_mask, num_steps=num_steps, noise=noise
+        )
         return (x_0, output_tokens)
