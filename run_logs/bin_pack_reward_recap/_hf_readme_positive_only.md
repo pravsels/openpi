@@ -16,7 +16,7 @@ Fine-tuned [pi0.5](https://github.com/Physical-Intelligence/openpi) checkpoint f
 
 - **Objective:** Test whether positive-only advantage conditioning improves bin-pack policy when fine-tuning from a task-trained checkpoint.
 - **Weight init:** Resumed from [pi05-bin-pack-single-dataset](https://huggingface.co/pravsels/pi05-bin-pack-single-dataset) checkpoint (step 29999).
-- **Advantage mode:** `positive_only` — only successful demonstrations receive advantage prompts.
+- **Advantage mode:** `positive_only` — human demos are trained with prompt `"pack coffee capsules into the cardboard bin container. Advantage: positive"`, policy-collected frames are dropped.
 - **Target steps:** 100,000
 
 ## Config

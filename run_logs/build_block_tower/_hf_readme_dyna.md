@@ -16,7 +16,7 @@ Fine-tuned [pi0.5](https://github.com/Physical-Intelligence/openpi) checkpoint f
 
 - **Objective:** Train a block tower policy using all human + dAgger data with Dyna-style conditioning (positive-only: human frames get "Advantage: positive", policy frames dropped).
 - **Weight init:** `weights/pi05_base/params` (pi0.5 base weights).
-- **Advantage mode:** `positive_only`
+- **Advantage mode:** `positive_only` — human demos are trained with prompt `"build a block tower. Advantage: positive"`, policy-collected frames are dropped.
 - **Target steps:** 100,000
 - **Latest observed step before stop:** 81,900 (loss 0.0111)
 

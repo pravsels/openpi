@@ -16,7 +16,7 @@ Fine-tuned [pi0.5](https://github.com/Physical-Intelligence/openpi) checkpoint f
 
 - **Objective:** Train on all 6 block tower datasets with mixed advantage prompts. Compare against dyna (positive-only, drops policy frames) and baseline (no advantage prompts).
 - **Weight init:** `weights/pi05_base/params` (pi0.5 base weights).
-- **Advantage mode:** `mixed` (human → positive, policy → negative)
+- **Advantage mode:** `mixed` — human demos are trained with prompt `"build a block tower. Advantage: positive"`, policy-collected frames with `"... Advantage: negative"`.
 - **Total steps:** 100,000 (completed)
 - **Final loss:** 0.0097 (step 99,900)
 

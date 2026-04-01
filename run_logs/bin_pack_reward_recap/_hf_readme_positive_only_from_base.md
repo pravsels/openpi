@@ -16,7 +16,7 @@ Fine-tuned [pi0.5](https://github.com/Physical-Intelligence/openpi) checkpoint f
 
 - **Objective:** Test whether positive-only advantage conditioning works when training from pi0.5 base weights directly (no task-specific pre-training).
 - **Weight init:** `weights/pi05_base/params` (pi0.5 base weights).
-- **Advantage mode:** `positive_only` — only successful demonstrations receive advantage prompts.
+- **Advantage mode:** `positive_only` — human demos are trained with prompt `"pack coffee capsules into the cardboard bin container. Advantage: positive"`, policy-collected frames are dropped.
 - **Target steps:** 100,000
 
 ## Config

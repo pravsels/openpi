@@ -74,9 +74,9 @@ See `evals/2026-03-27_rl_token_eval/eval_log.md` for the full interpretation and
 
 ### Reconstruction Ablation (step 5k vs 10k)
 
-Tests whether the RL token carries meaningful information by comparing decoder reconstruction loss under three conditions: real token, zero vector, and shuffled (batch-neighbour's) token. Evaluated on 32 timesteps (4 batches × 8) from the train split.
+Tests whether the RL token carries meaningful information by comparing decoder reconstruction loss under three conditions: real token, zero vector, and shuffled (batch-neighbour's) token. Evaluated on 32 timesteps (4 batches × 8) from the train split. Loss is mean L2² per token (summed over embedding dim), averaged over valid tokens per example, then averaged over the batch.
 
-| Condition | Step 5k checkpoint | Step 10k checkpoint |
+| Condition | Mean L2 (Step 5k) | Mean L2 (Step 10k) |
 |-----------|-------------------|---------------------|
 | Real RL token | 365.4 | 226.2 |
 | Neighbour's token | 401.4 (+10%) | 316.3 (+40%) |
