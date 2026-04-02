@@ -14,6 +14,12 @@ class ValidIndicesPolicy:
     require_outcomes: bool = True
 
 
+def _unwrap_dataset(dataset):
+    while hasattr(dataset, "_dataset"):
+        dataset = dataset._dataset
+    return dataset
+
+
 def policy_from_train_config(config: _config.TrainConfig) -> ValidIndicesPolicy:
     mode = "positive_only"
     if getattr(config.data, "use_control_mode_advantage_prompt", False):
@@ -59,6 +65,7 @@ def _control_mode_frame_sets(segments, episode_length: int) -> tuple[set[int], s
 
 
 def compute_valid_indices(dataset, policy: ValidIndicesPolicy) -> list[int]:
+    dataset = _unwrap_dataset(dataset)
     valid: list[int] = []
 
     for ds_idx, ds in enumerate(dataset._datasets):

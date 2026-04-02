@@ -337,6 +337,35 @@ def test_create_data_loader_writes_valid_indices_when_missing(tmp_path, monkeypa
     assert (tmp_path / _data_loader.VALID_INDICES_FILENAME).read_text() == "0"
 
 
+def test_create_data_loader_writes_valid_indices_when_dataset_is_wrapped(tmp_path, monkeypatch):
+    model_config = pi0_config.Pi0Config(action_dim=2, action_horizon=2, max_token_len=4)
+    config = _config.TrainConfig(
+        name="test_valid_indices",
+        exp_name="test",
+        model=model_config,
+        data=_config.LeRobotBinPackDataConfig(repo_id="repo"),
+        assets_dir=str(tmp_path),
+        batch_size=2,
+    )
+    dataset = _data_loader.TransformedDataset(_ValidIndicesDataset(), [])
+
+    monkeypatch.setattr(_data_loader, "create_torch_dataset", lambda *args, **kwargs: dataset)
+
+    class _DummyTorchDataLoader:
+        def __init__(self, dataset, **kwargs):
+            self.dataset = dataset
+            self.kwargs = kwargs
+
+        def __iter__(self):
+            return iter(())
+
+    monkeypatch.setattr(_data_loader, "TorchDataLoader", _DummyTorchDataLoader)
+
+    _data_loader.create_data_loader(config, num_batches=1, skip_norm_stats=True)
+
+    assert (tmp_path / _data_loader.VALID_INDICES_FILENAME).read_text() == "0"
+
+
 def test_create_data_loader_fails_when_auto_valid_indices_missing_outcomes(tmp_path, monkeypatch):
     model_config = pi0_config.Pi0Config(action_dim=2, action_horizon=2, max_token_len=4)
     config = _config.TrainConfig(
