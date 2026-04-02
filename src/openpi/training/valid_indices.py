@@ -36,9 +36,26 @@ def _get_plugin_instance(instances: list[object], attr_name: str) -> object | No
 
 def _episode_bounds(ds) -> tuple[list[int], list[int]]:
     episode_data_index = getattr(ds, "episode_data_index", None)
-    if episode_data_index is None:
-        raise ValueError(f"Dataset {getattr(ds, 'repo_id', '<unknown>')} is missing episode_data_index")
-    return list(episode_data_index["from"]), list(episode_data_index["to"])
+    if episode_data_index is not None:
+        return list(episode_data_index["from"]), list(episode_data_index["to"])
+
+    hf_dataset = getattr(ds, "hf_dataset", None)
+    if hf_dataset is not None:
+        episode_index = hf_dataset["episode_index"]
+        ep_from: list[int] = []
+        ep_to: list[int] = []
+        current_episode = object()
+        for idx, episode_idx in enumerate(episode_index):
+            if episode_idx != current_episode:
+                ep_from.append(idx)
+                if len(ep_from) > 1:
+                    ep_to.append(idx)
+                current_episode = episode_idx
+        if ep_from:
+            ep_to.append(len(episode_index))
+            return ep_from, ep_to
+
+    raise ValueError(f"Dataset {getattr(ds, 'repo_id', '<unknown>')} is missing episode_data_index")
 
 
 def _local_to_global_indices(index_map) -> dict[int, int] | None:
