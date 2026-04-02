@@ -552,8 +552,8 @@ class LeRobotBinPackDataConfig(DataConfigFactory):
 class LeRobotBlockTowerDataConfig(DataConfigFactory):
     """Data config for build_block_tower datasets (LeRobot v2.1 format).
 
-    State and actions are both 7D joint-space (no EEF actions in this dataset).
-    Delta actions work naturally since dimensions match.
+    Raw state and actions are 7D joint-space, but the training pipeline maps
+    them into the repo-standard 17D canonical action/state representation.
     """
 
     default_prompt: str | None = "build a block tower"
@@ -566,6 +566,8 @@ class LeRobotBlockTowerDataConfig(DataConfigFactory):
 
     @override
     def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
+        _ROT6D_SLICE = slice(10, 16)  # indices of rot6d inside the 17D state/action vector
+
         input_transforms: list[_transforms.DataTransformFn] = []
         if self.use_control_mode_advantage_prompt:
             input_transforms.append(
@@ -579,10 +581,13 @@ class LeRobotBlockTowerDataConfig(DataConfigFactory):
 
         data_transforms = _transforms.Group(
             inputs=input_transforms,
-            outputs=[block_tower_policy.BlockTowerOutputs(action_dim=7)],
+            outputs=[block_tower_policy.BlockTowerOutputs(action_dim=17)],
         )
         if self.use_delta_actions:
             delta_action_mask = self.delta_action_mask
+            if delta_action_mask is None:
+                # Follow the repo's 17D convention: only rot6d stays absolute.
+                delta_action_mask = tuple([True] * 10 + [False] * 6 + [True])
             output_transforms = []
             if not self.output_delta_actions:
                 output_transforms.append(_transforms.AbsoluteActionsFromState(delta_action_mask))
@@ -594,11 +599,47 @@ class LeRobotBlockTowerDataConfig(DataConfigFactory):
         model_transforms = ModelTransformFactory(default_prompt=self.default_prompt)(model_config)
         base_config = self.create_base_config(assets_dirs, model_config)
 
+        # Match bin-pack semantics: keep rot6d channels identity-normalized under
+        # both quantile and z-score normalization so we don't distort the
+        # rotation representation.
+        def _set_rot6d_identity(stats: _transforms.NormStats) -> _transforms.NormStats:
+            mean = np.array(stats.mean, copy=True)
+            std = np.array(stats.std, copy=True)
+            if mean.shape[-1] < _ROT6D_SLICE.stop or std.shape[-1] < _ROT6D_SLICE.stop:
+                raise ValueError(
+                    "Block-tower rot6d identity normalization expects at least 17D stats "
+                    f"(got mean {mean.shape}, std {std.shape}). "
+                    "Regenerate norm stats after enabling rot6d encoding."
+                )
+            mean[..., _ROT6D_SLICE] = 0.0
+            std[..., _ROT6D_SLICE] = 1.0
+            q01 = None if stats.q01 is None else np.array(stats.q01, copy=True)
+            q99 = None if stats.q99 is None else np.array(stats.q99, copy=True)
+            if q01 is not None:
+                q01[..., _ROT6D_SLICE] = -1.0
+            if q99 is not None:
+                q99[..., _ROT6D_SLICE] = 1.0
+            return _normalize.NormStats(mean=mean, std=std, q01=q01, q99=q99)
+
+        patched_norm_stats = base_config.norm_stats
+        if patched_norm_stats is not None:
+            patched_norm_stats = dict(patched_norm_stats)
+            if "state" in patched_norm_stats:
+                patched_norm_stats["state"] = _set_rot6d_identity(patched_norm_stats["state"])
+            if "actions" in patched_norm_stats:
+                patched_norm_stats["actions"] = _set_rot6d_identity(patched_norm_stats["actions"])
+
+        patched_per_ts = base_config.per_timestep_action_norm_stats
+        if patched_per_ts is not None:
+            patched_per_ts = _set_rot6d_identity(patched_per_ts)
+
         use_per_timestep_action_norm = base_config.use_per_timestep_action_norm
         if self.use_delta_actions and use_per_timestep_action_norm is None:
             use_per_timestep_action_norm = True
         return dataclasses.replace(
             base_config,
+            norm_stats=patched_norm_stats,
+            per_timestep_action_norm_stats=patched_per_ts,
             data_transforms=data_transforms,
             model_transforms=model_transforms,
             action_sequence_keys=("action",),

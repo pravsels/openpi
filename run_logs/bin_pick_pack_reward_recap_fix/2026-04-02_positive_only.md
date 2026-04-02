@@ -19,7 +19,17 @@
 - runtime: `00:00:43`
 - node: `nid010225`
 
+## Job (resubmitted)
+- job_id: 3586381
+- submitted/start: `2026-04-02T17:36:12Z`
+- start_human: Thursday, Apr 2nd, 2026
+- resumed from: fresh restart after fixing wrapped valid-indices auto-generation in commit `cacf4a1`
+- node: `nid010617`
+
 ## Status
+- 2026-04-02 17:24 UTC — failed after normalization precompute; training hit `AttributeError: 'TransformedDataset' object has no attribute '_datasets'` in `src/openpi/training/valid_indices.py`
+- 2026-04-02 17:36 UTC — resubmitted as job `3586381` after unwrapping wrapped datasets in the valid-indices auto-generation path
+- 2026-04-02 17:36 UTC — running on `nid010617`; skips normalization precompute using existing assets and reaches `scripts/train.py` startup with no traceback so far
 
 ## Results
 

@@ -35,6 +35,60 @@ def test_loads_per_timestep_action_stats(tmp_path):
     assert np.allclose(loaded.q99, expected_q99)
 
 
+def test_block_tower_rot6d_stats_match_binpack_quantile_identity(tmp_path):
+    stats = _normalize.NormStats(
+        mean=np.full((17,), 3.0),
+        std=np.full((17,), 4.0),
+        q01=np.full((17,), -5.0),
+        q99=np.full((17,), 6.0),
+    )
+    per_timestep = _normalize.NormStats(
+        mean=np.full((2, 17), 7.0),
+        std=np.full((2, 17), 8.0),
+        q01=np.full((2, 17), -9.0),
+        q99=np.full((2, 17), 10.0),
+    )
+    asset_dir = tmp_path / "asset"
+    _normalize.save(asset_dir, {"state": stats, "actions": stats})
+    _normalize.save_actions_per_timestep(asset_dir, per_timestep)
+
+    assets = _config.AssetsConfig(assets_dir=str(tmp_path), asset_id="asset")
+    factory = _config.LeRobotBlockTowerDataConfig(repo_id="repo", assets=assets)
+    model_config = pi0_config.Pi0Config(action_dim=7, action_horizon=2)
+    data_config = factory.create(tmp_path, model_config)
+
+    assert data_config.norm_stats is not None
+    for key in ("state", "actions"):
+        loaded = data_config.norm_stats[key]
+        expected_mean = np.array(stats.mean, copy=True)
+        expected_std = np.array(stats.std, copy=True)
+        expected_q01 = np.array(stats.q01, copy=True)
+        expected_q99 = np.array(stats.q99, copy=True)
+        expected_mean[..., 10:16] = 0.0
+        expected_std[..., 10:16] = 1.0
+        expected_q01[..., 10:16] = -1.0
+        expected_q99[..., 10:16] = 1.0
+        assert np.allclose(loaded.mean, expected_mean)
+        assert np.allclose(loaded.std, expected_std)
+        assert np.allclose(loaded.q01, expected_q01)
+        assert np.allclose(loaded.q99, expected_q99)
+
+    loaded_per_timestep = data_config.per_timestep_action_norm_stats
+    assert loaded_per_timestep is not None
+    expected_mean = np.array(per_timestep.mean, copy=True)
+    expected_std = np.array(per_timestep.std, copy=True)
+    expected_q01 = np.array(per_timestep.q01, copy=True)
+    expected_q99 = np.array(per_timestep.q99, copy=True)
+    expected_mean[..., 10:16] = 0.0
+    expected_std[..., 10:16] = 1.0
+    expected_q01[..., 10:16] = -1.0
+    expected_q99[..., 10:16] = 1.0
+    assert np.allclose(loaded_per_timestep.mean, expected_mean)
+    assert np.allclose(loaded_per_timestep.std, expected_std)
+    assert np.allclose(loaded_per_timestep.q01, expected_q01)
+    assert np.allclose(loaded_per_timestep.q99, expected_q99)
+
+
 def test_auto_enable_per_timestep_for_binpack_delta(tmp_path):
     base = _config.DataConfig(use_per_timestep_action_norm=None)
     factory = _config.LeRobotBinPackDataConfig(repo_id="repo", base_config=base, use_delta_actions=True)
@@ -156,6 +210,22 @@ def test_build_block_tower_baseline_uses_base_and_dagger_datasets():
         "villekuosmanen/dAgger_build_block_tower_1.4.0",
     ):
         assert repo_id in baseline.data.repo_id
+
+
+def test_build_block_tower_baseline_uses_17d_outputs(tmp_path):
+    baseline = _config.get_config("pi05_build_block_tower_baseline")
+    data_config = baseline.data.create(tmp_path, baseline.model)
+
+    assert data_config.action_sequence_keys == ("action",)
+    assert data_config.data_transforms.outputs[0].action_dim == 17
+
+
+def test_build_block_tower_baseline_only_deltas_real_7d_dims(tmp_path):
+    baseline = _config.get_config("pi05_build_block_tower_baseline")
+    data_config = baseline.data.create(tmp_path, baseline.model)
+
+    delta = next(t for t in data_config.data_transforms.inputs if isinstance(t, _transforms.DeltaActionsFromState))
+    assert tuple(delta.mask) == tuple([True] * 10 + [False] * 6 + [True])
 
 
 def test_build_block_tower_rlt_references_latest_baseline_step():

@@ -542,7 +542,14 @@ class PadStatesAndActions(DataTransformFn):
         data["state"] = pad_to_dim(data["state"], self.model_action_dim, axis=-1)
         if "actions" in data:
             data["actions"] = pad_to_dim(data["actions"], self.model_action_dim, axis=-1)
-        if orig_action_dim < self.model_action_dim:
+        if "action_dim_mask" in data:
+            data["action_dim_mask"] = pad_to_dim(
+                np.asarray(data["action_dim_mask"], dtype=bool),
+                self.model_action_dim,
+                axis=-1,
+                value=False,
+            )
+        elif orig_action_dim < self.model_action_dim:
             mask = np.zeros(self.model_action_dim, dtype=bool)
             mask[:orig_action_dim] = True
             data["action_dim_mask"] = mask

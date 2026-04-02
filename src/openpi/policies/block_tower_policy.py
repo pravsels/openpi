@@ -13,8 +13,13 @@ import dataclasses
 import numpy as np
 
 from openpi import transforms
+from openpi.policies import bin_pack_policy
 
 _LOGGED_PROMPT = False
+_RAW_DIM = 7
+_CANONICAL_DIM = 17
+_CANONICAL_MASK = np.array([True] * _RAW_DIM + [False] * (_CANONICAL_DIM - _RAW_DIM), dtype=bool)
+_SEMANTIC_MASK = np.ones(_CANONICAL_DIM, dtype=bool)
 
 
 def _parse_image(image) -> np.ndarray:
@@ -34,11 +39,60 @@ def _get_key(data: dict, *keys: str):
     raise KeyError(f"Missing keys: {keys}")
 
 
+def _to_canonical_17d(values: np.ndarray) -> np.ndarray:
+    values = np.asarray(values, dtype=np.float32)
+    if values.shape[-1] == _CANONICAL_DIM:
+        return values
+    if values.shape[-1] != _RAW_DIM:
+        raise ValueError(f"Expected last dim {_RAW_DIM} or {_CANONICAL_DIM}, got {values.shape[-1]}")
+    return transforms.pad_to_dim(values, _CANONICAL_DIM).astype(np.float32)
+
+
+def _try_get_key(data: dict, *keys: str):
+    for key in keys:
+        if key in data:
+            return data[key]
+    return None
+
+
+def _append_gripper(eef_pose: np.ndarray, gripper: np.ndarray) -> np.ndarray:
+    eef_pose = np.asarray(eef_pose, dtype=np.float32)
+    if eef_pose.shape[-1] == 7:
+        return eef_pose
+    if eef_pose.shape[-1] != 6:
+        raise ValueError(f"Expected eef pose last dim 6 or 7, got {eef_pose.shape[-1]}")
+    return np.concatenate([eef_pose, np.asarray(gripper, dtype=np.float32)], axis=-1).astype(np.float32)
+
+
+def _semantic_state_and_actions(state: np.ndarray, actions: np.ndarray, data: dict) -> tuple[np.ndarray, np.ndarray] | None:
+    state_eef = _try_get_key(
+        data,
+        "observation/state/eef_pose",
+        "observation.state.eef_pose",
+        "observation/eef_6d_pose",
+        "observation.eef_6d_pose",
+    )
+    action_eef = _try_get_key(data, "action/eef_pose", "action.eef_pose")
+
+    if state_eef is None or action_eef is None:
+        return None
+
+    state_eef = _append_gripper(state_eef, state[..., 6:7])
+    action_eef = _append_gripper(action_eef, actions[..., 6:7])
+
+    semantic_state = np.concatenate([state, bin_pack_policy._eef_pose_rpy_to_rot6d(state_eef)], axis=-1).astype(np.float32)
+    semantic_actions = np.concatenate([actions, bin_pack_policy._eef_pose_rpy_to_rot6d(action_eef)], axis=-1).astype(np.float32)
+    return semantic_state, semantic_actions
+
+
 @dataclasses.dataclass(frozen=True)
 class BlockTowerInputs(transforms.DataTransformFn):
     """Inputs for build_block_tower datasets.
 
-    Both state and actions are 7D joint-space, enabling delta action computation.
+    Raw state/actions are 7D joint-space. When EEF pose fields are available,
+    they are lifted into the repo-standard semantic 17D layout:
+    joints(7) + xyz(3) + rot6d(6) + gripper(1). Otherwise the data falls back
+    to a padded 17D compatibility path with a dimension mask.
     """
 
     default_prompt: str = "build a block tower"
@@ -48,15 +102,22 @@ class BlockTowerInputs(transforms.DataTransformFn):
         front = _parse_image(_get_key(data, "observation/images/front", "observation.images.front"))
         wrist = _parse_image(_get_key(data, "observation/images/wrist", "observation.images.wrist"))
 
-        state = np.asarray(
+        state = _to_canonical_17d(
             _get_key(data, "observation/state", "observation.state", "observation/state/pos", "observation.state.pos")
-        ).astype(np.float32)
+        )
 
-        actions = np.asarray(_get_key(data, "action", "actions")).astype(np.float32)
+        actions = _to_canonical_17d(_get_key(data, "action", "actions"))
+        semantic = _semantic_state_and_actions(state[:_RAW_DIM], actions[..., :_RAW_DIM], data)
+        if semantic is not None:
+            state, actions = semantic
+            action_dim_mask = np.array(_SEMANTIC_MASK, copy=True)
+        else:
+            action_dim_mask = np.array(_CANONICAL_MASK, copy=True)
 
         inputs = {
             "state": state,
             "actions": actions,
+            "action_dim_mask": action_dim_mask,
             "image": {
                 "base_0_rgb": front,
                 "left_wrist_0_rgb": wrist,
@@ -93,7 +154,7 @@ class BlockTowerInputs(transforms.DataTransformFn):
 class BlockTowerOutputs(transforms.DataTransformFn):
     """Outputs for build_block_tower datasets."""
 
-    action_dim: int = 7
+    action_dim: int = _CANONICAL_DIM
 
     def __call__(self, data: dict) -> dict:
         actions = np.asarray(data["actions"])
