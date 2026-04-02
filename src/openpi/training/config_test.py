@@ -144,6 +144,33 @@ def test_reward_recap_block_tower_configs_exist():
     assert mixed.data.advantage_dropout_rate == 0.3
 
 
+def test_build_block_tower_baseline_uses_base_and_dagger_datasets():
+    baseline = _config.get_config("pi05_build_block_tower_baseline")
+
+    for repo_id in (
+        "villekuosmanen/build_block_tower",
+        "villekuosmanen/dAgger_build_block_tower_1.0.0",
+        "villekuosmanen/dAgger_build_block_tower_1.1.0",
+        "villekuosmanen/dAgger_build_block_tower_1.2.0",
+        "villekuosmanen/dAgger_build_block_tower_1.3.0",
+        "villekuosmanen/dAgger_build_block_tower_1.4.0",
+    ):
+        assert repo_id in baseline.data.repo_id
+
+
+def test_build_block_tower_rlt_references_latest_baseline_step():
+    baseline = _config.get_config("pi05_build_block_tower_baseline")
+    rlt = _config.get_config("pi05_rl_token_build_block_tower")
+    expected_step = str(baseline.num_train_steps)
+
+    assert expected_step == "50000"
+    assert isinstance(rlt.weight_loader, _config.weight_loaders.RLTokenCheckpointWeightLoader)
+    assert f"/{expected_step}/params" in rlt.weight_loader.params_path
+
+    script = pathlib.Path("slurm/train_build_block_tower_rlt_slurm.sh").read_text()
+    assert f'BASELINE_STEP="{expected_step}"' in script
+
+
 def test_reward_recap_slurm_script_references_existing_configs():
     script = pathlib.Path("slurm/train_bin_pack_reward_recap_slurm.sh").read_text()
 

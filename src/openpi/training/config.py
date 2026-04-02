@@ -1440,7 +1440,12 @@ _CONFIGS = [
         data=LeRobotBlockTowerDataConfig(
             repo_id=(
                 "["
-                "villekuosmanen/build_block_tower"
+                "villekuosmanen/build_block_tower, "
+                "villekuosmanen/dAgger_build_block_tower_1.0.0, "
+                "villekuosmanen/dAgger_build_block_tower_1.1.0, "
+                "villekuosmanen/dAgger_build_block_tower_1.2.0, "
+                "villekuosmanen/dAgger_build_block_tower_1.3.0, "
+                "villekuosmanen/dAgger_build_block_tower_1.4.0"
                 "]"
             ),
             base_config=DataConfig(prompt_from_task=True),
@@ -1457,7 +1462,7 @@ _CONFIGS = [
         optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
         ema_decay=0.999,
         weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
-        num_train_steps=100_000,
+        num_train_steps=50_000,
     ),
     #
     # Fine-tuning Aloha configs.
@@ -1732,7 +1737,7 @@ _CONFIGS = [
             pi05=True, action_horizon=50, rl_vla_loss_weight=0.0
         ).get_rl_freeze_filter(),
         weight_loader=weight_loaders.RLTokenCheckpointWeightLoader(
-            "checkpoints/pi05_build_block_tower_baseline/baseline_v1/55000/params"
+            "checkpoints/pi05_build_block_tower_baseline/baseline_v1/50000/params"
         ),
         num_train_steps=10_000,
         val_interval=1000,

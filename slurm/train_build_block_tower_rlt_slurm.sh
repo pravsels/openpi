@@ -36,7 +36,7 @@ EXTRA_TRAIN_ARGS="${EXTRA_TRAIN_ARGS:-}"
 
 # Baseline checkpoint and assets (VLA backbone — already trained, assets already computed)
 BASELINE_HF_REPO="pravsels/pi05-build-block-tower-baseline"
-BASELINE_STEP="55000"
+BASELINE_STEP="50000"
 BASELINE_CKPT_DIR="${data_dir}/checkpoints/pi05_build_block_tower_baseline/baseline_v1/${BASELINE_STEP}"
 ASSETS_DIR="${data_dir}/checkpoints/pi05_build_block_tower_baseline/baseline_v1/assets"
 
