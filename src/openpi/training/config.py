@@ -1393,7 +1393,7 @@ _CONFIGS = [
         optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
         ema_decay=0.999,
         weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
-        num_train_steps=100_000,
+        num_train_steps=50_000,
     ),
     TrainConfig(
         name="pi05_bin_pack_coffee_capsules_recap_mixed",
@@ -1429,7 +1429,7 @@ _CONFIGS = [
         optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
         ema_decay=0.999,
         weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
-        num_train_steps=100_000,
+        num_train_steps=50_000,
     ),
     #
     # Build block tower configs.
