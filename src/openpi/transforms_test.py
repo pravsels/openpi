@@ -125,6 +125,14 @@ def test_inject_advantage_prompt_positive_only_missing_control_mode():
     assert data["prompt"] == "pick up the fork. Advantage: positive"
 
 
+def test_inject_advantage_prompt_targets_low_prompt_when_present():
+    transform = _transforms.InjectAdvantagePrompt()
+
+    data = transform({"low_prompt": "move arm to the cup", "control_mode": "policy"})
+
+    assert data["low_prompt"] == "move arm to the cup. Advantage: negative"
+
+
 def test_inject_advantage_prompt_dropout_omits_suffix_for_kept_example(monkeypatch):
     transform = _transforms.InjectAdvantagePrompt(dropout_rate=0.3)
     monkeypatch.setattr(np.random, "random", lambda: 0.1)

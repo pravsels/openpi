@@ -93,6 +93,55 @@ def test_pi05_sample_actions_cfg_guidance_scale_one_delegates():
     assert jnp.array_equal(tokens, expected_tokens)
 
 
+def test_pi05_sample_actions_rebuilds_action_prefix_cache_from_output_tokens():
+    config = _pi05_config.Pi05Config(
+        paligemma_variant="dummy",
+        action_expert_variant="dummy",
+        action_dim=8,
+        action_horizon=4,
+        max_token_len=16,
+        subtask_loss_weight=0.0,
+        fast_token_loss_weight=0.0,
+        flow_matching_loss_weight=1.0,
+    )
+    model = config.create(jax.random.key(0))
+    obs = config.fake_obs(batch_size=1)
+
+    expected_tokens = jnp.array([[7, 3, 0]], dtype=jnp.int32)
+    rebuilt_prefix_mask = jnp.array([[True, True, True, False]])
+    expected_actions = jnp.full((1, config.action_horizon, config.action_dim), 2.0)
+    noise = jnp.full((1, config.action_horizon, config.action_dim), -1.0)
+
+    model.sample_low_level_task = (
+        lambda rng, observation, *, max_decoding_steps, paligemma_eos_token, temperature: (
+            expected_tokens,
+            "stale-cache",
+            jnp.array([[True, False, False, False]]),
+            None,
+        )
+    )
+
+    def rebuild_cache(observation, output_tokens):
+        assert jnp.array_equal(output_tokens, expected_tokens)
+        return "rebuilt-cache", rebuilt_prefix_mask
+
+    model._build_prefix_cache_from_output_tokens = rebuild_cache
+
+    def sample_with_cache(observation, kv_cache, prefix_mask, *, num_steps, noise):
+        assert kv_cache == "rebuilt-cache"
+        assert jnp.array_equal(prefix_mask, rebuilt_prefix_mask)
+        assert num_steps == 7
+        assert jnp.array_equal(noise, jnp.full((1, config.action_horizon, config.action_dim), -1.0))
+        return expected_actions
+
+    model._sample_actions_with_prefix_cache = sample_with_cache
+
+    actions, tokens = model.sample_actions(jax.random.key(1), obs, num_steps=7, noise=noise)
+
+    assert jnp.array_equal(actions, expected_actions)
+    assert jnp.array_equal(tokens, expected_tokens)
+
+
 def test_pi05_cfg_velocity_combination():
     v_cond = jnp.array([[2.0, 4.0]])
     v_uncond = jnp.array([[1.0, 3.0]])
@@ -115,7 +164,9 @@ def test_pi05_sample_actions_cfg_reuses_conditional_subtask_tokens():
     )
     model = config.create(jax.random.key(0))
     obs = config.fake_obs(batch_size=1)
-    uncond_obs = config.fake_obs(batch_size=1)
+    uncond_obs = config.fake_obs(batch_size=1).replace(
+        tokenized_prompt=jnp.full_like(obs.tokenized_prompt, 9),
+    )
 
     expected_tokens = jnp.array([[7, 3, 0]], dtype=jnp.int32)
     expected_actions = jnp.full((1, config.action_horizon, config.action_dim), 2.0)
@@ -126,17 +177,20 @@ def test_pi05_sample_actions_cfg_reuses_conditional_subtask_tokens():
     model.sample_low_level_task = (
         lambda rng, observation, *, max_decoding_steps, paligemma_eos_token, temperature: (
             expected_tokens,
-            "cond-cache",
-            cond_prefix_mask,
+            "stale-cond-cache",
+            jnp.array([[True, False, False, False]]),
             None,
         )
     )
 
-    def build_uncond_cache(observation, output_tokens):
+    def build_cache(observation, output_tokens):
         assert jnp.array_equal(output_tokens, expected_tokens)
+        if jnp.array_equal(observation.tokenized_prompt, obs.tokenized_prompt):
+            return "cond-cache", cond_prefix_mask
+        assert jnp.array_equal(observation.tokenized_prompt, uncond_obs.tokenized_prompt)
         return "uncond-cache", uncond_prefix_mask
 
-    model._build_prefix_cache_from_output_tokens = build_uncond_cache
+    model._build_prefix_cache_from_output_tokens = build_cache
 
     def sample_cfg_from_caches(
         observation,

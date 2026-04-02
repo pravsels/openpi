@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 import string
 
 import jax
@@ -29,18 +30,18 @@ class PaligemmaTokenizer:
             )
             logging.info(f"Loaded FAST tokenizer from {fast_tokenizer_path}")
 
-    def tokenize(self, prompt: str, state: np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray]:
-        cleaned_text = prompt.strip().replace("_", " ").replace("\n", " ")
-        if state is not None:
-            # This is the Pi05 format, where the state is part of the discrete language input.
-            discretized_state = np.digitize(state, bins=np.linspace(-1, 1, 256 + 1)[:-1]) - 1
-            state_str = " ".join(map(str, discretized_state))
-            full_prompt = f"Task: {cleaned_text}, State: {state_str};\nAction: "
-            tokens = self._tokenizer.encode(full_prompt, add_bos=True)
-        else:
-            # This is the Pi0 format, where the state is part of the continuous action expert input.
-            # tokenize "\n" separately as the "start of answer" token
-            tokens = self._tokenizer.encode(cleaned_text, add_bos=True) + self._tokenizer.encode("\n")
+    _ADVANTAGE_RE = re.compile(r"^(?P<base>.*?)(?:\s*Advantage:\s*(?P<label>positive|negative))?\s*$", re.IGNORECASE)
+
+    def _split_advantage_suffix(self, text: str) -> tuple[str, str | None]:
+        normalized = text.strip().replace("_", " ").replace("\n", " ")
+        match = self._ADVANTAGE_RE.fullmatch(normalized)
+        if match is None:
+            return normalized, None
+        base = match.group("base").strip()
+        label = match.group("label")
+        return base, None if label is None else label.lower()
+
+    def _pad_tokens(self, tokens: list[int]) -> tuple[np.ndarray, np.ndarray]:
         tokens_len = len(tokens)
         if tokens_len < self._max_len:
             padding = [False] * (self._max_len - tokens_len)
@@ -54,8 +55,26 @@ class PaligemmaTokenizer:
                 )
             tokens = tokens[: self._max_len]
             mask = [True] * self._max_len
-
         return np.asarray(tokens), np.asarray(mask)
+
+    def _tokenize_action_prompt(self, advantage: str | None) -> tuple[np.ndarray, np.ndarray]:
+        prompt = f"\nAdvantage: {advantage};\nAction: " if advantage is not None else "\nAction: "
+        return self._pad_tokens(self._tokenizer.encode(prompt))
+
+    def tokenize(self, prompt: str, state: np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray]:
+        cleaned_text, advantage = self._split_advantage_suffix(prompt)
+        if state is not None:
+            # This is the Pi05 format, where the state is part of the discrete language input.
+            discretized_state = np.digitize(state, bins=np.linspace(-1, 1, 256 + 1)[:-1]) - 1
+            state_str = " ".join(map(str, discretized_state))
+            advantage_prompt = f"\nAdvantage: {advantage};" if advantage is not None else ""
+            full_prompt = f"Task: {cleaned_text}, State: {state_str};{advantage_prompt}\nAction: "
+            tokens = self._tokenizer.encode(full_prompt, add_bos=True)
+        else:
+            # This is the Pi0 format, where the state is part of the continuous action expert input.
+            # tokenize "\n" separately as the "start of answer" token
+            tokens = self._tokenizer.encode(cleaned_text, add_bos=True) + self._tokenizer.encode("\n")
+        return self._pad_tokens(tokens)
 
     def tokenize_high_low_prompt_infer(
         self, high_prompt: str, low_prompt: str, state: np.ndarray | None = None
@@ -136,7 +155,7 @@ class PaligemmaTokenizer:
         low_prompt: str,
         state: np.ndarray | None = None,
         actions: np.ndarray | None = None,
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """Build the full token sequence for Pi05 hierarchical training.
 
         Constructs a structured prompt that concatenates three segments in order:
@@ -199,7 +218,7 @@ class PaligemmaTokenizer:
                 Pi05Config). All-False when no action tokens are present.
         """
         cleaned_high_text = high_prompt.lower().strip().replace("_", " ").replace("\n", " ")
-        cleaned_low_text = low_prompt.lower().strip().replace("_", " ").replace("\n", " ")
+        cleaned_low_text, advantage = self._split_advantage_suffix(low_prompt.lower())
 
         # Pi05 encodes the robot state as a discretized string inside the language prompt
         # (rather than as a continuous vector in the suffix), so the LLM can condition on it.
@@ -233,7 +252,7 @@ class PaligemmaTokenizer:
         cleaned_low_text += "."
 
         if actions is None or self._fast_tokenizer is None:
-            sub_prompt_2 = f"{cleaned_low_text};\nAction: "
+            sub_prompt_2 = f"{cleaned_low_text};"
             tokens_2 = self._tokenizer.encode(sub_prompt_2, add_eos=True)
         else:
             sub_prompt_2 = f"{cleaned_low_text};"
@@ -245,6 +264,12 @@ class PaligemmaTokenizer:
         action_region_mask += [False] * len(tokens_2)
 
         tokens = tokens_1 + tokens_2
+
+        if actions is None or self._fast_tokenizer is None:
+            action_prompt_tokens, action_prompt_mask = self._tokenize_action_prompt(advantage)
+        else:
+            action_prompt_tokens = np.zeros(self._max_len, dtype=np.int32)
+            action_prompt_mask = np.zeros(self._max_len, dtype=bool)
 
         # ── Segment 3 (optional): FAST discrete action tokens ──────────────────────
         # Only present during FAST token training (hybrid or KI stage 1).
@@ -302,6 +327,8 @@ class PaligemmaTokenizer:
             np.asarray(loss_mask),
             np.asarray(subtask_region_mask),
             np.asarray(action_region_mask),
+            action_prompt_tokens,
+            action_prompt_mask,
         )
 
     def _act_tokens_to_paligemma_tokens(self, tokens: np.ndarray | list[int]) -> np.ndarray:

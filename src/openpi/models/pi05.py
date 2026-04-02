@@ -302,6 +302,8 @@ class Pi05(_model.BaseModel):
                     state=observation.state,
                     tokenized_prompt=flow_tokenized_prompt,
                     tokenized_prompt_mask=flow_tokenized_prompt_mask,
+                    action_tokenized_prompt=observation.action_tokenized_prompt,
+                    action_tokenized_prompt_mask=observation.action_tokenized_prompt_mask,
                     token_ar_mask=observation.token_ar_mask,
                     token_loss_mask=observation.token_loss_mask,
                     subtask_region_mask=observation.subtask_region_mask,
@@ -310,6 +312,9 @@ class Pi05(_model.BaseModel):
 
             # Always build a dedicated prefix cache for flow matching.
             prefix_token_embeddings, prefix_mask, prefix_ar_mask = self.embed_prefix(flow_observation)
+            prefix_token_embeddings, prefix_mask, prefix_ar_mask = self._append_action_prompt_to_prefix(
+                flow_observation, prefix_token_embeddings, prefix_mask, prefix_ar_mask
+            )
             prefix_attn_mask = make_attn_mask(prefix_mask, prefix_ar_mask)
             prefix_positions = jnp.cumsum(prefix_mask, axis=1) - 1
             (_, _), kv_cache = self.PaliGemma.llm(
@@ -446,6 +451,25 @@ class Pi05(_model.BaseModel):
     ) -> jax.Array:
         return v_uncond + guidance_scale * (v_cond - v_uncond)
 
+    def _append_action_prompt_to_prefix(
+        self,
+        observation: _model.Observation,
+        prefix_tokens: jax.Array,
+        prefix_mask: jax.Array,
+        prefix_ar_mask: jax.Array,
+    ) -> tuple[jax.Array, jax.Array, jax.Array]:
+        if observation.action_tokenized_prompt is None or observation.action_tokenized_prompt_mask is None:
+            return prefix_tokens, prefix_mask, prefix_ar_mask
+
+        action_prompt_tokens = self.PaliGemma.llm(observation.action_tokenized_prompt, method="embed")
+        action_prompt_mask = observation.action_tokenized_prompt_mask
+        action_prompt_ar_mask = jnp.ones(action_prompt_tokens.shape[1], dtype=jnp.bool_)
+        return (
+            jnp.concatenate([prefix_tokens, action_prompt_tokens], axis=1),
+            jnp.concatenate([prefix_mask, action_prompt_mask], axis=1),
+            jnp.concatenate([prefix_ar_mask, action_prompt_ar_mask], axis=0),
+        )
+
     def _build_prefix_cache_from_output_tokens(
         self,
         observation: _model.Observation,
@@ -459,6 +483,9 @@ class Pi05(_model.BaseModel):
         full_prefix_tokens = jnp.concatenate([prefix_token_embeddings, output_token_embeddings], axis=1)
         full_prefix_mask = jnp.concatenate([prefix_mask, output_mask], axis=1)
         full_prefix_ar_mask = jnp.concatenate([prefix_ar_mask, jnp.ones(output_tokens.shape[1], dtype=jnp.bool_)], axis=0)
+        full_prefix_tokens, full_prefix_mask, full_prefix_ar_mask = self._append_action_prompt_to_prefix(
+            observation, full_prefix_tokens, full_prefix_mask, full_prefix_ar_mask
+        )
         full_prefix_attn_mask = make_attn_mask(full_prefix_mask, full_prefix_ar_mask)
         full_prefix_positions = jnp.cumsum(full_prefix_mask, axis=-1) - 1
         (_, _), kv_cache = self.PaliGemma.llm(
@@ -619,9 +646,10 @@ class Pi05(_model.BaseModel):
         if noise is None:
             noise = jax.random.normal(rng, (batch_size, self.action_horizon, self.action_dim))
 
-        output_tokens, cond_kv_cache, cond_prefix_mask, _ = self.sample_low_level_task(
+        output_tokens, _cond_kv_cache, _cond_prefix_mask, _ = self.sample_low_level_task(
             rng, observation, max_decoding_steps=20, paligemma_eos_token=1, temperature=0.0
         )
+        cond_kv_cache, cond_prefix_mask = self._build_prefix_cache_from_output_tokens(observation, output_tokens)
         uncond_kv_cache, uncond_prefix_mask = self._build_prefix_cache_from_output_tokens(
             uncond_observation, output_tokens
         )
@@ -655,9 +683,10 @@ class Pi05(_model.BaseModel):
         if noise is None:
             noise = jax.random.normal(rng, (batch_size, self.action_horizon, self.action_dim))
 
-        output_tokens, kv_cache, prefix_mask, _prefix_ar_mask = self.sample_low_level_task(
+        output_tokens, _kv_cache, _prefix_mask, _prefix_ar_mask = self.sample_low_level_task(
             rng, observation, max_decoding_steps=20, paligemma_eos_token=1, temperature=0.0
         )
+        kv_cache, prefix_mask = self._build_prefix_cache_from_output_tokens(observation, output_tokens)
         x_0 = self._sample_actions_with_prefix_cache(
             observation, kv_cache, prefix_mask, num_steps=num_steps, noise=noise
         )

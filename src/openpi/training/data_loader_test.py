@@ -261,6 +261,115 @@ class _TinyDataset:
         return len(self._samples)
 
 
+@dataclasses.dataclass(frozen=True)
+class _ValidIndicesSegment:
+    start_index: int
+    end_index: int
+    mode: str
+
+
+@dataclasses.dataclass(frozen=True)
+class _ValidIndicesOutcomeInstance:
+    outcomes: dict[int, str]
+
+
+@dataclasses.dataclass(frozen=True)
+class _ValidIndicesControlInstance:
+    episode_modes: dict[int, list[_ValidIndicesSegment]]
+
+
+@dataclasses.dataclass(frozen=True)
+class _ValidIndicesSubDataset:
+    repo_id: str
+    episode_data_index: dict[str, list[int]]
+
+
+class _ValidIndicesDataset:
+    def __init__(self):
+        self._samples = [{} for _ in range(6)]
+        self._datasets = [
+            _ValidIndicesSubDataset(
+                repo_id="fake/repo",
+                episode_data_index={"from": [0, 3], "to": [3, 6]},
+            )
+        ]
+        self._cumulative_lengths = [0]
+        self._index_maps = [None]
+        self._plugin_instances = [[
+            _ValidIndicesOutcomeInstance({0: "success", 1: "failure"}),
+            _ValidIndicesControlInstance({0: [_ValidIndicesSegment(1, 2, "policy")], 1: [_ValidIndicesSegment(0, 2, "policy")]}),
+        ]]
+
+    def __getitem__(self, index):
+        return self._samples[index]
+
+    def __len__(self):
+        return len(self._samples)
+
+
+def test_create_data_loader_writes_valid_indices_when_missing(tmp_path, monkeypatch):
+    model_config = pi0_config.Pi0Config(action_dim=2, action_horizon=2, max_token_len=4)
+    config = _config.TrainConfig(
+        name="test_valid_indices",
+        exp_name="test",
+        model=model_config,
+        data=_config.LeRobotBinPackDataConfig(repo_id="repo"),
+        assets_dir=str(tmp_path),
+        batch_size=2,
+    )
+    dataset = _ValidIndicesDataset()
+
+    monkeypatch.setattr(_data_loader, "create_torch_dataset", lambda *args, **kwargs: dataset)
+    monkeypatch.setattr(_data_loader, "transform_dataset", lambda dataset, data_config, *, skip_norm_stats=False: dataset)
+
+    class _DummyTorchDataLoader:
+        def __init__(self, dataset, **kwargs):
+            self.dataset = dataset
+            self.kwargs = kwargs
+
+        def __iter__(self):
+            return iter(())
+
+    monkeypatch.setattr(_data_loader, "TorchDataLoader", _DummyTorchDataLoader)
+
+    _data_loader.create_data_loader(config, num_batches=1, skip_norm_stats=True)
+
+    assert (tmp_path / _data_loader.VALID_INDICES_FILENAME).read_text() == "0"
+
+
+def test_create_data_loader_fails_when_auto_valid_indices_missing_outcomes(tmp_path, monkeypatch):
+    model_config = pi0_config.Pi0Config(action_dim=2, action_horizon=2, max_token_len=4)
+    config = _config.TrainConfig(
+        name="test_valid_indices",
+        exp_name="test",
+        model=model_config,
+        data=_config.LeRobotBinPackDataConfig(repo_id="repo"),
+        assets_dir=str(tmp_path),
+        batch_size=2,
+    )
+    dataset = _ValidIndicesDataset()
+    dataset._plugin_instances = [[
+        _ValidIndicesOutcomeInstance({}),
+        _ValidIndicesControlInstance({0: [_ValidIndicesSegment(0, 2, "human")]}),
+    ]]
+
+    monkeypatch.setattr(_data_loader, "create_torch_dataset", lambda *args, **kwargs: dataset)
+    monkeypatch.setattr(_data_loader, "transform_dataset", lambda dataset, data_config, *, skip_norm_stats=False: dataset)
+
+    class _DummyTorchDataLoader:
+        def __init__(self, dataset, **kwargs):
+            self.dataset = dataset
+            self.kwargs = kwargs
+
+        def __iter__(self):
+            return iter(())
+
+    monkeypatch.setattr(_data_loader, "TorchDataLoader", _DummyTorchDataLoader)
+
+    with pytest.raises(ValueError, match="Missing outcome metadata"):
+        _data_loader.create_data_loader(config, num_batches=1, skip_norm_stats=True)
+
+
 def test_create_torch_data_loader_computes_missing_per_timestep_action_stats(tmp_path, monkeypatch):
     model_config = pi0_config.Pi0Config(action_dim=2, action_horizon=2, max_token_len=4)
     samples = [

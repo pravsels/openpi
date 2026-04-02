@@ -168,6 +168,8 @@ class AsyncPi05Inference:
             token_loss_mask,
             _subtask_region_mask,
             _action_region_mask,
+            action_tokenized_prompt,
+            action_tokenized_prompt_mask,
         ) = self.tokenizer.tokenize_high_low_prompt(high_level_prompt, low_level_prompt, state_vec)
         # Build observation data
         data = {
@@ -176,6 +178,8 @@ class AsyncPi05Inference:
             "state": state_batch,
             "tokenized_prompt": jnp.stack([tokenized_prompt], axis=0),
             "tokenized_prompt_mask": jnp.stack([tokenized_prompt_mask], axis=0),
+            "action_tokenized_prompt": jnp.stack([action_tokenized_prompt], axis=0),
+            "action_tokenized_prompt_mask": jnp.stack([action_tokenized_prompt_mask], axis=0),
             "token_ar_mask": jnp.stack([token_ar_mask], axis=0),
             "token_loss_mask": jnp.stack([token_loss_mask], axis=0),
         }
@@ -200,6 +204,8 @@ class AsyncPi05Inference:
                 state=observation.state,
                 tokenized_prompt=new_tokenized_prompt,
                 tokenized_prompt_mask=new_tokenized_prompt_mask,
+                action_tokenized_prompt=observation.action_tokenized_prompt,
+                action_tokenized_prompt_mask=observation.action_tokenized_prompt_mask,
                 token_ar_mask=observation.token_ar_mask,
                 token_loss_mask=observation.token_loss_mask,
                 subtask_region_mask=observation.subtask_region_mask,

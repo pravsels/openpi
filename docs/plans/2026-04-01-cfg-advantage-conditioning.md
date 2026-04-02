@@ -1,7 +1,7 @@
 # Classifier-Free Guidance for Advantage Conditioning
 
 **Date:** 2026-04-01
-**Status:** Plan
+**Status:** Partially implemented
 **Prereqs:** Existing `InjectAdvantagePrompt` transform, reward recap configs
 
 ## Problem
@@ -29,7 +29,7 @@ which is a core part of how the paper makes advantage conditioning work.
      ```
      This sharpens the action distribution toward the conditional signal.
 
-### What we did
+### What we started with
 
 - **Training**: Every example always gets either `"Advantage: positive"` or
   `"Advantage: negative"`. No dropout. The model never learns `π(a | o, ℓ)`.
@@ -51,9 +51,22 @@ Both tasks that currently use `InjectAdvantagePrompt`:
 - bin-pack (`LeRobotBinPackDataConfig`)
 - block tower (`LeRobotBlockTowerDataConfig`)
 
+## Implementation status
+
+Implemented already:
+- Training-side advantage dropout in `InjectAdvantagePrompt`
+- `advantage_dropout_rate` wiring in both LeRobot data configs
+- Dropout-enabled training configs with `advantage_dropout_rate=0.3`
+- Core `Pi05.sample_actions_cfg()` implementation and unit tests
+
+Still pending:
+- Rollout / evaluation integration that constructs conditional and unconditional observations
+- Retraining checkpoints that were originally trained without dropout
+- End-to-end CFG evaluation and guidance-scale sweeps
+
 ## Design
 
-### Part 1: Training — advantage conditioning dropout
+### Part 1: Training — advantage conditioning dropout (implemented)
 
 **File:** `src/openpi/transforms.py`, class `InjectAdvantagePrompt`
 
@@ -120,7 +133,10 @@ In `LeRobotBinPackDataConfig` and `LeRobotBlockTowerDataConfig`, add
 
 New training configs (or updated existing ones) should set `advantage_dropout_rate=0.3`.
 
-### Part 2: Inference — classifier-free guidance
+Status: implemented in both data configs, with tests covering the transform behavior and config
+wiring.
+
+### Part 2: Inference — classifier-free guidance (core model support implemented)
 
 CFG at inference requires two forward passes per denoising step: one with the advantage
 prompt (conditional) and one without (unconditional). The two velocity predictions are
@@ -130,28 +146,60 @@ combined:
 v_guided = v_uncond + β · (v_cond − v_uncond)
 ```
 
-#### Architecture constraint: advantage text is in the prefix
+#### Architecture constraint: there are two different "Pi05" paths in this repo
 
-In our implementation, the advantage text is part of `tokenized_prompt`, which is embedded
-in the **prefix**. This means conditional vs unconditional produce different prefix KV caches.
+There are two materially different ways Pi05-style models show up in this codebase:
 
-For pi05 specifically, `sample_actions` calls `sample_low_level_task` first for autoregressive
-subtask generation. The subtask tokens become part of the KV cache.
+1. **Current reward-recap path**: configs use `pi0_config.Pi0Config(pi05=True)` together with the
+   simple high-level prompt path. In this setup, the advantage text is currently injected into the
+   plain `prompt` string before tokenization.
+2. **True hierarchical Pi05 path**: configs use `Pi05Config` and the hierarchical
+   `tokenize_high_low_prompt()` format, which explicitly separates
+   `[task + state] + [subtask] + [actions]`.
 
-##### CFG inference flow for pi05
+The paper's literal placement rule is: the advantage indicator should appear **after the subtask
+text but before the action prediction** so that it modulates the action distribution without
+changing subtask generation.
+
+##### Consequence for the current reward-recap path (non-hierarchical)
+
+In the non-hierarchical path, there is no teacher-forced "post-subtask, pre-action" slot in the
+training tokenizer. The prompt is just the high-level task prefix. That means exact paper-aligned
+placement is awkward during training.
+
+The **closest approximation** in this path is:
+
+1. Keep the original high-level prompt prefix unchanged.
+2. Run `sample_low_level_task()` to generate subtask tokens.
+3. Append advantage tokens **after those generated subtask tokens**.
+4. Build the action-conditioning KV cache from:
+   - high-level prefix tokens
+   - generated subtask tokens
+   - advantage-indicator tokens
+
+This keeps the advantage signal out of the initial subtask generation and makes it affect only the
+action denoising stage, which is much closer to the paper than appending it to the original prompt.
+
+##### Consequence for the true hierarchical Pi05 path
+
+In the hierarchical path, the paper-aligned slot exists naturally in the tokenizer sequence:
+
+`[task + state] -> [subtask] -> [advantage indicator] -> [actions]`
+
+That is the cleanest place to put the indicator if we later migrate the reward-recap training path
+to the true hierarchical Pi05 setup.
+
+##### CFG inference flow for the current Pi05 implementation
 
 1. Build **two** observations:
-   - `obs_cond`: prompt ends with `"Advantage: positive"`
-   - `obs_uncond`: prompt has no advantage suffix
+   - `obs_cond`: conditional branch
+   - `obs_uncond`: unconditional branch
 
-2. Run `sample_low_level_task` **once** with `obs_cond` to get subtask tokens.
-   (The paper says the advantage indicator only affects actions, not subtask prediction.
-   We generate subtask from the conditional prompt and reuse the same subtask text for both
-   branches.)
+2. Run `sample_low_level_task()` **once** to get subtask tokens.
 
-3. Build **two** prefix KV caches:
-   - `kv_cond`: from `obs_cond` prefix + subtask tokens
-   - `kv_uncond`: from `obs_uncond` prefix + same subtask tokens
+3. Build **two** action-conditioning prefix caches:
+   - `kv_cond`: high-level prefix + subtask tokens + conditional advantage tokens
+   - `kv_uncond`: high-level prefix + same subtask tokens + unconditional/no advantage tokens
 
 4. Denoising loop: each step runs the action expert **twice**:
    ```
@@ -169,6 +217,9 @@ subtask generation. The subtask tokens become part of the KV cache.
 Add a new method `sample_actions_cfg` to `Pi05` (and/or `Pi0`) rather than modifying the
 existing `sample_actions`. This keeps the default inference path unchanged and makes it easy
 to A/B test.
+
+Status: implemented for `Pi05`, including the `guidance_scale == 1` short-circuit and unit
+tests for CFG combination and cache reuse. The remaining work is caller-side integration.
 
 **File:** `src/openpi/models/pi05.py`
 
@@ -225,9 +276,9 @@ threshold ε_ℓ rather than aggressive inference-time CFG.
 For β = 1, the unconditional branch is not needed. We can short-circuit to the standard
 `sample_actions` path.
 
-### Part 3: new training configs
+### Part 3: new training configs (implemented, with final names differing slightly)
 
-Add new config variants with dropout enabled. Naming convention:
+Add new config variants with dropout enabled. Original proposed naming convention:
 
 ```
 pi05_bin_pack_coffee_capsules_reward_recap_mixed_cfg
@@ -237,6 +288,9 @@ pi05_build_block_tower_mixed_cfg
 These are identical to the existing `_mixed` configs but with `advantage_dropout_rate=0.3`.
 
 Keep the existing configs unchanged so we can compare.
+
+Status: dropout-enabled configs were added, but the exact checked-in names differ slightly from
+the original proposal in this document.
 
 ### Part 4: retraining
 
@@ -255,27 +309,27 @@ with dropout enabled. This is the cleanest comparison.
 
 ## Task list
 
-### Training side (required)
+Completed:
 1. Add `dropout_rate` parameter to `InjectAdvantagePrompt` in `transforms.py`
 2. Add `advantage_dropout_rate` parameter to `LeRobotBinPackDataConfig` and
    `LeRobotBlockTowerDataConfig` in `config.py`, wired through to the transform
-3. Add new `_cfg` training configs with `advantage_dropout_rate=0.3`
+3. Add dropout-enabled training configs with `advantage_dropout_rate=0.3`
 4. Add/update tests for `InjectAdvantagePrompt` dropout behavior
-5. Retrain models with dropout enabled
+5. Implement `sample_actions_cfg` on `Pi05`
 
-### Inference side (can follow)
-6. Implement `sample_actions_cfg` on `Pi05` (and `Pi0` if needed)
+Remaining:
+6. Retrain models with dropout enabled
 7. Wire up evaluation/rollout code to construct dual observations and call CFG sampling
-8. Test with β = 1 (should match standard sampling) and β > 1
-
-### Evaluation
+8. Test with β = 1 (should match standard sampling) and β > 1 end-to-end
 9. Compare retrained models (with dropout) vs existing models (without dropout) at β = 1
 10. Sweep β ∈ {1.0, 1.5, 2.0, 2.5} on the retrained models
 
 ## Decisions
 
-1. **Subtask interaction**: Ignore this for now. We will keep the advantage text in the
-   current prompt path and not redesign prompt placement as part of this change.
+1. **Subtask interaction**: The paper-aligned placement is different from the current prompt-based
+   bootstrap path. For the current reward-recap configs, the closest non-hierarchical approximation
+   is to add advantage tokens after generated subtask tokens and before action denoising. The truly
+   clean placement exists in the hierarchical `Pi05Config` path.
 
 2. **Dropout rate**: Fixed at `0.3`, matching the paper. We are not planning a dropout-rate
    sweep for v1.
@@ -285,6 +339,6 @@ with dropout enabled. This is the cleanest comparison.
    applies to examples that survive mode-based filtering, deciding whether they keep or
    omit the advantage suffix.
 
-4. **FAST token / subtask training configs**: Not relevant for this work. The affected
-   reward-recap configs do not use FAST-token or subtask training, so CFG planning does
-   not need to account for those interactions.
+4. **FAST token / subtask training configs**: Not immediately required for the current reward-recap
+   configs, but they are still relevant conceptually because the true hierarchical Pi05 path is the
+   place where the paper's intended post-subtask/pre-action placement exists naturally.

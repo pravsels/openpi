@@ -43,6 +43,7 @@ import openpi.models.model as _model
 import openpi.shared.normalize as _normalize
 import openpi.training.config as _config
 import openpi.training.dataset_split as _dataset_split
+import openpi.training.valid_indices as _valid_indices
 from openpi.training.droid_rlds_dataset import DroidRldsDataset
 import openpi.transforms as _transforms
 
@@ -480,15 +481,15 @@ def create_data_loader(
             framework=framework,
         )
     valid_indices_path = None
+    auto_valid_indices_path = None
+    valid_indices_policy = None
     if data_config.repo_id not in (None, "fake"):
         p = pathlib.Path(config.assets_dirs) / VALID_INDICES_FILENAME
         if p.exists():
             valid_indices_path = p
         else:
-            logging.warning(
-                "Valid indices file not found at %s; run scripts/compute_valid_indices.py for filtered sampling.",
-                p,
-            )
+            auto_valid_indices_path = p
+            valid_indices_policy = _valid_indices.policy_from_train_config(config)
     return create_torch_data_loader(
         data_config,
         model_config=config.model,
@@ -502,6 +503,8 @@ def create_data_loader(
         skip_norm_stats=skip_norm_stats,
         framework=framework,
         valid_indices_path=valid_indices_path,
+        auto_valid_indices_path=auto_valid_indices_path,
+        valid_indices_policy=valid_indices_policy,
         assets_dir=config.assets_dirs,
         dataset_split=dataset_split,
     )
@@ -521,6 +524,8 @@ def create_torch_data_loader(
     seed: int = 0,
     framework: str = "jax",
     valid_indices_path: pathlib.Path | str | None = None,
+    auto_valid_indices_path: pathlib.Path | str | None = None,
+    valid_indices_policy: _valid_indices.ValidIndicesPolicy | None = None,
     assets_dir: pathlib.Path | str | None = None,
     dataset_split: Literal["train", "val"] | None = None,
 ) -> DataLoader[tuple[_model.Observation, _model.Actions]]:
@@ -549,6 +554,12 @@ def create_torch_data_loader(
             dataset,
             data_config,
             assets_dir=assets_dir,
+        )
+    if valid_indices_path is None and auto_valid_indices_path is not None and valid_indices_policy is not None:
+        valid_indices_path = _valid_indices.ensure_valid_indices_file(
+            dataset,
+            auto_valid_indices_path,
+            valid_indices_policy,
         )
 
     split_indices = None

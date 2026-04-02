@@ -101,6 +101,10 @@ class Observation(Generic[ArrayT]):
     tokenized_prompt: at.Int[ArrayT, "*b l"] | None = None
     # Tokenized prompt mask.
     tokenized_prompt_mask: at.Bool[ArrayT, "*b l"] | None = None
+    # Optional action-conditioning token segment appended after generated subtask / prefix text.
+    action_tokenized_prompt: at.Int[ArrayT, "*b l"] | None = None
+    # Mask for the optional action-conditioning token segment.
+    action_tokenized_prompt_mask: at.Bool[ArrayT, "*b l"] | None = None
 
     # pi0-fast model specific fields.
 
@@ -130,6 +134,8 @@ class Observation(Generic[ArrayT]):
         # Ensure that tokenized_prompt and tokenized_prompt_mask are provided together.
         if ("tokenized_prompt" in data) != ("tokenized_prompt_mask" in data):
             raise ValueError("tokenized_prompt and tokenized_prompt_mask must be provided together.")
+        if ("action_tokenized_prompt" in data) != ("action_tokenized_prompt_mask" in data):
+            raise ValueError("action_tokenized_prompt and action_tokenized_prompt_mask must be provided together.")
         # If images are uint8, convert them to [-1, 1] float32.
         for key in data["image"]:
             if data["image"][key].dtype == np.uint8:
@@ -142,6 +148,8 @@ class Observation(Generic[ArrayT]):
             state=data["state"],
             tokenized_prompt=data.get("tokenized_prompt"),
             tokenized_prompt_mask=data.get("tokenized_prompt_mask"),
+            action_tokenized_prompt=data.get("action_tokenized_prompt"),
+            action_tokenized_prompt_mask=data.get("action_tokenized_prompt_mask"),
             token_ar_mask=data.get("token_ar_mask"),
             token_loss_mask=data.get("token_loss_mask"),
             action_is_pad=data.get("action_is_pad"),
@@ -225,6 +233,8 @@ def preprocess_observation(
         state=observation.state,
         tokenized_prompt=observation.tokenized_prompt,
         tokenized_prompt_mask=observation.tokenized_prompt_mask,
+        action_tokenized_prompt=observation.action_tokenized_prompt,
+        action_tokenized_prompt_mask=observation.action_tokenized_prompt_mask,
         token_ar_mask=observation.token_ar_mask,
         token_loss_mask=observation.token_loss_mask,
         action_is_pad=observation.action_is_pad,
