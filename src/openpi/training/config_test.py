@@ -164,11 +164,16 @@ def test_build_block_tower_rlt_references_latest_baseline_step():
     expected_step = str(baseline.num_train_steps)
 
     assert expected_step == "50000"
+    assert rlt.num_train_steps == 20_000
     assert isinstance(rlt.weight_loader, _config.weight_loaders.RLTokenCheckpointWeightLoader)
-    assert f"/{expected_step}/params" in rlt.weight_loader.params_path
+    assert f"/baseline/{expected_step}/params" in rlt.weight_loader.params_path
 
-    script = pathlib.Path("slurm/train_build_block_tower_rlt_slurm.sh").read_text()
-    assert f'BASELINE_STEP="{expected_step}"' in script
+    train_script = pathlib.Path("slurm/train_build_block_tower_slurm.sh").read_text()
+    assert 'EXP_NAME="baseline"' in train_script
+
+    rlt_script = pathlib.Path("slurm/train_build_block_tower_rlt_slurm.sh").read_text()
+    assert f'BASELINE_STEP="{expected_step}"' in rlt_script
+    assert 'pi05_build_block_tower_baseline/baseline/${BASELINE_STEP}' in rlt_script
 
 
 def test_reward_recap_slurm_script_references_existing_configs():

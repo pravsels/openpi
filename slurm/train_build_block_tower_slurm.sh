@@ -31,7 +31,7 @@ XDG_CONFIG_HOME="${scratch_dir}/.config"
 
 # Training config — switch between baseline and dyna here.
 CONFIG_NAME="pi05_build_block_tower_baseline"
-EXP_NAME="baseline_v1"
+EXP_NAME="baseline"
 
 CHECKPOINT_DIR="${data_dir}/checkpoints/${CONFIG_NAME}/${EXP_NAME}"
 ASSETS_DIR="${CHECKPOINT_DIR}/assets"
