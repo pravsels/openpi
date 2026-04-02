@@ -1,4 +1,5 @@
 import numpy as np
+import pathlib
 
 from openpi.models import pi0_config
 from openpi.shared import normalize as _normalize
@@ -141,3 +142,14 @@ def test_reward_recap_block_tower_configs_exist():
     assert mixed.data.use_control_mode_advantage_prompt is True
     assert mixed.data.advantage_prompt_mode == "mixed"
     assert mixed.data.advantage_dropout_rate == 0.3
+
+
+def test_reward_recap_slurm_script_references_existing_configs():
+    script = pathlib.Path("slurm/train_bin_pack_reward_recap_slurm.sh").read_text()
+
+    for config_name in (
+        "pi05_bin_pack_coffee_capsules_recap_positive_only",
+        "pi05_bin_pack_coffee_capsules_recap_mixed",
+    ):
+        assert config_name in script
+        _config.get_config(config_name)

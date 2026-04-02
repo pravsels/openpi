@@ -17,11 +17,11 @@ MODE="${1:?Usage: sbatch $0 <positive_only|mixed|positive_only_from_base|mixed_f
 
 case "${MODE}" in
     positive_only)
-        CONFIG_NAME="pi05_bin_pack_coffee_capsules_reward_recap_positive_only"
+        CONFIG_NAME="pi05_bin_pack_coffee_capsules_recap_positive_only"
         EXP_NAME="positive_only"
         ;;
     mixed)
-        CONFIG_NAME="pi05_bin_pack_coffee_capsules_reward_recap_mixed"
+        CONFIG_NAME="pi05_bin_pack_coffee_capsules_recap_mixed"
         EXP_NAME="mixed"
         ;;
     positive_only_from_base)
