@@ -1750,7 +1750,7 @@ _CONFIGS = [
     # RL Token (RLT Stage 1) configs.
     #
     TrainConfig(
-        name="pi05_rl_token_build_block_tower",
+        name="pi05_rlt_build_block_tower_6mix",
         model=pi0_rl_config.Pi0RLConfig(pi05=True, action_horizon=50, rl_vla_loss_weight=0.0),
         data=LeRobotBlockTowerDataConfig(
             repo_id=(
@@ -1778,7 +1778,7 @@ _CONFIGS = [
             pi05=True, action_horizon=50, rl_vla_loss_weight=0.0
         ).get_rl_freeze_filter(),
         weight_loader=weight_loaders.RLTokenCheckpointWeightLoader(
-            "checkpoints/pi05_build_block_tower_baseline/baseline/50000/params"
+            "checkpoints/pi05_build_block_tower_baseline_6mix/baseline/49999/params"
         ),
         num_train_steps=20_000,
         val_interval=1000,

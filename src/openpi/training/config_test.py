@@ -228,22 +228,28 @@ def test_build_block_tower_baseline_only_deltas_real_7d_dims(tmp_path):
     assert tuple(delta.mask) == tuple([True] * 10 + [False] * 6 + [True])
 
 
-def test_build_block_tower_rlt_references_latest_baseline_step():
+def test_build_block_tower_rlt_6mix_references_published_baseline_checkpoint():
     baseline = _config.get_config("pi05_build_block_tower_baseline")
-    rlt = _config.get_config("pi05_rl_token_build_block_tower")
-    expected_step = str(baseline.num_train_steps)
+    rlt = _config.get_config("pi05_rlt_build_block_tower_6mix")
+    expected_step = str(baseline.num_train_steps - 1)
 
-    assert expected_step == "50000"
+    assert expected_step == "49999"
     assert rlt.num_train_steps == 20_000
     assert isinstance(rlt.weight_loader, _config.weight_loaders.RLTokenCheckpointWeightLoader)
-    assert f"/baseline/{expected_step}/params" in rlt.weight_loader.params_path
+    assert (
+        rlt.weight_loader.params_path
+        == f"checkpoints/pi05_build_block_tower_baseline_6mix/baseline/{expected_step}/params"
+    )
 
     train_script = pathlib.Path("slurm/train_build_block_tower_slurm.sh").read_text()
     assert 'EXP_NAME="baseline"' in train_script
 
     rlt_script = pathlib.Path("slurm/train_build_block_tower_rlt_slurm.sh").read_text()
+    assert 'CONFIG_NAME="pi05_rlt_build_block_tower_6mix"' in rlt_script
+    assert 'EXP_NAME="rlt_6mix_v1"' in rlt_script
+    assert 'BASELINE_HF_REPO="pravsels/pi05-build-block-tower-6mix"' in rlt_script
     assert f'BASELINE_STEP="{expected_step}"' in rlt_script
-    assert 'pi05_build_block_tower_baseline/baseline/${BASELINE_STEP}' in rlt_script
+    assert 'pi05_build_block_tower_baseline_6mix/baseline/${BASELINE_STEP}' in rlt_script
 
 
 def test_reward_recap_slurm_script_references_existing_configs():

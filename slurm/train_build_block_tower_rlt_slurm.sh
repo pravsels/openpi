@@ -30,15 +30,16 @@ XDG_CACHE_HOME="${scratch_dir}/.cache"
 XDG_CONFIG_HOME="${scratch_dir}/.config"
 
 # Training config
-CONFIG_NAME="pi05_rl_token_build_block_tower"
-EXP_NAME="rlt_v1"
+CONFIG_NAME="pi05_rlt_build_block_tower_6mix"
+EXP_NAME="rlt_6mix_v1"
 EXTRA_TRAIN_ARGS="${EXTRA_TRAIN_ARGS:-}"
 
 # Baseline checkpoint and assets (VLA backbone — already trained, assets already computed)
-BASELINE_HF_REPO="pravsels/pi05-build-block-tower-baseline"
-BASELINE_STEP="50000"
-BASELINE_CKPT_DIR="${data_dir}/checkpoints/pi05_build_block_tower_baseline/baseline/${BASELINE_STEP}"
-ASSETS_DIR="${data_dir}/checkpoints/pi05_build_block_tower_baseline/baseline/assets"
+BASELINE_HF_REPO="pravsels/pi05-build-block-tower-6mix"
+BASELINE_STEP="49999"
+BASELINE_LOCAL_DIR="${data_dir}/checkpoints/pi05_build_block_tower_baseline_6mix/baseline"
+BASELINE_CKPT_DIR="${BASELINE_LOCAL_DIR}/${BASELINE_STEP}"
+ASSETS_DIR="${BASELINE_LOCAL_DIR}/assets"
 
 CHECKPOINT_DIR="${data_dir}/checkpoints/${CONFIG_NAME}/${EXP_NAME}"
 
@@ -54,10 +55,10 @@ else
     HF_HOME="${HF_CACHE}" huggingface-cli download \
         "${BASELINE_HF_REPO}" \
         --include "checkpoints/${BASELINE_STEP}/params/*" \
-        --local-dir "${data_dir}/checkpoints/pi05_build_block_tower_baseline/baseline" \
+        --local-dir "${BASELINE_LOCAL_DIR}" \
         --token "${HF_TOKEN}"
     if [ ! -d "${BASELINE_CKPT_DIR}/params" ]; then
-        ALT_PATH="${data_dir}/checkpoints/pi05_build_block_tower_baseline/baseline/checkpoints/${BASELINE_STEP}/params"
+        ALT_PATH="${BASELINE_LOCAL_DIR}/checkpoints/${BASELINE_STEP}/params"
         if [ -d "${ALT_PATH}" ]; then
             mv "${ALT_PATH}" "${BASELINE_CKPT_DIR}/params"
             echo "Moved checkpoint from HF nested structure to ${BASELINE_CKPT_DIR}/params"
