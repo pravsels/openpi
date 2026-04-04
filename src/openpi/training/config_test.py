@@ -252,6 +252,13 @@ def test_build_block_tower_rlt_6mix_references_published_baseline_checkpoint():
     assert 'pi05_build_block_tower_baseline_6mix/baseline/${BASELINE_STEP}' in rlt_script
 
 
+def test_build_block_tower_rlt_6mix_uses_same_dataset_mix_as_baseline():
+    baseline = _config.get_config("pi05_build_block_tower_baseline")
+    rlt = _config.get_config("pi05_rlt_build_block_tower_6mix")
+
+    assert rlt.data.repo_id == baseline.data.repo_id
+
+
 def test_reward_recap_slurm_script_references_existing_configs():
     script = pathlib.Path("slurm/train_bin_pack_reward_recap_slurm.sh").read_text()
 

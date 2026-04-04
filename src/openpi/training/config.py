@@ -1755,7 +1755,12 @@ _CONFIGS = [
         data=LeRobotBlockTowerDataConfig(
             repo_id=(
                 "["
-                "villekuosmanen/build_block_tower"
+                "villekuosmanen/build_block_tower, "
+                "villekuosmanen/dAgger_build_block_tower_1.0.0, "
+                "villekuosmanen/dAgger_build_block_tower_1.1.0, "
+                "villekuosmanen/dAgger_build_block_tower_1.2.0, "
+                "villekuosmanen/dAgger_build_block_tower_1.3.0, "
+                "villekuosmanen/dAgger_build_block_tower_1.4.0"
                 "]"
             ),
             base_config=DataConfig(
