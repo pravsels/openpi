@@ -345,6 +345,19 @@ def test_build_block_tower_rlt_6mix_uses_same_dataset_mix_as_baseline():
     assert rlt.data.repo_id == recap.data.repo_id
 
 
+def test_build_block_tower_recap_slurm_script_references_existing_configs():
+    script = pathlib.Path("slurm/train_build_block_tower_recap_slurm.sh").read_text()
+
+    for config_name in (
+        "pi05_build_block_tower_recap_positive_only",
+        "pi05_build_block_tower_recap_mixed",
+        "pi05_build_block_tower_subtask_recap_positive_only",
+        "pi05_build_block_tower_subtask_recap_mixed",
+    ):
+        assert config_name in script
+        _config.get_config(config_name)
+
+
 def test_reward_recap_slurm_script_references_existing_configs():
     script = pathlib.Path("slurm/train_bin_pack_reward_recap_slurm.sh").read_text()
 
