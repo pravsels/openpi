@@ -85,70 +85,266 @@ def test_tokenize_no_prompt():
         transform({})
 
 
-def test_inject_advantage_prompt_marks_policy_negative():
-    transform = _transforms.InjectAdvantagePrompt()
+def test_tokenize_high_prompt_emits_structured_action_prompt():
+    tokenizer = _tokenizer.PaligemmaTokenizer(max_len=64)
+    transform = _transforms.TokenizeHighPrompt(tokenizer)
 
-    data = transform({"prompt": np.asarray("pick up the fork"), "control_mode": np.asarray("policy")})
+    data = transform({"prompt": "Stack the blocks", "advantage_label": "positive"})
 
-    assert data["prompt"] == "pick up the fork. Advantage: negative"
+    decoded_main = tokenizer.detokenize(data["tokenized_prompt"])
+    decoded_action_prefix = tokenizer.detokenize(
+        data["action_tokenized_prompt"][data["action_tokenized_prompt_mask"]]
+    )
+
+    assert "Task: stack the blocks. Subtask:" in decoded_main
+    assert "Advantage:" not in decoded_main
+    assert decoded_action_prefix == "\nAdvantage: positive;\nAction: "
 
 
-def test_inject_advantage_prompt_treats_unknown_as_positive():
-    transform = _transforms.InjectAdvantagePrompt()
+def test_tokenize_high_prompt_with_discrete_state_keeps_state_in_main_prefix():
+    tokenizer = _tokenizer.PaligemmaTokenizer(max_len=128)
+    transform = _transforms.TokenizeHighPrompt(tokenizer, discrete_state_input=True)
 
-    data = transform({"prompt": "pick up the fork", "control_mode": "unknown"})
+    data = transform(
+        {
+            "prompt": "Stack the blocks",
+            "state": np.zeros(4, dtype=np.float32),
+            "advantage_label": "positive",
+        }
+    )
 
-    assert data["prompt"] == "pick up the fork. Advantage: positive"
+    decoded_main = tokenizer.detokenize(data["tokenized_prompt"])
+    decoded_action_prefix = tokenizer.detokenize(
+        data["action_tokenized_prompt"][data["action_tokenized_prompt_mask"]]
+    )
+
+    assert "Task: stack the blocks." in decoded_main
+    assert "State:" in decoded_main
+    assert "Subtask:" in decoded_main
+    assert "Advantage:" not in decoded_main
+    assert decoded_action_prefix == "\nAdvantage: positive;\nAction: "
 
 
-def test_inject_advantage_prompt_positive_only_skips_policy():
-    transform = _transforms.InjectAdvantagePrompt(mode="positive_only")
+def test_tokenize_high_low_prompt_emits_structured_action_prompt():
+    tokenizer = _tokenizer.PaligemmaTokenizer(max_len=128)
+    transform = _transforms.TokenizeHighLowPrompt(tokenizer)
 
-    result = transform({"prompt": "pick up the fork", "control_mode": "policy"})
+    data = transform(
+        {
+            "high_prompt": "Stack the blocks",
+            "low_prompt": "Place the red block",
+            "state": np.zeros(4, dtype=np.float32),
+            "advantage_label": "negative",
+        }
+    )
+
+    decoded_main = tokenizer.detokenize(data["tokenized_prompt"][data["tokenized_prompt_mask"]])
+    decoded_action_prefix = tokenizer.detokenize(
+        data["action_tokenized_prompt"][data["action_tokenized_prompt_mask"]]
+    )
+
+    assert "Subtask: place the red block." in decoded_main
+    assert "Advantage:" not in decoded_main
+    assert "Action:" not in decoded_main
+    assert decoded_action_prefix == "\nAdvantage: negative;\nAction: "
+
+
+def test_set_advantage_label_from_control_mode_marks_policy_negative_on_low_prompt():
+    transform = _transforms.SetAdvantageLabelFromControlMode()
+
+    data = transform({"low_prompt": np.asarray("pick up the fork"), "control_mode": np.asarray("policy")})
+
+    assert data["low_prompt"] == "pick up the fork."
+    assert data["advantage_label"] == "negative"
+
+
+def test_set_advantage_label_from_control_mode_treats_unknown_as_positive_on_low_prompt():
+    transform = _transforms.SetAdvantageLabelFromControlMode()
+
+    data = transform({"low_prompt": "pick up the fork", "control_mode": "unknown"})
+
+    assert data["low_prompt"] == "pick up the fork."
+    assert data["advantage_label"] == "positive"
+
+
+def test_set_advantage_label_from_control_mode_positive_only_skips_policy():
+    transform = _transforms.SetAdvantageLabelFromControlMode(mode="positive_only")
+
+    result = transform({"low_prompt": "pick up the fork", "control_mode": "policy"})
 
     assert result is None
 
 
-def test_inject_advantage_prompt_positive_only_keeps_human():
-    transform = _transforms.InjectAdvantagePrompt(mode="positive_only")
+def test_set_advantage_label_from_control_mode_positive_only_keeps_human_on_low_prompt():
+    transform = _transforms.SetAdvantageLabelFromControlMode(mode="positive_only")
 
-    data = transform({"prompt": "pick up the fork", "control_mode": "human"})
+    data = transform({"low_prompt": "pick up the fork", "control_mode": "human"})
 
-    assert data["prompt"] == "pick up the fork. Advantage: positive"
-
-
-def test_inject_advantage_prompt_positive_only_missing_control_mode():
-    transform = _transforms.InjectAdvantagePrompt(mode="positive_only")
-
-    data = transform({"prompt": "pick up the fork"})
-
-    assert data["prompt"] == "pick up the fork. Advantage: positive"
+    assert data["low_prompt"] == "pick up the fork."
+    assert data["advantage_label"] == "positive"
 
 
-def test_inject_advantage_prompt_targets_low_prompt_when_present():
-    transform = _transforms.InjectAdvantagePrompt()
+def test_set_advantage_label_from_control_mode_positive_only_missing_control_mode_uses_low_prompt():
+    transform = _transforms.SetAdvantageLabelFromControlMode(mode="positive_only")
+
+    data = transform({"low_prompt": "pick up the fork"})
+
+    assert data["low_prompt"] == "pick up the fork."
+    assert data["advantage_label"] == "positive"
+
+
+def test_set_advantage_label_from_control_mode_targets_low_prompt():
+    transform = _transforms.SetAdvantageLabelFromControlMode()
 
     data = transform({"low_prompt": "move arm to the cup", "control_mode": "policy"})
 
-    assert data["low_prompt"] == "move arm to the cup. Advantage: negative"
+    assert data["low_prompt"] == "move arm to the cup."
+    assert data["advantage_label"] == "negative"
 
 
-def test_inject_advantage_prompt_dropout_omits_suffix_for_kept_example(monkeypatch):
-    transform = _transforms.InjectAdvantagePrompt(dropout_rate=0.3)
+def test_set_advantage_label_from_control_mode_dropout_omits_suffix_for_kept_low_prompt(monkeypatch):
+    transform = _transforms.SetAdvantageLabelFromControlMode(dropout_rate=0.3)
+    monkeypatch.setattr(np.random, "random", lambda: 0.1)
+
+    data = transform({"low_prompt": "pick up the fork", "control_mode": "human"})
+
+    assert data["low_prompt"] == "pick up the fork."
+    assert "advantage_label" not in data
+
+
+def test_set_advantage_label_from_control_mode_positive_only_still_skips_policy_before_dropout(monkeypatch):
+    transform = _transforms.SetAdvantageLabelFromControlMode(mode="positive_only", dropout_rate=0.3)
+    monkeypatch.setattr(np.random, "random", lambda: 0.1)
+
+    result = transform({"low_prompt": "pick up the fork", "control_mode": "policy"})
+
+    assert result is None
+
+
+def test_set_advantage_label_from_control_mode_requires_low_prompt():
+    transform = _transforms.SetAdvantageLabelFromControlMode()
+
+    with pytest.raises(ValueError, match="low_prompt or prompt"):
+        transform({"control_mode": "policy"})
+
+
+def test_set_advantage_label_from_control_mode_marks_policy_negative_on_prompt():
+    transform = _transforms.SetAdvantageLabelFromControlMode()
+
+    data = transform({"prompt": "pick up the fork", "control_mode": "policy"})
+
+    assert data["prompt"] == "pick up the fork."
+    assert data["advantage_label"] == "negative"
+
+
+def test_block_tower_subtask_inputs_emit_high_and_low_prompts():
+    from openpi.policies import block_tower_policy
+
+    transform = block_tower_policy.BlockTowerSubtaskInputs()
+    data = transform(
+        {
+            "observation.images.front": np.zeros((3, 8, 8), dtype=np.uint8),
+            "observation.images.wrist": np.zeros((3, 8, 8), dtype=np.uint8),
+            "observation.state": np.zeros(7, dtype=np.float32),
+            "action": np.zeros((2, 7), dtype=np.float32),
+            "task": "build a block tower",
+            "subtask": "pick up the red block",
+        }
+    )
+
+    assert data["high_prompt"] == "build a block tower"
+    assert data["low_prompt"] == "pick up the red block"
+
+
+def test_block_tower_inputs_preserve_advantage_metadata():
+    from openpi.policies import block_tower_policy
+
+    transform = block_tower_policy.BlockTowerInputs()
+    data = transform(
+        {
+            "observation.images.front": np.zeros((3, 8, 8), dtype=np.uint8),
+            "observation.images.wrist": np.zeros((3, 8, 8), dtype=np.uint8),
+            "observation.state": np.zeros(7, dtype=np.float32),
+            "action": np.zeros((2, 7), dtype=np.float32),
+            "task": "build a block tower",
+            "control_mode": "policy",
+            "advantage_label": "negative",
+        }
+    )
+
+    assert data["control_mode"] == "policy"
+    assert data["advantage_label"] == "negative"
+
+
+def test_block_tower_subtask_inputs_preserve_control_mode_for_advantage_labeling():
+    from openpi.policies import block_tower_policy
+
+    transform = block_tower_policy.BlockTowerSubtaskInputs()
+    data = transform(
+        {
+            "observation.images.front": np.zeros((3, 8, 8), dtype=np.uint8),
+            "observation.images.wrist": np.zeros((3, 8, 8), dtype=np.uint8),
+            "observation.state": np.zeros(7, dtype=np.float32),
+            "action": np.zeros((2, 7), dtype=np.float32),
+            "task": "build a block tower",
+            "subtask": "pick up the red block",
+            "control_mode": "policy",
+        }
+    )
+
+    assert data["control_mode"] == "policy"
+
+
+def test_block_tower_subtask_inputs_chain_into_advantage_labeling():
+    from openpi.policies import block_tower_policy
+
+    input_transform = block_tower_policy.BlockTowerSubtaskInputs()
+    advantage_transform = _transforms.SetAdvantageLabelFromControlMode()
+
+    data = advantage_transform(
+        input_transform(
+            {
+                "observation.images.front": np.zeros((3, 8, 8), dtype=np.uint8),
+                "observation.images.wrist": np.zeros((3, 8, 8), dtype=np.uint8),
+                "observation.state": np.zeros(7, dtype=np.float32),
+                "action": np.zeros((2, 7), dtype=np.float32),
+                "task": "build a block tower",
+                "subtask": "pick up the red block",
+                "control_mode": "policy",
+            }
+        )
+    )
+
+    assert data["high_prompt"] == "build a block tower"
+    assert data["low_prompt"] == "pick up the red block."
+    assert data["advantage_label"] == "negative"
+
+
+def test_block_tower_subtask_inputs_requires_subtask():
+    from openpi.policies import block_tower_policy
+
+    transform = block_tower_policy.BlockTowerSubtaskInputs()
+
+    with pytest.raises(KeyError, match="subtask"):
+        transform(
+            {
+                "observation.images.front": np.zeros((3, 8, 8), dtype=np.uint8),
+                "observation.images.wrist": np.zeros((3, 8, 8), dtype=np.uint8),
+                "observation.state": np.zeros(7, dtype=np.float32),
+                "action": np.zeros((2, 7), dtype=np.float32),
+                "task": "build a block tower",
+            }
+        )
+
+
+def test_set_advantage_label_from_control_mode_dropout_omits_suffix_for_kept_prompt(monkeypatch):
+    transform = _transforms.SetAdvantageLabelFromControlMode(dropout_rate=0.3)
     monkeypatch.setattr(np.random, "random", lambda: 0.1)
 
     data = transform({"prompt": "pick up the fork", "control_mode": "human"})
 
     assert data["prompt"] == "pick up the fork."
-
-
-def test_inject_advantage_prompt_positive_only_still_skips_policy_before_dropout(monkeypatch):
-    transform = _transforms.InjectAdvantagePrompt(mode="positive_only", dropout_rate=0.3)
-    monkeypatch.setattr(np.random, "random", lambda: 0.1)
-
-    result = transform({"prompt": "pick up the fork", "control_mode": "policy"})
-
-    assert result is None
+    assert "advantage_label" not in data
 
 
 def test_quantile_normalize_uses_q01_q99_without_extra_clipping():

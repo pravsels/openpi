@@ -114,24 +114,21 @@ class InjectDefaultPrompt(DataTransformFn):
 
 
 @dataclasses.dataclass(frozen=True)
-class InjectAdvantagePrompt(DataTransformFn):
-    """Appends an advantage-conditioning string to the task prompt.
+class SetAdvantageLabelFromControlMode(DataTransformFn):
+    """Sets structured `advantage_label` metadata from `control_mode`.
 
-    This is the minimal `reward_recap` bootstrap path for bin-pack:
-    - `positive_only`: append `Advantage: positive` for human demos, return None
-      for autonomous/policy samples (skipped by the data loader)
-    - `mixed`: map `control_mode == "policy"` to negative, everything else to positive
+    The prompt text itself stays clean. Tokenization later turns this label into
+    a separate action-conditioning prefix that is appended right before action
+    prediction.
     """
 
     mode: Literal["positive_only", "mixed"] = "mixed"
-    default_prompt: str | None = None
     negative_control_modes: tuple[str, ...] = ("policy",)
     dropout_rate: float = 0.0
 
     def __call__(self, data: DataDict) -> DataDict | None:
-        prompt_key, prompt = self._extract_prompt(data)
-        if prompt is None:
-            return data
+        prompt_key = self._get_prompt_key(data)
+        prompt = self._to_text(data[prompt_key])
 
         control_mode = self._extract_control_mode(data.get("control_mode"))
         if self.mode == "positive_only":
@@ -144,10 +141,23 @@ class InjectAdvantagePrompt(DataTransformFn):
             raise ValueError(f"Unsupported advantage prompt mode: {self.mode}")
 
         if self.dropout_rate > 0 and np.random.random() < self.dropout_rate:
-            return {**data, prompt_key: np.asarray(self._format_prompt(prompt))}
+            data = {**data, prompt_key: np.asarray(self._format_prompt(prompt))}
+            data.pop("advantage_label", None)
+            return data
 
-        prompt = f"{self._format_prompt(prompt)} Advantage: {advantage}".strip()
-        return {**data, prompt_key: np.asarray(prompt)}
+        return {
+            **data,
+            prompt_key: np.asarray(self._format_prompt(prompt)),
+            "advantage_label": np.asarray(advantage),
+        }
+
+    @staticmethod
+    def _get_prompt_key(data: DataDict) -> str:
+        if "low_prompt" in data and data["low_prompt"] is not None:
+            return "low_prompt"
+        if "prompt" in data and data["prompt"] is not None:
+            return "prompt"
+        raise ValueError("SetAdvantageLabelFromControlMode requires low_prompt or prompt.")
 
     @staticmethod
     def _format_prompt(prompt: str) -> str:
@@ -155,12 +165,6 @@ class InjectAdvantagePrompt(DataTransformFn):
         if prompt and prompt[-1] not in ".!?":
             prompt += "."
         return prompt
-
-    def _extract_prompt(self, data: DataDict) -> tuple[str, str | None]:
-        for key in ("prompt", "low_prompt", "task"):
-            if key in data and data[key] is not None:
-                return ("prompt" if key == "task" else key), self._to_text(data[key])
-        return "prompt", self.default_prompt
 
     def _extract_control_mode(self, control_mode) -> str | None:
         if control_mode is None:
@@ -408,12 +412,29 @@ class TokenizeHighPrompt(DataTransformFn):
     def __call__(self, data: DataDict) -> DataDict:
         if (prompt := data.pop("prompt", None)) is None:
             raise ValueError("Prompt is required")
+        advantage_label = data.pop("advantage_label", None)
+
+        if self.discrete_state_input:
+            if (state := data.get("state", None)) is None:
+                raise ValueError("State is required.")
+        else:
+            state = None
 
         if not isinstance(prompt, str):
             prompt = prompt.item()
+        if advantage_label is not None and not isinstance(advantage_label, str):
+            advantage_label = advantage_label.item()
         # print(f"tokenize high prompt: {prompt}")
-        tokens, token_masks = self.tokenizer.tokenize_high_level_prompt(prompt)
-        return {**data, "tokenized_prompt": tokens, "tokenized_prompt_mask": token_masks}
+        tokens, token_masks, action_prompt_tokens, action_prompt_mask = self.tokenizer.tokenize_high_level_prompt(
+            prompt, state=state, advantage_label=advantage_label
+        )
+        return {
+            **data,
+            "tokenized_prompt": tokens,
+            "tokenized_prompt_mask": token_masks,
+            "action_tokenized_prompt": action_prompt_tokens,
+            "action_tokenized_prompt_mask": action_prompt_mask,
+        }
 
 
 @dataclasses.dataclass(frozen=True)
@@ -426,6 +447,7 @@ class TokenizeHighLowPrompt(DataTransformFn):
     def __call__(self, data: DataDict) -> DataDict:
         high_prompt = data.pop("high_prompt", None)
         low_prompt = data.pop("low_prompt", None)
+        advantage_label = data.pop("advantage_label", None)
 
         if high_prompt is None or low_prompt is None:
             raise ValueError("Both high_prompt and low_prompt are required for TokenizeHighLowPrompt")
@@ -434,6 +456,8 @@ class TokenizeHighLowPrompt(DataTransformFn):
             high_prompt = high_prompt.item()
         if not isinstance(low_prompt, str):
             low_prompt = low_prompt.item()
+        if advantage_label is not None and not isinstance(advantage_label, str):
+            advantage_label = advantage_label.item()
 
         state = data.get("state")
         if state is None:
@@ -442,6 +466,9 @@ class TokenizeHighLowPrompt(DataTransformFn):
         # ⭐ Decide whether to pass actions based on the config
         actions = data.get("actions") if self.use_fast_tokens else None
 
+        # The tokenizer returns both the main hierarchical token sequence
+        # (task/state + subtask [+ optional FAST action tokens]) and a separate
+        # post-subtask action-conditioning prefix used for CFG / flow matching.
         (
             tokens,
             token_masks,
@@ -452,12 +479,17 @@ class TokenizeHighLowPrompt(DataTransformFn):
             action_prompt_tokens,
             action_prompt_mask,
         ) = (
-            self.tokenizer.tokenize_high_low_prompt(high_prompt, low_prompt, state, actions)
+            self.tokenizer.tokenize_high_low_prompt(
+                high_prompt, low_prompt, state, actions, advantage_label=advantage_label
+            )
         )
         return {
             **data,
             "tokenized_prompt": tokens,
             "tokenized_prompt_mask": token_masks,
+            # Keep the action-conditioning prefix separate so the model can append
+            # it after generated subtask tokens instead of baking it into the
+            # original prompt sequence.
             "action_tokenized_prompt": action_prompt_tokens,
             "action_tokenized_prompt_mask": action_prompt_mask,
             "token_ar_mask": ar_mask,

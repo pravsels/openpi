@@ -1,6 +1,5 @@
 import logging
 import os
-import re
 import string
 
 import jax
@@ -30,17 +29,6 @@ class PaligemmaTokenizer:
             )
             logging.info(f"Loaded FAST tokenizer from {fast_tokenizer_path}")
 
-    _ADVANTAGE_RE = re.compile(r"^(?P<base>.*?)(?:\s*Advantage:\s*(?P<label>positive|negative))?\s*$", re.IGNORECASE)
-
-    def _split_advantage_suffix(self, text: str) -> tuple[str, str | None]:
-        normalized = text.strip().replace("_", " ").replace("\n", " ")
-        match = self._ADVANTAGE_RE.fullmatch(normalized)
-        if match is None:
-            return normalized, None
-        base = match.group("base").strip()
-        label = match.group("label")
-        return base, None if label is None else label.lower()
-
     def _pad_tokens(self, tokens: list[int]) -> tuple[np.ndarray, np.ndarray]:
         tokens_len = len(tokens)
         if tokens_len < self._max_len:
@@ -62,13 +50,12 @@ class PaligemmaTokenizer:
         return self._pad_tokens(self._tokenizer.encode(prompt))
 
     def tokenize(self, prompt: str, state: np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray]:
-        cleaned_text, advantage = self._split_advantage_suffix(prompt)
+        cleaned_text = prompt.strip().replace("_", " ").replace("\n", " ")
         if state is not None:
             # This is the Pi05 format, where the state is part of the discrete language input.
             discretized_state = np.digitize(state, bins=np.linspace(-1, 1, 256 + 1)[:-1]) - 1
             state_str = " ".join(map(str, discretized_state))
-            advantage_prompt = f"\nAdvantage: {advantage};" if advantage is not None else ""
-            full_prompt = f"Task: {cleaned_text}, State: {state_str};{advantage_prompt}\nAction: "
+            full_prompt = f"Task: {cleaned_text}, State: {state_str};\nAction: "
             tokens = self._tokenizer.encode(full_prompt, add_bos=True)
         else:
             # This is the Pi0 format, where the state is part of the continuous action expert input.
@@ -77,30 +64,30 @@ class PaligemmaTokenizer:
         return self._pad_tokens(tokens)
 
     def tokenize_high_low_prompt_infer(
-        self, high_prompt: str, low_prompt: str, state: np.ndarray | None = None
+        self, high_level_prompt: str, subtask_prompt: str, state: np.ndarray | None = None
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-        cleaned_high_text = high_prompt.lower().strip().replace("_", " ").replace("\n", " ")
+        cleaned_high_level_prompt = high_level_prompt.lower().strip().replace("_", " ").replace("\n", " ")
         # Bug fix: assign result to cleaned_low_text (was discarded before)
-        cleaned_low_text = low_prompt.lower().strip().replace("_", " ").replace("\n", " ")  # noqa: F841
+        cleaned_subtask_prompt = subtask_prompt.lower().strip().replace("_", " ").replace("\n", " ")  # noqa: F841
 
-        if cleaned_high_text and cleaned_high_text[-1] in string.punctuation:
-            cleaned_high_text = cleaned_high_text[:-1]
-        cleaned_high_text += "."
+        if cleaned_high_level_prompt and cleaned_high_level_prompt[-1] in string.punctuation:
+            cleaned_high_level_prompt = cleaned_high_level_prompt[:-1]
+        cleaned_high_level_prompt += "."
 
         if state is not None:
             # Pi05 format: state is discretized and embedded as a string in the language prompt.
             discretized_state = np.digitize(state, bins=np.linspace(-1, 1, 256 + 1)[:-1]) - 1
             state_str = " ".join(map(str, discretized_state))
             # Bug fix: use ";" (not ",") before State to match tokenize_high_low_prompt (training format).
-            sub_prompt_1 = f"Task: {cleaned_high_text}; State: {state_str}; Subtask: "
+            prefix_text = f"Task: {cleaned_high_level_prompt}; State: {state_str}; Subtask: "
         else:
             # Bug fix: handle state=None so tokens/ar_mask/loss_mask are always defined.
-            sub_prompt_1 = f"Task: {cleaned_high_text}; Subtask: "
+            prefix_text = f"Task: {cleaned_high_level_prompt}; Subtask: "
 
-        tokens_1 = self._tokenizer.encode(sub_prompt_1, add_bos=True)
-        tokens = tokens_1
-        ar_mask = [True] * len(tokens_1)
-        loss_mask = [False] * len(tokens_1)
+        prefix_tokens = self._tokenizer.encode(prefix_text, add_bos=True)
+        tokens = prefix_tokens
+        ar_mask = [True] * len(prefix_tokens)
+        loss_mask = [False] * len(prefix_tokens)
 
         tokens_len = len(tokens)
         if tokens_len < self._max_len:
@@ -127,34 +114,45 @@ class PaligemmaTokenizer:
             np.asarray(loss_mask),
         )
 
-    def tokenize_high_level_prompt(self, high_prompt: str) -> tuple[np.ndarray, np.ndarray]:
-        cleaned_high_text = high_prompt.lower().strip().replace("_", " ").replace("\n", " ")
+    def tokenize_high_level_prompt(
+        self,
+        high_level_prompt: str,
+        state: np.ndarray | None = None,
+        advantage_label: str | None = None,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        cleaned_high_level_prompt = high_level_prompt.lower().strip().replace("_", " ").replace("\n", " ")
         # remove the last punctuation character if present
-        if cleaned_high_text and cleaned_high_text[-1] in string.punctuation:
-            cleaned_high_text = cleaned_high_text[:-1]
-        cleaned_high_text += "."  # add a custom symbol here
-        sub_prompt_1 = f"Task: {cleaned_high_text} Subtask: "
-        tokens_1 = self._tokenizer.encode(sub_prompt_1, add_bos=True)
-        if len(tokens_1) < self._max_len:
-            padding = [False] * (self._max_len - len(tokens_1))
-            tokens = tokens_1 + padding
-            mask = [True] * len(tokens_1) + padding
+        if cleaned_high_level_prompt and cleaned_high_level_prompt[-1] in string.punctuation:
+            cleaned_high_level_prompt = cleaned_high_level_prompt[:-1]
+        cleaned_high_level_prompt += "."  # add a custom symbol here
+        if state is not None:
+            discretized_state = np.digitize(state, bins=np.linspace(-1, 1, 256 + 1)[:-1]) - 1
+            state_str = " ".join(map(str, discretized_state))
+            prefix_text = f"Task: {cleaned_high_level_prompt}; State: {state_str}; Subtask: "
         else:
-            if len(tokens_1) > self._max_len:
+            prefix_text = f"Task: {cleaned_high_level_prompt} Subtask: "
+        prefix_tokens = self._tokenizer.encode(prefix_text, add_bos=True)
+        if len(prefix_tokens) < self._max_len:
+            padding = [False] * (self._max_len - len(prefix_tokens))
+            prefix_mask = [True] * len(prefix_tokens) + padding
+        else:
+            if len(prefix_tokens) > self._max_len:
                 logging.warning(
-                    f"Token length ({len(tokens_1)}) exceeds max length ({self._max_len}), truncating. "
+                    f"Token length ({len(prefix_tokens)}) exceeds max length ({self._max_len}), truncating. "
                     "Consider increasing the `max_token_len` in your model config if this happens frequently."
                 )
-            tokens_1 = tokens_1[: self._max_len]
-            mask = [True] * self._max_len
-        return np.asarray(tokens_1), np.asarray(mask)
+            prefix_tokens = prefix_tokens[: self._max_len]
+            prefix_mask = [True] * self._max_len
+        action_prompt_tokens, action_prompt_mask = self._tokenize_action_prompt(advantage_label)
+        return np.asarray(prefix_tokens), np.asarray(prefix_mask), action_prompt_tokens, action_prompt_mask
 
     def tokenize_high_low_prompt(
         self,
-        high_prompt: str,
-        low_prompt: str,
+        high_level_prompt: str,
+        subtask_prompt: str,
         state: np.ndarray | None = None,
         actions: np.ndarray | None = None,
+        advantage_label: str | None = None,
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """Build the full token sequence for Pi05 hierarchical training.
 
@@ -171,12 +169,12 @@ class PaligemmaTokenizer:
                 "Task: pick up cup. State: 127 64 ...; Subtask: move arm to cup;\nAction: <tok1><tok2>...|<EOS>"
 
         Args:
-            high_prompt: High-level task description string, e.g. "Pick up the cup".
+            high_level_prompt: High-level task description string, e.g. "Pick up the cup".
                 Will be normalized (lowercased, underscores replaced with spaces) and
                 punctuation-normalized to end with a period.
-            low_prompt: Low-level subtask description string, e.g. "Move arm to the cup".
+            subtask_prompt: Low-level subtask description string, e.g. "Move arm to the cup".
                 This is the target the model is trained to predict autoregressively.
-                Same normalization applied as high_prompt.
+                Same normalization applied as high_level_prompt.
             state: Robot proprioceptive state vector of shape (state_dim,), assumed to be
                 normalized to [-1, 1]. Each dimension is discretized into 256 integer bins
                 and encoded as a space-separated string inside the language prompt.
@@ -187,7 +185,7 @@ class PaligemmaTokenizer:
                 matching mode).
 
         Returns:
-            A tuple of six parallel numpy arrays, all of length `max_len`:
+            A tuple of eight parallel numpy arrays:
 
             tokens (np.ndarray, int, shape (max_len,)):
                 Token IDs for the full sequence. Padding positions contain 0.
@@ -216,9 +214,17 @@ class PaligemmaTokenizer:
                 True only on FAST action tokens (segment 3). Used to compute a separately
                 weighted action token loss (controlled by `fast_token_loss_weight` in
                 Pi05Config). All-False when no action tokens are present.
+
+            action_prompt_tokens (np.ndarray, int, shape (max_len,)):
+                Token IDs for the separate post-subtask action-conditioning prefix.
+                This is `"\nAction: "` when `advantage_label` is None and
+                `"\nAdvantage: <label>;\nAction: "` otherwise.
+
+            action_prompt_mask (np.ndarray, bool, shape (max_len,)):
+                True for real tokens in `action_prompt_tokens`, False for padding.
         """
-        cleaned_high_text = high_prompt.lower().strip().replace("_", " ").replace("\n", " ")
-        cleaned_low_text, advantage = self._split_advantage_suffix(low_prompt.lower())
+        cleaned_high_level_prompt = high_level_prompt.lower().strip().replace("_", " ").replace("\n", " ")
+        cleaned_subtask_prompt = subtask_prompt.lower().strip().replace("_", " ").replace("\n", " ")
 
         # Pi05 encodes the robot state as a discretized string inside the language prompt
         # (rather than as a continuous vector in the suffix), so the LLM can condition on it.
@@ -229,15 +235,16 @@ class PaligemmaTokenizer:
         # ── Segment 1: High-level task prompt + discretized state ──────────────────
         # This is the conditioning context. No loss is computed here since the model
         # receives this as given input, not as something it needs to predict.
-        if cleaned_high_text and cleaned_high_text[-1] in string.punctuation:
-            cleaned_high_text = cleaned_high_text[:-1]
-        cleaned_high_text += "."
-        sub_prompt_1 = f"Task: {cleaned_high_text}; State: {state_str}; Subtask: "
-        tokens_1 = self._tokenizer.encode(sub_prompt_1, add_bos=True)
-        ar_mask = [True] * len(tokens_1)           # causal attention over the prefix
-        loss_mask = [False] * len(tokens_1)         # no loss on task/state context
-        subtask_region_mask = [False] * len(tokens_1)
-        action_region_mask = [False] * len(tokens_1)
+        if cleaned_high_level_prompt and cleaned_high_level_prompt[-1] in string.punctuation:
+            cleaned_high_level_prompt = cleaned_high_level_prompt[:-1]
+        cleaned_high_level_prompt += "."
+        prefix_text = f"Task: {cleaned_high_level_prompt}; State: {state_str}; Subtask: "
+        
+        prefix_tokens = self._tokenizer.encode(prefix_text, add_bos=True)
+        ar_mask = [True] * len(prefix_tokens)           # causal attention over the prefix
+        loss_mask = [False] * len(prefix_tokens)         # no loss on task/state context
+        subtask_region_mask = [False] * len(prefix_tokens)
+        action_region_mask = [False] * len(prefix_tokens)
 
         # ── Segment 2: Low-level subtask text ──────────────────────────────────────
         # This is what the model must predict autoregressively given the task+state
@@ -247,26 +254,26 @@ class PaligemmaTokenizer:
         #     of subtask generation and the start of continuous action denoising.
         #   - FAST token mode: ends with ";" only (no EOS yet), because the discrete
         #     action tokens will be appended as segment 3.
-        if cleaned_low_text and cleaned_low_text[-1] in string.punctuation:
-            cleaned_low_text = cleaned_low_text[:-1]
-        cleaned_low_text += "."
+        if cleaned_subtask_prompt and cleaned_subtask_prompt[-1] in string.punctuation:
+            cleaned_subtask_prompt = cleaned_subtask_prompt[:-1]
+        cleaned_subtask_prompt += "."
 
         if actions is None or self._fast_tokenizer is None:
-            sub_prompt_2 = f"{cleaned_low_text};"
-            tokens_2 = self._tokenizer.encode(sub_prompt_2, add_eos=True)
+            subtask_text = f"{cleaned_subtask_prompt};"
+            subtask_tokens = self._tokenizer.encode(subtask_text, add_eos=True)
         else:
-            sub_prompt_2 = f"{cleaned_low_text};"
-            tokens_2 = self._tokenizer.encode(sub_prompt_2)
+            subtask_text = f"{cleaned_subtask_prompt};"
+            subtask_tokens = self._tokenizer.encode(subtask_text)
 
-        ar_mask += [True] * len(tokens_2)
-        loss_mask += [True] * len(tokens_2)         # compute loss on the predicted subtask
-        subtask_region_mask += [True] * len(tokens_2)
-        action_region_mask += [False] * len(tokens_2)
+        ar_mask += [True] * len(subtask_tokens)
+        loss_mask += [True] * len(subtask_tokens)         # compute loss on the predicted subtask
+        subtask_region_mask += [True] * len(subtask_tokens)
+        action_region_mask += [False] * len(subtask_tokens)
 
-        tokens = tokens_1 + tokens_2
+        tokens = prefix_tokens + subtask_tokens
 
         if actions is None or self._fast_tokenizer is None:
-            action_prompt_tokens, action_prompt_mask = self._tokenize_action_prompt(advantage)
+            action_prompt_tokens, action_prompt_mask = self._tokenize_action_prompt(advantage_label)
         else:
             action_prompt_tokens = np.zeros(self._max_len, dtype=np.int32)
             action_prompt_mask = np.zeros(self._max_len, dtype=bool)
