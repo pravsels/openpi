@@ -56,7 +56,7 @@ def _try_get_key(data: dict, *keys: str):
 
 
 def _copy_passthrough_metadata(data: dict, inputs: dict) -> None:
-    for key in ("control_mode", "advantage_label", "dataset_repo_id"):
+    for key in ("control_mode", "advantage_label"):
         if key in data:
             inputs[key] = data[key]
 

@@ -143,13 +143,16 @@ class SetAdvantageLabelFromControlMode(DataTransformFn):
         if self.dropout_rate > 0 and np.random.random() < self.dropout_rate:
             data = {**data, prompt_key: np.asarray(self._format_prompt(prompt))}
             data.pop("advantage_label", None)
+            data.pop("control_mode", None)
             return data
 
-        return {
+        result = {
             **data,
             prompt_key: np.asarray(self._format_prompt(prompt)),
             "advantage_label": np.asarray(advantage),
         }
+        result.pop("control_mode", None)
+        return result
 
     @staticmethod
     def _get_prompt_key(data: DataDict) -> str:
