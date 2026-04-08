@@ -20,25 +20,21 @@ case "${MODE}" in
         CONFIG_NAME="pi05_build_block_tower_recap_positive_only"
         EXP_NAME="positive_only"
         TRAIN_EXTRA_ARGS=""
-        FORCE_REBUILD_VALID_INDICES=1
         ;;
     mixed)
         CONFIG_NAME="pi05_build_block_tower_recap_mixed"
         EXP_NAME="mixed"
         TRAIN_EXTRA_ARGS=""
-        FORCE_REBUILD_VALID_INDICES=1
         ;;
     subtask_positive_only)
         CONFIG_NAME="pi05_build_block_tower_subtask_recap_positive_only"
         EXP_NAME="subtask_positive_only"
-        TRAIN_EXTRA_ARGS="--batch-size=12"
-        FORCE_REBUILD_VALID_INDICES=0
+        TRAIN_EXTRA_ARGS="--batch-size=28"
         ;;
     subtask_mixed)
         CONFIG_NAME="pi05_build_block_tower_subtask_recap_mixed"
         EXP_NAME="subtask_mixed"
-        TRAIN_EXTRA_ARGS="--batch-size=12"
-        FORCE_REBUILD_VALID_INDICES=0
+        TRAIN_EXTRA_ARGS="--batch-size=28"
         ;;
     *)
         echo "ERROR: unknown mode '${MODE}'. Use 'positive_only', 'mixed', 'subtask_positive_only', or 'subtask_mixed'."
@@ -103,11 +99,6 @@ EXPORT_VARS="${EXPORT_VARS} && export UV_PROJECT_ENVIRONMENT=${data_dir}/.venv"
 EXPORT_VARS="${EXPORT_VARS} && export HF_TOKEN=\$(cat ${home_dir}/.hf_token)"
 
 PRECOMPUTE_CMD=""
-
-if [ "${FORCE_REBUILD_VALID_INDICES}" = "1" ] && [ -f "${ASSETS_DIR}/valid_indices.txt" ]; then
-    echo "Removing ${ASSETS_DIR}/valid_indices.txt to force regeneration for this config."
-    rm -f "${ASSETS_DIR}/valid_indices.txt"
-fi
 
 if [ -f "${NORM_STATS_PATH}" ] && [ -f "${PER_TIMESTEP_STATS_PATH}" ]; then
     echo "Skipping normalization precompute (found stats files)."
