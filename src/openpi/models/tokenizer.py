@@ -32,8 +32,10 @@ class PaligemmaTokenizer:
     def _pad_tokens(self, tokens: list[int]) -> tuple[np.ndarray, np.ndarray]:
         tokens_len = len(tokens)
         if tokens_len < self._max_len:
+            # Keep mask aligned with true token positions; padded tail is masked out.
             padding = [False] * (self._max_len - tokens_len)
             mask = [True] * tokens_len + padding
+            # `False` is used as the pad token placeholder (casts to integer 0 in numpy).
             tokens = tokens + padding
         else:
             if len(tokens) > self._max_len:
@@ -41,6 +43,7 @@ class PaligemmaTokenizer:
                     f"Token length ({len(tokens)}) exceeds max length ({self._max_len}), truncating. "
                     "Consider increasing the `max_token_len` in your model config if this happens frequently."
                 )
+            # Truncation keeps the sequence length fixed at max_len.
             tokens = tokens[: self._max_len]
             mask = [True] * self._max_len
         return np.asarray(tokens), np.asarray(mask)
@@ -131,20 +134,9 @@ class PaligemmaTokenizer:
             prefix_text = f"Task: {cleaned_high_level_prompt}; State: {state_str}; Subtask: "
         else:
             prefix_text = f"Task: {cleaned_high_level_prompt} Subtask: "
-        prefix_tokens = self._tokenizer.encode(prefix_text, add_bos=True)
-        if len(prefix_tokens) < self._max_len:
-            padding = [False] * (self._max_len - len(prefix_tokens))
-            prefix_mask = [True] * len(prefix_tokens) + padding
-        else:
-            if len(prefix_tokens) > self._max_len:
-                logging.warning(
-                    f"Token length ({len(prefix_tokens)}) exceeds max length ({self._max_len}), truncating. "
-                    "Consider increasing the `max_token_len` in your model config if this happens frequently."
-                )
-            prefix_tokens = prefix_tokens[: self._max_len]
-            prefix_mask = [True] * self._max_len
+        prefix_tokens, prefix_mask = self._pad_tokens(self._tokenizer.encode(prefix_text, add_bos=True))
         action_prompt_tokens, action_prompt_mask = self._tokenize_action_prompt(advantage_label)
-        return np.asarray(prefix_tokens), np.asarray(prefix_mask), action_prompt_tokens, action_prompt_mask
+        return prefix_tokens, prefix_mask, action_prompt_tokens, action_prompt_mask
 
     def tokenize_high_low_prompt(
         self,

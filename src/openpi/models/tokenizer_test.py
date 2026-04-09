@@ -109,6 +109,20 @@ def test_high_level_tokenize_emits_separate_advantage_action_prefix():
     assert decoded_action_prefix == "\nAdvantage: negative;\nAction: "
 
 
+def test_high_level_tokenize_pads_to_max_len():
+    tokenizer = _tokenizer.PaligemmaTokenizer(max_len=128)
+    state = np.zeros(4, dtype=np.float32)
+
+    tokens, token_mask, action_prompt_tokens, action_prompt_mask = tokenizer.tokenize_high_level_prompt(
+        "Stack the blocks", state=state, advantage_label="negative"
+    )
+
+    assert tokens.shape == (128,)
+    assert token_mask.shape == (128,)
+    assert action_prompt_tokens.shape == (128,)
+    assert action_prompt_mask.shape == (128,)
+
+
 def test_fast_tokenizer():
     prompt = "Hello, world!"
     state = np.random.rand(5).astype(np.float32)

@@ -816,7 +816,41 @@ def _collate_fn(items):
     """Collate the batch elements into batched numpy arrays."""
     # Make sure to convert to numpy arrays before stacking since some of the incoming elements
     # may be JAX arrays.
-    return jax.tree.map(lambda *xs: np.stack([np.asarray(x) for x in xs], axis=0), *items)
+    try:
+        return jax.tree.map(lambda *xs: np.stack([np.asarray(x) for x in xs], axis=0), *items)
+    except Exception as exc:
+        # Emit actionable diagnostics for shape/tree mismatches.
+        first_paths_and_leaves, first_treedef = jax.tree_util.tree_flatten_with_path(items[0])
+        key_paths = []
+        for path, _ in first_paths_and_leaves:
+            key_parts = []
+            for key in path:
+                if hasattr(key, "key"):
+                    key_parts.append(str(key.key))
+                elif hasattr(key, "idx"):
+                    key_parts.append(str(key.idx))
+                else:
+                    key_parts.append(str(key))
+            key_paths.append("/".join(key_parts))
+
+        for sample_idx, sample in enumerate(items[1:], start=1):
+            _, sample_treedef = jax.tree_util.tree_flatten(sample)
+            if sample_treedef != first_treedef:
+                raise ValueError(
+                    f"Batch tree structure mismatch at sample {sample_idx}: "
+                    f"expected {first_treedef}, got {sample_treedef}"
+                ) from exc
+
+        leaves_per_item = [jax.tree_util.tree_leaves(sample) for sample in items]
+        for leaf_idx, key_path in enumerate(key_paths):
+            shapes = [np.asarray(leaves[leaf_idx]).shape for leaves in leaves_per_item]
+            if len(set(shapes)) > 1:
+                raise ValueError(
+                    f"Batch shape mismatch at '{key_path}': "
+                    f"shapes={shapes}"
+                ) from exc
+
+        raise
 
 
 def _worker_init_fn(worker_id: int) -> None:
