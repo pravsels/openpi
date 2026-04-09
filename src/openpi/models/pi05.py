@@ -567,16 +567,26 @@ class Pi05(_model.BaseModel):
             suffix_tokens, suffix_mask, suffix_ar_mask, adarms_cond = self.embed_suffix(
                 observation, x_t, jnp.broadcast_to(time, batch_size)
             )
+            # `suffix_attn_mask` is shape (b, suffix_len, suffix_len) indicating how the suffix tokens can attend to each
+            # other
             suffix_attn_mask = make_attn_mask(suffix_mask, suffix_ar_mask)
+            # `prefix_attn_mask` is shape (b, suffix_len, prefix_len) indicating how the suffix tokens can attend to the
+            # prefix tokens
             prefix_attn_mask = einops.repeat(prefix_mask, "b p -> b s p", s=suffix_tokens.shape[1])
+            # `combined_mask` is shape (b, suffix_len, prefix_len + suffix_len) indicating how the suffix tokens (which
+            # generate the queries) can attend to the full prefix + suffix sequence (which generates the keys and values)
             full_attn_mask = jnp.concatenate([prefix_attn_mask, suffix_attn_mask], axis=-1)
-            query_attn_mask = full_attn_mask[:, -suffix_tokens.shape[1] :, :]
-
             assert full_attn_mask.shape == (
                 batch_size,
                 suffix_tokens.shape[1],
                 prefix_mask.shape[1] + suffix_tokens.shape[1],
             )
+
+            # No-op: full_attn_mask is already (b, S, P+S) so this slice is identity.
+            # Kept for clarity — with a KV cache, only suffix tokens produce queries.
+            query_attn_mask = full_attn_mask[:, -suffix_tokens.shape[1] :, :]
+
+            # `positions` is shape (b, suffix_len) indicating the positions of the suffix tokens
             positions = jnp.sum(prefix_mask, axis=-1)[:, None] + jnp.cumsum(suffix_mask, axis=-1) - 1
 
             (prefix_out, suffix_out), _ = self.PaliGemma.llm(
@@ -587,12 +597,16 @@ class Pi05(_model.BaseModel):
                 adarms_cond=[None, adarms_cond],
             )
             assert prefix_out is None
+
+            # Last action_horizon tokens of the suffix are the action tokens; project to velocity.
             v_t = self.action_out_proj(suffix_out[:, -self.action_horizon :])
 
             return x_t + dt * v_t, time + dt
 
         def cond(carry):
             _x_t, time = carry
+            # Half-step tolerance: avoids an extra/missing step from float accumulation in time += dt.
+            # e.g. with 10 steps, dt=-0.1, threshold is 0.05; time landing at 1e-16 instead of 0.0 won't trigger an 11th step.
             return time >= -dt / 2
 
         x_0, _ = jax.lax.while_loop(cond, step, (noise, 1.0))
