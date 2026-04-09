@@ -29,12 +29,12 @@ case "${MODE}" in
     subtask_positive_only)
         CONFIG_NAME="pi05_build_block_tower_subtask_recap_positive_only"
         EXP_NAME="subtask_positive_only"
-        TRAIN_EXTRA_ARGS="--batch-size=16"
+        TRAIN_EXTRA_ARGS="--batch-size=16 --fsdp-devices=4"
         ;;
     subtask_mixed)
         CONFIG_NAME="pi05_build_block_tower_subtask_recap_mixed"
         EXP_NAME="subtask_mixed"
-        TRAIN_EXTRA_ARGS="--batch-size=16"
+        TRAIN_EXTRA_ARGS="--batch-size=16 --fsdp-devices=4"
         ;;
     *)
         echo "ERROR: unknown mode '${MODE}'. Use 'positive_only', 'mixed', 'subtask_positive_only', or 'subtask_mixed'."
@@ -97,6 +97,8 @@ EXPORT_VARS="${EXPORT_VARS} && export WANDB_ENTITY=pravsels"
 EXPORT_VARS="${EXPORT_VARS} && export OPENPI_DATA_HOME=${data_dir}"
 EXPORT_VARS="${EXPORT_VARS} && export UV_PROJECT_ENVIRONMENT=${data_dir}/.venv"
 EXPORT_VARS="${EXPORT_VARS} && export HF_TOKEN=\$(cat ${home_dir}/.hf_token)"
+EXPORT_VARS="${EXPORT_VARS} && export XLA_PYTHON_CLIENT_PREALLOCATE=false"
+EXPORT_VARS="${EXPORT_VARS} && export XLA_PYTHON_CLIENT_ALLOCATOR=platform"
 
 PRECOMPUTE_CMD=""
 
