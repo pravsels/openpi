@@ -29,12 +29,12 @@ case "${MODE}" in
     subtask_positive_only)
         CONFIG_NAME="pi05_build_block_tower_subtask_recap_positive_only"
         EXP_NAME="subtask_positive_only"
-        TRAIN_EXTRA_ARGS="--batch-size=28"
+        TRAIN_EXTRA_ARGS="--batch-size=24"
         ;;
     subtask_mixed)
         CONFIG_NAME="pi05_build_block_tower_subtask_recap_mixed"
         EXP_NAME="subtask_mixed"
-        TRAIN_EXTRA_ARGS="--batch-size=28"
+        TRAIN_EXTRA_ARGS="--batch-size=24"
         ;;
     *)
         echo "ERROR: unknown mode '${MODE}'. Use 'positive_only', 'mixed', 'subtask_positive_only', or 'subtask_mixed'."
