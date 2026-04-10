@@ -126,16 +126,16 @@ def test_pi0_validates_initial_actions_horizon():
         model.sample_actions(jax.random.key(1), obs, noise=noise, initial_actions=too_long_ia)
 
 
-def test_pi0_sample_actions_cfg_rejects_initial_actions():
+def test_pi0_sample_actions_cfg_with_initial_actions():
     config = _make_pi0_config()
     model = config.create(jax.random.key(0))
     obs = config.fake_obs(batch_size=1)
     ia = jnp.ones((1, 2, config.action_dim), dtype=jnp.float32)
 
-    with pytest.raises(NotImplementedError, match="initial_actions.*CFG"):
-        model.sample_actions_cfg(
-            jax.random.key(1), obs, obs, guidance_scale=2.0, initial_actions=ia,
-        )
+    result = model.sample_actions_cfg(
+        jax.random.key(1), obs, obs, guidance_scale=2.0, initial_actions=ia,
+    )
+    assert result.shape == (1, config.action_horizon, config.action_dim)
 
 
 def test_pi0_denoise_actions_end_to_end_with_initial_actions():

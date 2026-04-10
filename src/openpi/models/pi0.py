@@ -413,17 +413,15 @@ class Pi0(_model.BaseModel):
         when scale=1.0 anyway.  The adapter-level code avoids calling this path
         entirely when advantage_mode is unconditional.
         """
-        if initial_actions is not None:
-            raise NotImplementedError(
-                "initial_actions is not yet supported with sample_actions_cfg (CFG)"
-            )
         observation = _model.preprocess_observation(None, observation, train=False)
         uncond_observation = _model.preprocess_observation(None, uncond_observation, train=False)
 
         batch_size = observation.state.shape[0]
         if noise is None:
-            # Both branches share the same noise for a fair comparison
             noise = jax.random.normal(rng, (batch_size, self.action_horizon, self.action_dim))
+
+        if initial_actions is not None:
+            _validate_initial_actions(initial_actions, self.action_dim, self.action_horizon)
 
         # Two prefix caches: same images/text, different action_tokenized_prompt
         # (advantage tokens present in cond, absent in uncond)
@@ -461,4 +459,5 @@ class Pi0(_model.BaseModel):
             observation, cond_prefix_mask, cond_kv_cache,
             num_steps=num_steps, noise=noise,
             velocity_fn=cfg_velocity,
+            initial_actions=initial_actions,
         )

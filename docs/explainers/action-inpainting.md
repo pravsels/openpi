@@ -123,8 +123,8 @@ the model can heal the seam.
   `Policy.infer`.
 - This is sampler-level constrained generation — it overrides coordinates in
   the denoising loop, not prompt conditioning.
-- CFG + inpainting is not yet supported; enabling both will raise
-  `NotImplementedError`.
+- CFG + inpainting works for Pi0 (including `pi05=True`). The inpainting
+  constraint is applied after the CFG velocity combination at each Euler step.
 
 ## Code map
 

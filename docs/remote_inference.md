@@ -96,5 +96,5 @@ Key points:
 
 - `initial_actions` is in the same (unnormalized) action space as the policy output. Normalization is handled internally.
 - This is sampler-level constrained generation — it overrides coordinates in the denoising loop, not prompt conditioning.
-- CFG + inpainting is not yet supported; enabling both will raise `NotImplementedError`.
+- CFG + inpainting is supported for Pi0 (including `pi05=True`).
 
