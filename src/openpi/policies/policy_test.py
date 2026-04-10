@@ -212,6 +212,73 @@ def test_policy_infer_applies_delta_and_normalize_to_initial_actions():
     np.testing.assert_allclose(ia_model[0, 1], expected_t1, atol=1e-5)
 
 
+def test_policy_infer_handles_per_timestep_norm_with_fewer_initial_steps():
+    """Per-timestep stats (2D mean/std) must be sliced to match initial_actions timesteps."""
+    from openpi import transforms as _transforms
+    from openpi.shared.normalize import NormStats
+
+    action_horizon, action_dim = 4, 3
+    captured = {}
+
+    class FakeModel(_model.BaseModel):
+        supports_initial_actions = True
+
+        def compute_loss(self, rng, observation, actions, *, train=False):
+            raise NotImplementedError
+
+        def sample_actions(self, rng, observation, *, num_steps=10, noise=None, initial_actions=None):
+            captured["initial_actions"] = initial_actions
+            return jnp.zeros((1, action_horizon, action_dim))
+
+    model = FakeModel(action_dim=action_dim, action_horizon=action_horizon, max_token_len=16)
+
+    # Per-timestep stats: each timestep has different mean/std
+    per_ts_mean = np.array([
+        [0.0, 0.0, 0.0],
+        [1.0, 1.0, 1.0],
+        [2.0, 2.0, 2.0],
+        [3.0, 3.0, 3.0],
+    ], dtype=np.float32)
+    per_ts_std = np.ones((action_horizon, action_dim), dtype=np.float32) * 2.0
+
+    norm_stats = {
+        "actions": NormStats(mean=per_ts_mean, std=per_ts_std),
+    }
+    policy = _policy.Policy.__new__(_policy.Policy)
+    policy._model = model
+    policy._input_transform = lambda x: x
+    policy._output_transform = lambda x: x
+    policy._sample_kwargs = {}
+    policy._metadata = {}
+    policy._is_pytorch_model = False
+    policy._pytorch_device = "cpu"
+    policy._sample_actions = model.sample_actions
+    policy._sample_actions_cfg = None
+    policy._delta_actions_transform = None
+    policy._action_normalizer = _transforms.Normalize(norm_stats)
+    import jax
+    policy._rng = jax.random.key(0)
+
+    obs = {
+        "image": {"base_0_rgb": np.zeros((224, 224, 3), dtype=np.float32)},
+        "image_mask": {"base_0_rgb": np.array(True)},
+        "state": np.zeros(action_dim, dtype=np.float32),
+    }
+    # 2 timesteps out of action_horizon=4
+    ia = np.array([
+        [4.0, 4.0, 4.0],
+        [5.0, 5.0, 5.0],
+    ], dtype=np.float32)
+
+    policy.infer(obs, initial_actions=ia)
+    ia_model = np.asarray(captured["initial_actions"])
+
+    assert ia_model.shape == (1, 2, 3)
+    # t=0: (4 - 0) / 2 = 2.0, t=1: (5 - 1) / 2 = 2.0
+    np.testing.assert_allclose(ia_model[0, 0], [2.0, 2.0, 2.0], atol=1e-5)
+    np.testing.assert_allclose(ia_model[0, 1], [2.0, 2.0, 2.0], atol=1e-5)
+
+
 # ---------------------------------------------------------------------------
 # Manual integration tests (require checkpoints)
 # ---------------------------------------------------------------------------

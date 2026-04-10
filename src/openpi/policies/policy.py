@@ -22,6 +22,45 @@ from openpi.shared import nnx_utils
 BasePolicy: TypeAlias = _base_policy.BasePolicy
 
 
+def _normalize_initial_actions(
+    actions: np.ndarray, normalizer: _transforms.Normalize,
+) -> np.ndarray:
+    """Normalize initial_actions, handling per-timestep stats correctly.
+
+    Per-timestep norm stats have mean/std of shape (action_horizon, action_dim).
+    initial_actions may have fewer timesteps than action_horizon, so we slice
+    the stats to match before applying the normalization.
+    """
+    stats = normalizer.norm_stats
+    if stats is None or "actions" not in stats:
+        return actions
+
+    action_stats = stats["actions"]
+    k = actions.shape[-2] if actions.ndim >= 2 else None
+
+    # Check if stats are per-timestep (2D) and initial_actions has fewer timesteps
+    needs_slice = (
+        k is not None
+        and action_stats.mean.ndim >= 2
+        and k < action_stats.mean.shape[-2]
+    )
+
+    if not needs_slice:
+        return normalizer({"actions": actions})["actions"]
+
+    from openpi.shared.normalize import NormStats
+    sliced = NormStats(
+        mean=action_stats.mean[..., :k, :],
+        std=action_stats.std[..., :k, :],
+        q01=action_stats.q01[..., :k, :] if action_stats.q01 is not None else None,
+        q99=action_stats.q99[..., :k, :] if action_stats.q99 is not None else None,
+    )
+    sliced_normalizer = _transforms.Normalize(
+        {**stats, "actions": sliced}, use_quantiles=normalizer.use_quantiles,
+    )
+    return sliced_normalizer({"actions": actions})["actions"]
+
+
 class Policy(BasePolicy):
     def __init__(
         self,
@@ -129,7 +168,9 @@ class Policy(BasePolicy):
                 ia_data["state"] = np.asarray(obs["state"])
                 ia_data = self._delta_actions_transform(ia_data)
             if self._action_normalizer is not None:
-                ia_data = self._action_normalizer(ia_data)
+                ia_data["actions"] = _normalize_initial_actions(
+                    ia_data["actions"], self._action_normalizer,
+                )
             ia_arr = ia_data["actions"]
             ia = torch.from_numpy(np.asarray(ia_arr)).to(self._pytorch_device) if self._is_pytorch_model else jnp.asarray(ia_arr)
             if ia.ndim == 2:
