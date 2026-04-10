@@ -503,15 +503,9 @@ class Pi05(_model.BaseModel):
                 "uncond_observation so conditioning is appended after sample_low_level_task."
             )
 
-        same_prompt = bool(jnp.array_equal(observation.tokenized_prompt, uncond_observation.tokenized_prompt))
-        same_prompt_mask = bool(
-            jnp.array_equal(observation.tokenized_prompt_mask, uncond_observation.tokenized_prompt_mask)
-        )
-        if not same_prompt or not same_prompt_mask:
-            raise ValueError(
-                "sample_actions_cfg expects conditional and unconditional observations to share the same "
-                "tokenized_prompt/tokenized_prompt_mask and differ only in action_tokenized_prompt."
-            )
+        # NOTE: array_equal checks removed — they trigger TracerBoolConversionError
+        # under JIT.  The caller is responsible for ensuring cond/uncond share
+        # the same tokenized_prompt and differ only in action_tokenized_prompt.
 
     def _append_action_prompt_to_prefix(
         self,
@@ -692,10 +686,8 @@ class Pi05(_model.BaseModel):
         num_steps: int | jax.Array = 10,
         noise: jax.Array | None = None,
         initial_actions: jax.Array | None = None,
+        cached_subtask_tokens: jax.Array | None = None,
     ) -> _model.Actions:
-        if guidance_scale == 1.0:
-            return self.sample_actions(rng, observation, num_steps=num_steps, noise=noise, initial_actions=initial_actions)
-
         observation = _model.preprocess_observation(
             None, observation, train=False, image_keys=list(observation.images.keys())
         )
@@ -713,12 +705,12 @@ class Pi05(_model.BaseModel):
         if initial_actions is not None:
             self._validate_initial_actions(initial_actions)
 
-        # Decode the low-level subtask once from the conditional branch.
-        # Both CFG branches reuse these exact subtask tokens so guidance
-        # only affects action denoising, not the generated subtask.
-        generated_subtask_tokens, _cond_kv_cache, _cond_prefix_mask, _ = self.sample_low_level_task(
-            rng, observation, max_decoding_steps=20, paligemma_eos_token=1, temperature=0.0
-        )
+        if cached_subtask_tokens is not None:
+            generated_subtask_tokens = cached_subtask_tokens
+        else:
+            generated_subtask_tokens, _cond_kv_cache, _cond_prefix_mask, _ = self.sample_low_level_task(
+                rng, observation, max_decoding_steps=20, paligemma_eos_token=1, temperature=0.0
+            )
         cond_kv_cache, cond_prefix_mask = self.build_prefix_cache_with_generated_subtask(
             observation, generated_subtask_tokens
         )
@@ -769,6 +761,7 @@ class Pi05(_model.BaseModel):
         num_steps: int | at.Int[at.Array, ""] = 10,
         noise: at.Float[at.Array, "b ah ad"] | None = None,
         initial_actions: jax.Array | None = None,
+        cached_subtask_tokens: jax.Array | None = None,
     ) -> _model.Actions:
         observation = _model.preprocess_observation(
             None, observation, train=False, image_keys=list(observation.images.keys())
@@ -781,9 +774,12 @@ class Pi05(_model.BaseModel):
         if initial_actions is not None:
             self._validate_initial_actions(initial_actions)
 
-        generated_subtask_tokens, _kv_cache, _prefix_mask, _prefix_ar_mask = self.sample_low_level_task(
-            rng, observation, max_decoding_steps=20, paligemma_eos_token=1, temperature=0.0
-        )
+        if cached_subtask_tokens is not None:
+            generated_subtask_tokens = cached_subtask_tokens
+        else:
+            generated_subtask_tokens, _kv_cache, _prefix_mask, _prefix_ar_mask = self.sample_low_level_task(
+                rng, observation, max_decoding_steps=20, paligemma_eos_token=1, temperature=0.0
+            )
         kv_cache, prefix_mask = self.build_prefix_cache_with_generated_subtask(
             observation, generated_subtask_tokens
         )

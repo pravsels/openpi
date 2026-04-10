@@ -177,6 +177,10 @@ class Policy(BasePolicy):
                 ia = ia[None, ...]
             sample_kwargs["initial_actions"] = ia
 
+        # Pass cached subtask tokens if available (Pi0.5 subtask models)
+        if hasattr(self, '_cached_subtask_tokens') and self._cached_subtask_tokens is not None:
+            sample_kwargs["cached_subtask_tokens"] = self._cached_subtask_tokens
+
         observation = _model.Observation.from_dict(inputs)
         start_time = time.monotonic()
 
@@ -200,9 +204,14 @@ class Policy(BasePolicy):
             actions = action_output[0]
             output_tokens = action_output[1]
             tokenizer = _tokenizer.PaligemmaTokenizer(max_len=50)
-            output_tokens = jnp.array(output_tokens, dtype=int)
-            subtask_text = tokenizer.detokenize(output_tokens[0])
-            print(f"\n{'#' * 60}\n###  GENERATED SUBTASK: {subtask_text}\n{'#' * 60}")
+            ot = jnp.array(output_tokens, dtype=int)
+            subtask_text = tokenizer.detokenize(ot[0])
+            # Cache subtask tokens so subsequent calls reuse the same subtask
+            if not hasattr(self, '_cached_subtask_tokens') or self._cached_subtask_tokens is None:
+                self._cached_subtask_tokens = output_tokens
+                print(f"\n{'#' * 60}\n###  GENERATED SUBTASK (locked): {subtask_text}\n{'#' * 60}")
+            else:
+                print(f"\n{'#' * 60}\n###  SUBTASK (cached): {subtask_text}\n{'#' * 60}")
         else:
             actions = action_output
         outputs = {
