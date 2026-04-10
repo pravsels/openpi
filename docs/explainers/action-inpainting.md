@@ -116,6 +116,16 @@ Inpainting pins the known coordinates to their correct line at each step (so
 the model sees a consistent noise level), then releases them near the end so
 the model can heal the seam.
 
+## Usage notes
+
+- `initial_actions` is passed in the same (unnormalized) action space as the
+  policy output. Delta conversion and normalization are handled internally by
+  `Policy.infer`.
+- This is sampler-level constrained generation — it overrides coordinates in
+  the denoising loop, not prompt conditioning.
+- CFG + inpainting is not yet supported; enabling both will raise
+  `NotImplementedError`.
+
 ## Code map
 
 | File | Role |
