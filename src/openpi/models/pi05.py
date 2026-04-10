@@ -579,6 +579,7 @@ class Pi05(_model.BaseModel):
         *,
         num_steps: int | jax.Array,
         noise: jax.Array,
+        velocity_fn=None,
         initial_actions: jax.Array | None = None,
     ) -> _model.Actions:
         # note that we use the convention more common in diffusion literature, where t=1 is noise and t=0 is the target
@@ -646,6 +647,10 @@ class Pi05(_model.BaseModel):
 
             # Last action_horizon tokens of the suffix are the action tokens; project to velocity.
             v_t = self.action_out_proj(suffix_out[:, -self.action_horizon :])
+
+            if velocity_fn is not None:
+                v_t = velocity_fn(v_t, x_t, time)
+
             x_t_new = x_t + dt * v_t
 
             # Apply inpainting constraint after each Euler step, only while
@@ -677,80 +682,6 @@ class Pi05(_model.BaseModel):
         x_0, _ = jax.lax.while_loop(cond, step, (noise, 1.0))
         return x_0
 
-    def _sample_actions_cfg_with_prefix_caches(
-        self,
-        observation: _model.Observation,
-        cond_kv_cache: object,
-        cond_prefix_mask: jax.Array,
-        uncond_observation: _model.Observation,
-        uncond_kv_cache: object,
-        uncond_prefix_mask: jax.Array,
-        *,
-        guidance_scale: float | jax.Array,
-        num_steps: int | jax.Array,
-        noise: jax.Array,
-    ) -> _model.Actions:
-        dt = -1.0 / num_steps
-        batch_size = observation.state.shape[0]
-
-        def step(carry):
-            x_t, time = carry
-            suffix_tokens, suffix_mask, suffix_ar_mask, adarms_cond = self.embed_suffix(
-                observation, x_t, jnp.broadcast_to(time, batch_size)
-            )
-            uncond_suffix_tokens, uncond_suffix_mask, uncond_suffix_ar_mask, uncond_adarms_cond = self.embed_suffix(
-                uncond_observation, x_t, jnp.broadcast_to(time, batch_size)
-            )
-
-            cond_suffix_attn_mask = make_attn_mask(suffix_mask, suffix_ar_mask)
-            uncond_suffix_attn_mask = make_attn_mask(uncond_suffix_mask, uncond_suffix_ar_mask)
-            cond_prefix_attn_mask = einops.repeat(cond_prefix_mask, "b p -> b s p", s=suffix_tokens.shape[1])
-            uncond_prefix_attn_mask = einops.repeat(
-                uncond_prefix_mask, "b p -> b s p", s=uncond_suffix_tokens.shape[1]
-            )
-
-            cond_query_attn_mask = jnp.concatenate([cond_prefix_attn_mask, cond_suffix_attn_mask], axis=-1)[
-                :, -suffix_tokens.shape[1] :, :
-            ]
-            uncond_query_attn_mask = jnp.concatenate([uncond_prefix_attn_mask, uncond_suffix_attn_mask], axis=-1)[
-                :, -uncond_suffix_tokens.shape[1] :, :
-            ]
-
-            cond_positions = jnp.sum(cond_prefix_mask, axis=-1)[:, None] + jnp.cumsum(suffix_mask, axis=-1) - 1
-            uncond_positions = (
-                jnp.sum(uncond_prefix_mask, axis=-1)[:, None] + jnp.cumsum(uncond_suffix_mask, axis=-1) - 1
-            )
-
-            (cond_prefix_out, cond_suffix_out), _ = self.PaliGemma.llm(
-                [None, suffix_tokens],
-                mask=cond_query_attn_mask,
-                positions=cond_positions,
-                kv_cache=cond_kv_cache,
-                adarms_cond=[None, adarms_cond],
-            )
-            (uncond_prefix_out, uncond_suffix_out), _ = self.PaliGemma.llm(
-                [None, uncond_suffix_tokens],
-                mask=uncond_query_attn_mask,
-                positions=uncond_positions,
-                kv_cache=uncond_kv_cache,
-                adarms_cond=[None, uncond_adarms_cond],
-            )
-            assert cond_prefix_out is None
-            assert uncond_prefix_out is None
-
-            v_cond = self.action_out_proj(cond_suffix_out[:, -self.action_horizon :])
-            v_uncond = self.action_out_proj(uncond_suffix_out[:, -self.action_horizon :])
-            v_t = self._combine_cfg_velocity(v_cond, v_uncond, guidance_scale)
-
-            return x_t + dt * v_t, time + dt
-
-        def cond(carry):
-            _x_t, time = carry
-            return time >= -dt / 2
-
-        x_0, _ = jax.lax.while_loop(cond, step, (noise, 1.0))
-        return x_0
-
     def sample_actions_cfg(
         self,
         rng: at.KeyArrayLike,
@@ -762,15 +693,9 @@ class Pi05(_model.BaseModel):
         noise: jax.Array | None = None,
         initial_actions: jax.Array | None = None,
     ) -> _model.Actions:
-        if initial_actions is not None and guidance_scale != 1.0:
-            raise NotImplementedError(
-                "initial_actions is not yet supported with sample_actions_cfg (guidance_scale != 1.0)"
-            )
         if guidance_scale == 1.0:
             return self.sample_actions(rng, observation, num_steps=num_steps, noise=noise, initial_actions=initial_actions)
 
-        # CFG uses two observations with the same high-level prefix but different
-        # action-conditioning suffixes (e.g. conditional advantage vs unconditional).
         observation = _model.preprocess_observation(
             None, observation, train=False, image_keys=list(observation.images.keys())
         )
@@ -785,35 +710,50 @@ class Pi05(_model.BaseModel):
         if noise is None:
             noise = jax.random.normal(rng, (batch_size, self.action_horizon, self.action_dim))
 
-        # Decode the low-level subtask once from the conditional branch. This is
-        # still plain next-token decoding from the text prefix, just bounded to a
-        # short span that we expect to contain the subtask. Both CFG branches
-        # must then reuse these exact subtask tokens so guidance only changes
-        # action denoising, not the generated subtask itself.
+        if initial_actions is not None:
+            self._validate_initial_actions(initial_actions)
+
+        # Decode the low-level subtask once from the conditional branch.
+        # Both CFG branches reuse these exact subtask tokens so guidance
+        # only affects action denoising, not the generated subtask.
         generated_subtask_tokens, _cond_kv_cache, _cond_prefix_mask, _ = self.sample_low_level_task(
             rng, observation, max_decoding_steps=20, paligemma_eos_token=1, temperature=0.0
         )
-        # Rebuild two prefix caches from the shared subtask tokens, then append
-        # each branch's action_tokenized_prompt after the subtask boundary.
         cond_kv_cache, cond_prefix_mask = self.build_prefix_cache_with_generated_subtask(
             observation, generated_subtask_tokens
         )
-        
         uncond_kv_cache, uncond_prefix_mask = self.build_prefix_cache_with_generated_subtask(
             uncond_observation, generated_subtask_tokens
         )
-        # During denoising, run the action expert once per branch and combine the
-        # two velocity predictions with the CFG guidance formula.
-        x_0 = self._sample_actions_cfg_with_prefix_caches(
-            observation,
-            cond_kv_cache,
-            cond_prefix_mask,
-            uncond_observation,
-            uncond_kv_cache,
-            uncond_prefix_mask,
-            guidance_scale=guidance_scale,
-            num_steps=num_steps,
-            noise=noise,
+
+        def cfg_velocity(v_cond, x_t, time):
+            uncond_suffix_tokens, uncond_suffix_mask, uncond_suffix_ar_mask, uncond_adarms_cond = self.embed_suffix(
+                uncond_observation, x_t, jnp.broadcast_to(time, batch_size)
+            )
+            uncond_suffix_attn_mask = make_attn_mask(uncond_suffix_mask, uncond_suffix_ar_mask)
+            uncond_cross_mask = einops.repeat(
+                uncond_prefix_mask, "b p -> b s p", s=uncond_suffix_tokens.shape[1],
+            )
+            uncond_full_mask = jnp.concatenate([uncond_cross_mask, uncond_suffix_attn_mask], axis=-1)
+            uncond_positions = (
+                jnp.sum(uncond_prefix_mask, axis=-1)[:, None]
+                + jnp.cumsum(uncond_suffix_mask, axis=-1) - 1
+            )
+            (_, uncond_suffix_out), _ = self.PaliGemma.llm(
+                [None, uncond_suffix_tokens],
+                mask=uncond_full_mask,
+                positions=uncond_positions,
+                kv_cache=uncond_kv_cache,
+                adarms_cond=[None, uncond_adarms_cond],
+            )
+            v_uncond = self.action_out_proj(uncond_suffix_out[:, -self.action_horizon :])
+            return self._combine_cfg_velocity(v_cond, v_uncond, guidance_scale)
+
+        x_0 = self._sample_actions_with_prefix_cache(
+            observation, cond_kv_cache, cond_prefix_mask,
+            num_steps=num_steps, noise=noise,
+            velocity_fn=cfg_velocity,
+            initial_actions=initial_actions,
         )
         return (x_0, generated_subtask_tokens)
 

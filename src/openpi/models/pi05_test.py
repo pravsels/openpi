@@ -86,7 +86,7 @@ def test_pi05_sample_actions_cfg_guidance_scale_one_delegates():
     expected_actions = jnp.ones((1, config.action_horizon, config.action_dim))
     expected_tokens = jnp.array([[1, 2, 0]], dtype=jnp.int32)
 
-    model.sample_actions = lambda rng, observation, *, num_steps=10, noise=None: (expected_actions, expected_tokens)
+    model.sample_actions = lambda rng, observation, *, num_steps=10, noise=None, initial_actions=None: (expected_actions, expected_tokens)
 
     actions, tokens = model.sample_actions_cfg(jax.random.key(1), obs, obs, guidance_scale=1.0)
 
@@ -193,30 +193,26 @@ def test_pi05_sample_actions_cfg_reuses_conditional_subtask_tokens():
         assert jnp.array_equal(observation.action_tokenized_prompt, uncond_obs.action_tokenized_prompt)
         return "uncond-cache", uncond_prefix_mask
 
-    model._build_prefix_cache_from_output_tokens = build_cache
+    model.build_prefix_cache_with_generated_subtask = build_cache
 
-    def sample_cfg_from_caches(
+    def sample_with_cache(
         observation,
-        cond_kv_cache,
-        cond_prefix_mask_arg,
-        uncond_observation,
-        uncond_kv_cache,
-        uncond_prefix_mask_arg,
+        kv_cache,
+        prefix_mask_arg,
         *,
-        guidance_scale,
         num_steps,
         noise: jax.Array,
+        velocity_fn=None,
+        initial_actions=None,
     ):
-        assert cond_kv_cache == "cond-cache"
-        assert uncond_kv_cache == "uncond-cache"
-        assert jnp.array_equal(cond_prefix_mask_arg, cond_prefix_mask)
-        assert jnp.array_equal(uncond_prefix_mask_arg, uncond_prefix_mask)
-        assert guidance_scale == 2.0
+        assert kv_cache == "cond-cache"
+        assert jnp.array_equal(prefix_mask_arg, cond_prefix_mask)
+        assert velocity_fn is not None
         assert num_steps == 7
         assert jnp.array_equal(noise, jnp.full((1, config.action_horizon, config.action_dim), -1.0))
         return expected_actions
 
-    model._sample_actions_cfg_with_prefix_caches = sample_cfg_from_caches
+    model._sample_actions_with_prefix_cache = sample_with_cache
 
     actions, tokens = model.sample_actions_cfg(
         jax.random.key(1), obs, uncond_obs, guidance_scale=2.0, num_steps=7, noise=noise
@@ -396,8 +392,8 @@ def test_pi05_sample_actions_validates_initial_actions_horizon():
         model.sample_actions(jax.random.key(1), obs, noise=noise, initial_actions=too_long_ia)
 
 
-def test_pi05_sample_actions_cfg_rejects_initial_actions():
-    """CFG + initial_actions should raise NotImplementedError."""
+def test_pi05_sample_actions_cfg_with_initial_actions():
+    """CFG + initial_actions should work via the shared denoising loop."""
     config = _pi05_config.Pi05Config(
         paligemma_variant="dummy",
         action_expert_variant="dummy",
@@ -417,7 +413,7 @@ def test_pi05_sample_actions_cfg_rejects_initial_actions():
     )
     ia = jnp.ones((1, 2, config.action_dim), dtype=jnp.float32)
 
-    with pytest.raises(NotImplementedError, match="initial_actions.*sample_actions_cfg"):
-        model.sample_actions_cfg(
-            jax.random.key(1), obs, uncond_obs, guidance_scale=2.0, initial_actions=ia,
-        )
+    result, tokens = model.sample_actions_cfg(
+        jax.random.key(1), obs, uncond_obs, guidance_scale=2.0, initial_actions=ia,
+    )
+    assert result.shape == (1, config.action_horizon, config.action_dim)
