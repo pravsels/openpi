@@ -97,4 +97,4 @@ Key points:
 - `initial_actions` is in the same (unnormalized) action space as the policy output. Normalization is handled internally.
 - This is sampler-level constrained generation — it overrides coordinates in the denoising loop, not prompt conditioning.
 - CFG + inpainting is not yet supported; enabling both will raise `NotImplementedError`.
-- To enable correlation-aware inpainting (which propagates the constraint to uncorrelated dimensions), set `use_correlation_inpainting: true` in the model config and run `compute_norm_stats.py --compute-action-correlation` to precompute the Cholesky factor.
+- **Correlation-aware inpainting** (experimental, off by default): propagates the constraint to uncorrelated dimensions via an action-correlation Cholesky factor. Currently only valid with global z-score normalization — it is incompatible with per-timestep or quantile normalization. To try it, set `use_correlation_inpainting: true` in the model config and run `compute_norm_stats.py --compute-action-correlation` to precompute the Cholesky factor.

@@ -875,7 +875,7 @@ All core tasks are implemented and tested (54 unit tests passing).
 | `src/openpi/policies/policy.py` | `Policy.infer` accepts `initial_actions`; normalizes them to model space via extracted `_action_normalizer` before forwarding to `model.sample_actions` |
 | `src/openpi/policies/policy_test.py` | 6 new tests for forwarding and rejection |
 | `src/openpi/policies/policy_config.py` | Loads Cholesky from norm_stats and attaches to model when `use_correlation_inpainting` is enabled |
-| `scripts/compute_norm_stats.py` | Correlation Cholesky and per-timestep stats now computed by default (both `True`); single-pass computation |
+| `scripts/compute_norm_stats.py` | Per-timestep stats computed by default; correlation Cholesky opt-in (`--compute-action-correlation`); single-pass computation |
 | `docs/remote_inference.md` | Added "Action inpainting (chunk overlap)" section with usage example |
 
 ### Deviations from the original plan
@@ -900,11 +900,11 @@ All core tasks are implemented and tested (54 unit tests passing).
    - `deploy_policy.py` — Added `--openpi-action-inpainting` CLI flag. Guards
      against CFG + inpainting combination at argument parsing time.
 
-4. **`compute_norm_stats.py` now computes everything by default.** The original
-   plan had correlation as opt-in (`--compute-action-correlation`). Per-timestep
-   stats lived in a separate script. Both are now default (`True`), computed in
-   one pass. Opt out with `--no-compute-action-correlation` or
-   `--no-compute-per-timestep`.
+4. **`compute_norm_stats.py` per-timestep stats on by default, correlation off.**
+   Per-timestep stats are computed by default (opt out with `--no-compute-per-timestep`).
+   Correlation Cholesky is off by default because it assumes global z-score normalization
+   and is incompatible with per-timestep or quantile variants. Opt in explicitly with
+   `--compute-action-correlation`.
 
 5. **Task 8.5 deferred.** `scripts/inspect_action_inpainting.py` (the visual
    comparison script) was not created. This should be done when a trained
@@ -912,12 +912,16 @@ All core tasks are implemented and tested (54 unit tests passing).
 
 ### Remaining work
 
+- **Correlation-aware inpainting redesign** — The current implementation
+  computes and applies the Cholesky factor in global z-score space.  This is
+  incompatible with per-timestep normalization (different mean/std per step) and
+  quantile normalization (nonlinear mapping).  A future redesign should either
+  (a) compute the Cholesky in the same space the model operates in, or (b) apply
+  it in raw action space before normalization.  Until then, correlation-aware
+  inpainting is experimental and disabled by default.
 - **`scripts/inspect_action_inpainting.py`** — Create the inspection script
-  for visual comparison of baseline vs inpainted vs correlation-aware outputs.
+  for visual comparison of baseline vs inpainted outputs.
   Requires a trained checkpoint.
-- **Config presets** — Add a training config that sets
-  `time_threshold_inpaint=0.3`, `use_correlation_inpainting=True`,
-  `correlation_beta=0.5` for quick experimentation.
 - **Benchmarks** — Measure latency overhead, chunk smoothness, effect on
   grasp-sensitive tasks.
 - **`compute_norm_stats_per_timestep.py`** — Consider deprecating now that the

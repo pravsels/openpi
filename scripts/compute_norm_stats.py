@@ -1,8 +1,10 @@
 """Compute normalization statistics for a config.
 
 This script computes global normalization statistics for a given config and saves
-them to the config assets directory.  It also computes per-timestep action stats
-and the action-correlation Cholesky factor by default.
+them to the config assets directory.  Per-timestep action stats are computed by
+default.  The action-correlation Cholesky factor (for correlation-aware
+inpainting) is off by default — it currently assumes global z-score
+normalization and is not compatible with per-timestep or quantile variants.
 """
 
 import numpy as np
@@ -208,7 +210,7 @@ def main(
     config_name: str,
     max_frames: int | None = None,
     checkpoint_interval: int = 5000,
-    compute_action_correlation: bool = True,
+    compute_action_correlation: bool = False,
     compute_per_timestep: bool = True,
 ):
     config = _config.get_config(config_name)
