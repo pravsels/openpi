@@ -60,38 +60,67 @@ class Policy(BasePolicy):
             self._model = self._model.to(pytorch_device)
             self._model.eval()
             self._sample_actions = model.sample_actions
+            self._sample_actions_cfg = getattr(model, "sample_actions_cfg", None)
         else:
             # JAX model setup
             self._sample_actions = nnx_utils.module_jit(model.sample_actions)
             # self._sample_actions_rtc = nnx_utils.module_jit(model.sample_actions_rtc)
+            _cfg_fn = getattr(model, "sample_actions_cfg", None)
+            self._sample_actions_cfg = nnx_utils.module_jit(_cfg_fn) if _cfg_fn is not None else None
             self._rng = rng or jax.random.key(0)
 
-    @override
-    def infer(self, obs: dict, *, noise: np.ndarray | None = None) -> dict:  # type: ignore[misc]
-        # Make a copy since transformations may modify the inputs in place.
+    def _prepare_inputs(self, obs: dict):
+        """Transform, batch, and prepare an observation dict for the model."""
         inputs = jax.tree.map(lambda x: x, obs)
         inputs = self._input_transform(inputs)
         if not self._is_pytorch_model:
-            # Make a batch and convert to jax.Array.
             inputs = jax.tree.map(lambda x: jnp.asarray(x)[np.newaxis, ...], inputs)
+        else:
+            inputs = jax.tree.map(lambda x: torch.from_numpy(np.array(x)).to(self._pytorch_device)[None, ...], inputs)
+        return inputs
+
+    @override
+    def infer(
+        self,
+        obs: dict,
+        *,
+        noise: np.ndarray | None = None,
+        uncond_obs: dict | None = None,
+        guidance_scale: float | None = None,
+    ) -> dict:  # type: ignore[misc]
+        inputs = self._prepare_inputs(obs)
+
+        if not self._is_pytorch_model:
             self._rng, sample_rng_or_pytorch_device = jax.random.split(self._rng)
         else:
-            # Convert inputs to PyTorch tensors and move to correct device
-            inputs = jax.tree.map(lambda x: torch.from_numpy(np.array(x)).to(self._pytorch_device)[None, ...], inputs)
             sample_rng_or_pytorch_device = self._pytorch_device
 
-        # Prepare kwargs for sample_actions
         sample_kwargs = dict(self._sample_kwargs)
         if noise is not None:
             noise = torch.from_numpy(noise).to(self._pytorch_device) if self._is_pytorch_model else jnp.asarray(noise)
-
-            if noise.ndim == 2:  # If noise is (action_horizon, action_dim), add batch dimension
-                noise = noise[None, ...]  # Make it (1, action_horizon, action_dim)
+            if noise.ndim == 2:
+                noise = noise[None, ...]
             sample_kwargs["noise"] = noise
 
         observation = _model.Observation.from_dict(inputs)
         start_time = time.monotonic()
-        action_output = self._sample_actions(sample_rng_or_pytorch_device, observation, **sample_kwargs)
+
+        use_cfg = uncond_obs is not None and guidance_scale is not None
+        if use_cfg:
+            if self._sample_actions_cfg is None:
+                raise ValueError("Model does not support sample_actions_cfg")
+            uncond_inputs = self._prepare_inputs(uncond_obs)
+            uncond_observation = _model.Observation.from_dict(uncond_inputs)
+            action_output = self._sample_actions_cfg(
+                sample_rng_or_pytorch_device,
+                observation,
+                uncond_observation,
+                guidance_scale=guidance_scale,
+                **sample_kwargs,
+            )
+        else:
+            action_output = self._sample_actions(sample_rng_or_pytorch_device, observation, **sample_kwargs)
+
         if isinstance(action_output, tuple):
             actions = action_output[0]
             output_tokens = action_output[1]
