@@ -234,49 +234,49 @@ class Pi0(_model.BaseModel):
 
         return per_step_loss
 
-    @override
-    def sample_actions(
-        self,
-        rng: at.KeyArrayLike,
-        observation: _model.Observation,
-        *,
-        num_steps: int | at.Int[at.Array, ""] = 10,
-        noise: at.Float[at.Array, "b ah ad"] | None = None,
-    ) -> _model.Actions:
-        observation = _model.preprocess_observation(None, observation, train=False)
-        # note that we use the convention more common in diffusion literature, where t=1 is noise and t=0 is the target
-        # distribution. yes, this is the opposite of the pi0 paper, and I'm sorry.
-        dt = -1.0 / num_steps
-        batch_size = observation.state.shape[0]
-        if noise is None:
-            noise = jax.random.normal(rng, (batch_size, self.action_horizon, self.action_dim))
-
-        # first fill KV cache with a forward pass of the prefix
+    def build_prefix_cache(
+        self, observation: _model.Observation
+    ) -> tuple[object, jax.Array]:
+        """Cache the prefix (images + language) so denoising steps only run the
+        shorter suffix through the LLM."""
         prefix_tokens, prefix_mask, prefix_ar_mask = self.embed_prefix(observation)
         prefix_attn_mask = make_attn_mask(prefix_mask, prefix_ar_mask)
         positions = jnp.cumsum(prefix_mask, axis=1) - 1
-        _, kv_cache = self.PaliGemma.llm([prefix_tokens, None], mask=prefix_attn_mask, positions=positions)
+        # Forward pass over prefix only; suffix slot is None so we just fill the cache
+        _, kv_cache = self.PaliGemma.llm(
+            [prefix_tokens, None], mask=prefix_attn_mask, positions=positions,
+        )
+        return kv_cache, prefix_mask
+
+    def _denoise_actions(
+        self,
+        observation: _model.Observation,
+        prefix_mask: jax.Array,
+        kv_cache: object,
+        *,
+        num_steps: int | jax.Array,
+        noise: jax.Array,
+        velocity_fn=None,
+    ) -> _model.Actions:
+        """Euler denoising loop from t=1 (noise) to t=0 (clean actions).
+
+        ``velocity_fn(v_t, x_t, time)`` can override the velocity at each step,
+        used by CFG to combine conditional + unconditional branches.
+        """
+        dt = -1.0 / num_steps
+        batch_size = observation.state.shape[0]
 
         def step(carry):
             x_t, time = carry
+            # Embed the suffix: state + noisy actions + timestep
             suffix_tokens, suffix_mask, suffix_ar_mask, adarms_cond = self.embed_suffix(
                 observation, x_t, jnp.broadcast_to(time, batch_size)
             )
-            # `suffix_attn_mask` is shape (b, suffix_len, suffix_len) indicating how the suffix tokens can attend to each
-            # other
+            # Suffix self-attention + cross-attention to cached prefix
             suffix_attn_mask = make_attn_mask(suffix_mask, suffix_ar_mask)
-            # `prefix_attn_mask` is shape (b, suffix_len, prefix_len) indicating how the suffix tokens can attend to the
-            # prefix tokens
-            prefix_attn_mask = einops.repeat(prefix_mask, "b p -> b s p", s=suffix_tokens.shape[1])
-            # `combined_mask` is shape (b, suffix_len, prefix_len + suffix_len) indicating how the suffix tokens (which
-            # generate the queries) can attend to the full prefix + suffix sequence (which generates the keys and values)
-            full_attn_mask = jnp.concatenate([prefix_attn_mask, suffix_attn_mask], axis=-1)
-            assert full_attn_mask.shape == (
-                batch_size,
-                suffix_tokens.shape[1],
-                prefix_tokens.shape[1] + suffix_tokens.shape[1],
-            )
-            # `positions` is shape (b, suffix_len) indicating the positions of the suffix tokens
+            cross_mask = einops.repeat(prefix_mask, "b p -> b s p", s=suffix_tokens.shape[1])
+            full_attn_mask = jnp.concatenate([cross_mask, suffix_attn_mask], axis=-1)
+            # Suffix positions continue from end of prefix
             positions = jnp.sum(prefix_mask, axis=-1)[:, None] + jnp.cumsum(suffix_mask, axis=-1) - 1
 
             (prefix_out, suffix_out), _ = self.PaliGemma.llm(
@@ -287,14 +287,102 @@ class Pi0(_model.BaseModel):
                 adarms_cond=[None, adarms_cond],
             )
             assert prefix_out is None
+            # Project action expert output to action space
             v_t = self.action_out_proj(suffix_out[:, -self.action_horizon :])
 
+            # CFG hook: let caller combine with an unconditional velocity
+            if velocity_fn is not None:
+                v_t = velocity_fn(v_t, x_t, time)
+
+            # Euler step: x_{t-dt} = x_t + dt * v_t  (dt is negative)
             return x_t + dt * v_t, time + dt
 
         def cond(carry):
             _x_t, time = carry
-            # robust to floating-point error
             return time >= -dt / 2
 
         x_0, _ = jax.lax.while_loop(cond, step, (noise, 1.0))
         return x_0
+
+    @override
+    def sample_actions(
+        self,
+        rng: at.KeyArrayLike,
+        observation: _model.Observation,
+        *,
+        num_steps: int | at.Int[at.Array, ""] = 10,
+        noise: at.Float[at.Array, "b ah ad"] | None = None,
+    ) -> _model.Actions:
+        observation = _model.preprocess_observation(None, observation, train=False)
+        batch_size = observation.state.shape[0]
+        if noise is None:
+            noise = jax.random.normal(rng, (batch_size, self.action_horizon, self.action_dim))
+
+        kv_cache, prefix_mask = self.build_prefix_cache(observation)
+        return self._denoise_actions(
+            observation, prefix_mask, kv_cache,
+            num_steps=num_steps, noise=noise,
+        )
+
+    def sample_actions_cfg(
+        self,
+        rng: at.KeyArrayLike,
+        observation: _model.Observation,
+        uncond_observation: _model.Observation,
+        *,
+        guidance_scale: float = 1.0,
+        num_steps: int | at.Int[at.Array, ""] = 10,
+        noise: at.Float[at.Array, "b ah ad"] | None = None,
+    ) -> _model.Actions:
+        """Classifier-Free Guidance: v = v_uncond + scale * (v_cond - v_uncond).
+
+        No early return for scale=1.0 here because this method is JIT-compiled
+        and guidance_scale is a traced value.  The formula degenerates to v_cond
+        when scale=1.0 anyway.  The adapter-level code avoids calling this path
+        entirely when advantage_mode is unconditional.
+        """
+        observation = _model.preprocess_observation(None, observation, train=False)
+        uncond_observation = _model.preprocess_observation(None, uncond_observation, train=False)
+
+        batch_size = observation.state.shape[0]
+        if noise is None:
+            # Both branches share the same noise for a fair comparison
+            noise = jax.random.normal(rng, (batch_size, self.action_horizon, self.action_dim))
+
+        # Two prefix caches: same images/text, different action_tokenized_prompt
+        # (advantage tokens present in cond, absent in uncond)
+        cond_kv_cache, cond_prefix_mask = self.build_prefix_cache(observation)
+        uncond_kv_cache, uncond_prefix_mask = self.build_prefix_cache(uncond_observation)
+
+        def cfg_velocity(v_cond, x_t, time):
+            # Run the unconditional suffix pass against uncond_kv_cache
+            uncond_suffix_tokens, uncond_suffix_mask, uncond_suffix_ar_mask, uncond_adarms_cond = self.embed_suffix(
+                uncond_observation, x_t, jnp.broadcast_to(time, batch_size)
+            )
+            uncond_suffix_attn_mask = make_attn_mask(uncond_suffix_mask, uncond_suffix_ar_mask)
+            uncond_cross_mask = einops.repeat(
+                uncond_prefix_mask, "b p -> b s p", s=uncond_suffix_tokens.shape[1],
+            )
+            uncond_full_mask = jnp.concatenate([uncond_cross_mask, uncond_suffix_attn_mask], axis=-1)
+            uncond_pos = (
+                jnp.sum(uncond_prefix_mask, axis=-1)[:, None]
+                + jnp.cumsum(uncond_suffix_mask, axis=-1) - 1
+            )
+            (_, uncond_suffix_out), _ = self.PaliGemma.llm(
+                [None, uncond_suffix_tokens],
+                mask=uncond_full_mask,
+                positions=uncond_pos,
+                kv_cache=uncond_kv_cache,
+                adarms_cond=[None, uncond_adarms_cond],
+            )
+            v_uncond = self.action_out_proj(uncond_suffix_out[:, -self.action_horizon :])
+            # CFG formula: amplify the conditional direction away from unconditional
+            return v_uncond + guidance_scale * (v_cond - v_uncond)
+
+        # _denoise_actions runs the conditional branch; cfg_velocity hooks in
+        # to run unconditional and combine at each denoising step
+        return self._denoise_actions(
+            observation, cond_prefix_mask, cond_kv_cache,
+            num_steps=num_steps, noise=noise,
+            velocity_fn=cfg_velocity,
+        )
