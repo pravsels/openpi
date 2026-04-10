@@ -126,7 +126,8 @@ class Policy(BasePolicy):
             output_tokens = action_output[1]
             tokenizer = _tokenizer.PaligemmaTokenizer(max_len=50)
             output_tokens = jnp.array(output_tokens, dtype=int)
-            print(f"Generated Subtask: {tokenizer.detokenize(output_tokens[0])}")
+            subtask_text = tokenizer.detokenize(output_tokens[0])
+            print(f"\n{'#' * 60}\n###  GENERATED SUBTASK: {subtask_text}\n{'#' * 60}")
         else:
             actions = action_output
         outputs = {
