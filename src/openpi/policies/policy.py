@@ -56,6 +56,18 @@ class Policy(BasePolicy):
         self._is_pytorch_model = is_pytorch
         self._pytorch_device = pytorch_device
 
+        # Extract transforms needed to convert initial_actions from output
+        # space (absolute, unnormalized) to model space (delta, normalized).
+        # The input pipeline is: Repack → Prompt → DeltaActions → Normalize → ModelTransforms.
+        # We only need the action-relevant subset: delta conversion + normalize.
+        self._delta_actions_transform: _transforms.DataTransformFn | None = None
+        self._action_normalizer: _transforms.Normalize | None = None
+        for t in transforms:
+            if isinstance(t, (_transforms.DeltaActions, _transforms.DeltaActionsFromState)):
+                self._delta_actions_transform = t
+            if isinstance(t, _transforms.Normalize) and t.norm_stats is not None:
+                self._action_normalizer = t
+
         if self._is_pytorch_model:
             self._model = self._model.to(pytorch_device)
             self._model.eval()
@@ -85,6 +97,7 @@ class Policy(BasePolicy):
         obs: dict,
         *,
         noise: np.ndarray | None = None,
+        initial_actions: np.ndarray | None = None,
         uncond_obs: dict | None = None,
         guidance_scale: float | None = None,
     ) -> dict:  # type: ignore[misc]
@@ -101,6 +114,27 @@ class Policy(BasePolicy):
             if noise.ndim == 2:
                 noise = noise[None, ...]
             sample_kwargs["noise"] = noise
+
+        if initial_actions is not None:
+            if not getattr(self._model, "supports_initial_actions", False):
+                raise ValueError(
+                    f"Model {type(self._model).__name__} does not support initial_actions. "
+                    "Only models with supports_initial_actions=True can use action inpainting."
+                )
+            # Convert from output space (absolute, unnormalized) to model
+            # space (delta, normalized).  Uses the raw obs state for delta
+            # conversion — obs is not yet mutated by _prepare_inputs above.
+            ia_data: dict = {"actions": np.asarray(initial_actions)}
+            if self._delta_actions_transform is not None and "state" in obs:
+                ia_data["state"] = np.asarray(obs["state"])
+                ia_data = self._delta_actions_transform(ia_data)
+            if self._action_normalizer is not None:
+                ia_data = self._action_normalizer(ia_data)
+            ia_arr = ia_data["actions"]
+            ia = torch.from_numpy(np.asarray(ia_arr)).to(self._pytorch_device) if self._is_pytorch_model else jnp.asarray(ia_arr)
+            if ia.ndim == 2:
+                ia = ia[None, ...]
+            sample_kwargs["initial_actions"] = ia
 
         observation = _model.Observation.from_dict(inputs)
         start_time = time.monotonic()

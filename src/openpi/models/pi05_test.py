@@ -268,3 +268,156 @@ def test_pi05_sample_actions_cfg_requires_shared_prefix_prompt():
 
     with pytest.raises(ValueError, match="share the same tokenized_prompt"):
         model.sample_actions_cfg(jax.random.key(1), obs, uncond_obs, guidance_scale=2.0)
+
+
+# ---------------------------------------------------------------------------
+# Task 3: initial_actions plumbing through Pi05.sample_actions
+# ---------------------------------------------------------------------------
+
+def test_pi05_sample_actions_forwards_initial_actions_to_prefix_cache_sampler():
+    """sample_actions passes initial_actions through to _sample_actions_with_prefix_cache."""
+    config = _pi05_config.Pi05Config(
+        paligemma_variant="dummy",
+        action_expert_variant="dummy",
+        action_dim=8,
+        action_horizon=4,
+        max_token_len=16,
+        subtask_loss_weight=0.0,
+        fast_token_loss_weight=0.0,
+        flow_matching_loss_weight=1.0,
+    )
+    model = config.create(jax.random.key(0))
+    obs = config.fake_obs(batch_size=1)
+
+    expected_tokens = jnp.array([[7, 3, 0]], dtype=jnp.int32)
+    rebuilt_prefix_mask = jnp.array([[True, True, True, False]])
+    expected_actions = jnp.full((1, config.action_horizon, config.action_dim), 2.0)
+    noise = jnp.full((1, config.action_horizon, config.action_dim), -1.0)
+    ia = jnp.ones((1, 2, config.action_dim), dtype=jnp.float32)
+
+    model.sample_low_level_task = (
+        lambda rng, observation, *, max_decoding_steps, paligemma_eos_token, temperature: (
+            expected_tokens, "stale-cache", jnp.array([[True, False, False, False]]), None,
+        )
+    )
+    model._build_prefix_cache_from_output_tokens = lambda obs, tok: ("rebuilt-cache", rebuilt_prefix_mask)
+
+    captured = {}
+
+    def sample_with_cache(observation, kv_cache, prefix_mask, *, num_steps, noise, initial_actions=None):
+        captured["initial_actions"] = initial_actions
+        return expected_actions
+
+    model._sample_actions_with_prefix_cache = sample_with_cache
+
+    model.sample_actions(jax.random.key(1), obs, num_steps=7, noise=noise, initial_actions=ia)
+    assert captured["initial_actions"] is not None
+    assert captured["initial_actions"].shape == (1, 2, config.action_dim)
+
+
+def test_pi05_sample_actions_passes_none_when_no_initial_actions():
+    """When initial_actions is omitted, None reaches the inner sampler."""
+    config = _pi05_config.Pi05Config(
+        paligemma_variant="dummy",
+        action_expert_variant="dummy",
+        action_dim=8,
+        action_horizon=4,
+        max_token_len=16,
+        subtask_loss_weight=0.0,
+        fast_token_loss_weight=0.0,
+        flow_matching_loss_weight=1.0,
+    )
+    model = config.create(jax.random.key(0))
+    obs = config.fake_obs(batch_size=1)
+
+    expected_tokens = jnp.array([[7, 3, 0]], dtype=jnp.int32)
+    rebuilt_prefix_mask = jnp.array([[True, True, True, False]])
+    expected_actions = jnp.full((1, config.action_horizon, config.action_dim), 2.0)
+    noise = jnp.full((1, config.action_horizon, config.action_dim), -1.0)
+
+    model.sample_low_level_task = (
+        lambda rng, observation, *, max_decoding_steps, paligemma_eos_token, temperature: (
+            expected_tokens, "stale-cache", jnp.array([[True, False, False, False]]), None,
+        )
+    )
+    model._build_prefix_cache_from_output_tokens = lambda obs, tok: ("rebuilt-cache", rebuilt_prefix_mask)
+
+    captured = {}
+
+    def sample_with_cache(observation, kv_cache, prefix_mask, *, num_steps, noise, initial_actions=None):
+        captured["initial_actions"] = initial_actions
+        return expected_actions
+
+    model._sample_actions_with_prefix_cache = sample_with_cache
+
+    model.sample_actions(jax.random.key(1), obs, num_steps=7, noise=noise)
+    assert captured["initial_actions"] is None
+
+
+def test_pi05_sample_actions_validates_initial_actions_dim():
+    """initial_actions with wrong action_dim should be rejected."""
+    config = _pi05_config.Pi05Config(
+        paligemma_variant="dummy",
+        action_expert_variant="dummy",
+        action_dim=8,
+        action_horizon=4,
+        max_token_len=16,
+        subtask_loss_weight=0.0,
+        fast_token_loss_weight=0.0,
+        flow_matching_loss_weight=1.0,
+    )
+    model = config.create(jax.random.key(0))
+    obs = config.fake_obs(batch_size=1)
+    noise = jnp.full((1, config.action_horizon, config.action_dim), -1.0)
+
+    wrong_dim_ia = jnp.ones((1, 2, config.action_dim + 5), dtype=jnp.float32)
+    with pytest.raises(ValueError, match="action_dim"):
+        model.sample_actions(jax.random.key(1), obs, noise=noise, initial_actions=wrong_dim_ia)
+
+
+def test_pi05_sample_actions_validates_initial_actions_horizon():
+    """initial_actions with more timesteps than action_horizon should be rejected."""
+    config = _pi05_config.Pi05Config(
+        paligemma_variant="dummy",
+        action_expert_variant="dummy",
+        action_dim=8,
+        action_horizon=4,
+        max_token_len=16,
+        subtask_loss_weight=0.0,
+        fast_token_loss_weight=0.0,
+        flow_matching_loss_weight=1.0,
+    )
+    model = config.create(jax.random.key(0))
+    obs = config.fake_obs(batch_size=1)
+    noise = jnp.full((1, config.action_horizon, config.action_dim), -1.0)
+
+    too_long_ia = jnp.ones((1, config.action_horizon + 1, config.action_dim), dtype=jnp.float32)
+    with pytest.raises(ValueError, match="action_horizon"):
+        model.sample_actions(jax.random.key(1), obs, noise=noise, initial_actions=too_long_ia)
+
+
+def test_pi05_sample_actions_cfg_rejects_initial_actions():
+    """CFG + initial_actions should raise NotImplementedError."""
+    config = _pi05_config.Pi05Config(
+        paligemma_variant="dummy",
+        action_expert_variant="dummy",
+        action_dim=8,
+        action_horizon=4,
+        max_token_len=16,
+        subtask_loss_weight=0.0,
+        fast_token_loss_weight=0.0,
+        flow_matching_loss_weight=1.0,
+    )
+    model = config.create(jax.random.key(0))
+    obs = config.fake_obs(batch_size=1)
+    uncond_obs = config.fake_obs(batch_size=1).replace(
+        tokenized_prompt=obs.tokenized_prompt,
+        tokenized_prompt_mask=obs.tokenized_prompt_mask,
+        action_tokenized_prompt=jnp.full_like(obs.action_tokenized_prompt, 9),
+    )
+    ia = jnp.ones((1, 2, config.action_dim), dtype=jnp.float32)
+
+    with pytest.raises(NotImplementedError, match="initial_actions.*sample_actions_cfg"):
+        model.sample_actions_cfg(
+            jax.random.key(1), obs, uncond_obs, guidance_scale=2.0, initial_actions=ia,
+        )

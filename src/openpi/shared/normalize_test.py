@@ -91,3 +91,66 @@ def test_merge_action_norm_stats_enabled():
         base, per_timestep_action_stats=per_timestep, use_per_timestep_action_norm=True
     )
     assert np.allclose(merged["actions"].mean, per_timestep.mean)
+
+
+# ---------------------------------------------------------------------------
+# action_correlation_cholesky field
+# ---------------------------------------------------------------------------
+
+def test_norm_stats_correlation_cholesky_roundtrip():
+    """action_correlation_cholesky serializes and deserializes correctly."""
+    flat_dim = 6
+    L = np.eye(flat_dim, dtype=np.float64) * 2.0
+    stats = normalize.NormStats(
+        mean=np.zeros(3),
+        std=np.ones(3),
+        action_correlation_cholesky=L,
+    )
+    norm_stats = {"actions": stats}
+    loaded = normalize.deserialize_json(normalize.serialize_json(norm_stats))
+    assert loaded["actions"].action_correlation_cholesky is not None
+    assert loaded["actions"].action_correlation_cholesky.shape == (flat_dim, flat_dim)
+    assert np.allclose(loaded["actions"].action_correlation_cholesky, L)
+
+
+def test_norm_stats_correlation_cholesky_none_by_default():
+    """action_correlation_cholesky is None when not provided."""
+    stats = normalize.NormStats(mean=np.zeros(3), std=np.ones(3))
+    assert stats.action_correlation_cholesky is None
+    norm_stats = {"actions": stats}
+    loaded = normalize.deserialize_json(normalize.serialize_json(norm_stats))
+    assert loaded["actions"].action_correlation_cholesky is None
+
+
+def test_compute_action_correlation_cholesky():
+    """compute_action_correlation_cholesky produces a valid lower-triangular Cholesky factor."""
+    rng = np.random.default_rng(42)
+    n_samples, action_horizon, action_dim = 200, 4, 3
+    flat_dim = action_horizon * action_dim
+    actions = rng.standard_normal((n_samples, action_horizon, action_dim))
+
+    mean = np.mean(actions.reshape(-1, action_dim), axis=0)  # (action_dim,)
+    std = np.std(actions.reshape(-1, action_dim), axis=0)    # (action_dim,)
+
+    L = normalize.compute_action_correlation_cholesky(actions, mean, std)
+    assert L.shape == (flat_dim, flat_dim)
+    # L should be lower triangular
+    assert np.allclose(L, np.tril(L))
+    # L L^T should be positive definite (all eigenvalues > 0)
+    reconstructed = L @ L.T
+    eigenvalues = np.linalg.eigvalsh(reconstructed)
+    assert np.all(eigenvalues > 0)
+
+
+def test_compute_action_correlation_cholesky_identity_for_iid():
+    """When dimensions are independent with unit variance, L is close to identity."""
+    rng = np.random.default_rng(7)
+    n_samples, action_horizon, action_dim = 10000, 2, 2
+    flat_dim = action_horizon * action_dim
+    actions = rng.standard_normal((n_samples, action_horizon, action_dim))
+
+    mean = np.zeros(action_dim)
+    std = np.ones(action_dim)
+
+    L = normalize.compute_action_correlation_cholesky(actions, mean, std)
+    assert np.allclose(L, np.eye(flat_dim), atol=0.1)

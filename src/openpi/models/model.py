@@ -4,7 +4,7 @@ import dataclasses
 import enum
 import logging
 import pathlib
-from typing import Generic, TypeVar
+from typing import ClassVar, Generic, TypeVar
 
 import augmax
 from flax import nnx
@@ -304,6 +304,8 @@ class BaseModel(nnx.Module, abc.ABC):
     action_dim: int
     action_horizon: int
     max_token_len: int
+
+    supports_initial_actions: ClassVar[bool] = False
 
     @abc.abstractmethod
     def compute_loss(

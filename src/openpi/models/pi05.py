@@ -8,6 +8,7 @@ import jax
 import jax.numpy as jnp
 from typing_extensions import override
 
+from openpi.models import action_inpainting as _inpaint
 from openpi.models import model as _model
 from openpi.models import pi05_config
 import openpi.models.gemma_05 as _gemma
@@ -90,7 +91,25 @@ def posemb_sincos(
     return jnp.concatenate([jnp.sin(sinusoid_input), jnp.cos(sinusoid_input)], axis=-1)
 
 
+def _validate_initial_actions(initial_actions: jax.Array, action_dim: int, action_horizon: int) -> None:
+    """Validate initial_actions shape against model dimensions."""
+    if initial_actions.ndim != 3:
+        raise ValueError(
+            f"initial_actions must be 3D (batch, timesteps, action_dim), got ndim={initial_actions.ndim}"
+        )
+    if initial_actions.shape[2] > action_dim:
+        raise ValueError(
+            f"initial_actions action_dim {initial_actions.shape[2]} exceeds model action_dim {action_dim}"
+        )
+    if initial_actions.shape[1] > action_horizon:
+        raise ValueError(
+            f"initial_actions timesteps {initial_actions.shape[1]} exceeds model action_horizon {action_horizon}"
+        )
+
+
 class Pi05(_model.BaseModel):
+    supports_initial_actions = True
+
     def __init__(self, config: pi05_config.Pi05Config, rngs: nnx.Rngs):
         super().__init__(config.action_dim, config.action_horizon, config.max_token_len)
         self.pi05 = config.pi05
@@ -102,6 +121,10 @@ class Pi05(_model.BaseModel):
         self.fast_token_loss_weight = config.fast_token_loss_weight
         self.flow_matching_loss_weight = config.flow_matching_loss_weight
         self.stop_gradient_flow_to_prefix = config.stop_gradient_flow_to_prefix
+        self.time_threshold_inpaint = config.time_threshold_inpaint
+        self.use_correlation_inpainting = config.use_correlation_inpainting
+        self.correlation_beta = config.correlation_beta
+        self._correlation_cholesky: jax.Array | None = None
 
         # TODO: rewrite gemma in NNX. For now, use bridge.
         llm = nnx_bridge.ToNNX(
@@ -556,11 +579,34 @@ class Pi05(_model.BaseModel):
         *,
         num_steps: int | jax.Array,
         noise: jax.Array,
+        initial_actions: jax.Array | None = None,
     ) -> _model.Actions:
         # note that we use the convention more common in diffusion literature, where t=1 is noise and t=0 is the target
         # distribution. yes, this is the opposite of the pi0 paper, and I'm sorry.
         dt = -1.0 / num_steps
         batch_size = observation.state.shape[0]
+
+        # Pre-compute inpainting state if initial_actions are provided.
+        # O_indices: flat indices of constrained coordinates (first k timesteps × provided dims)
+        # x0_flat: target clean actions (padded), flattened — what O should equal at t=0
+        # z_flat: initial noise (fixed), flattened — what O equals at t=1
+        if initial_actions is not None:
+            inp = _inpaint.prepare_inpainting_state(
+                initial_actions, noise, self.action_horizon, self.action_dim,
+            )
+            O_indices = inp["O_indices"]
+            U_indices = inp["U_indices"]
+            x0_flat = inp["x0_flat"]
+            z_flat = inp["z_flat"]
+        else:
+            O_indices = U_indices = x0_flat = z_flat = None
+
+        # Pre-compute the correction matrix for correlation-aware inpainting.
+        correction_matrix = None
+        if O_indices is not None and self.use_correlation_inpainting and self._correlation_cholesky is not None:
+            correction_matrix = _inpaint.precompute_correction_matrix(
+                self._correlation_cholesky, O_indices, U_indices,
+            )
 
         def step(carry):
             x_t, time = carry
@@ -600,8 +646,27 @@ class Pi05(_model.BaseModel):
 
             # Last action_horizon tokens of the suffix are the action tokens; project to velocity.
             v_t = self.action_out_proj(suffix_out[:, -self.action_horizon :])
+            x_t_new = x_t + dt * v_t
 
-            return x_t + dt * v_t, time + dt
+            # Apply inpainting constraint after each Euler step, only while
+            # t > threshold.  Below the threshold the model runs freely.
+            # NOTE: `time` is a traced loop-carry value, so we must use
+            # jnp.where instead of a Python `if` for the threshold check.
+            if O_indices is not None:
+                time_new = time + dt
+                x_t_flat = x_t_new.reshape(batch_size, -1)
+                if correction_matrix is not None:
+                    x_t_inpainted = _inpaint.apply_correlated_inpainting(
+                        x_t_flat, x0_flat, z_flat, O_indices, U_indices,
+                        correction_matrix, time_new, self.correlation_beta,
+                    )
+                else:
+                    x_t_inpainted = _inpaint.apply_hard_inpainting(x_t_flat, x0_flat, z_flat, O_indices, time_new)
+                x_t_inpainted = x_t_inpainted.reshape(batch_size, self.action_horizon, self.action_dim)
+                should_apply = time_new > self.time_threshold_inpaint
+                x_t_new = jnp.where(should_apply, x_t_inpainted, x_t_new)
+
+            return x_t_new, time + dt
 
         def cond(carry):
             _x_t, time = carry
@@ -695,9 +760,14 @@ class Pi05(_model.BaseModel):
         guidance_scale: float = 1.0,
         num_steps: int | jax.Array = 10,
         noise: jax.Array | None = None,
+        initial_actions: jax.Array | None = None,
     ) -> _model.Actions:
+        if initial_actions is not None and guidance_scale != 1.0:
+            raise NotImplementedError(
+                "initial_actions is not yet supported with sample_actions_cfg (guidance_scale != 1.0)"
+            )
         if guidance_scale == 1.0:
-            return self.sample_actions(rng, observation, num_steps=num_steps, noise=noise)
+            return self.sample_actions(rng, observation, num_steps=num_steps, noise=noise, initial_actions=initial_actions)
 
         # CFG uses two observations with the same high-level prefix but different
         # action-conditioning suffixes (e.g. conditional advantage vs unconditional).
@@ -747,6 +817,9 @@ class Pi05(_model.BaseModel):
         )
         return (x_0, generated_subtask_tokens)
 
+    def _validate_initial_actions(self, initial_actions: jax.Array) -> None:
+        _validate_initial_actions(initial_actions, self.action_dim, self.action_horizon)
+
     @override
     def sample_actions(
         self,
@@ -755,6 +828,7 @@ class Pi05(_model.BaseModel):
         *,
         num_steps: int | at.Int[at.Array, ""] = 10,
         noise: at.Float[at.Array, "b ah ad"] | None = None,
+        initial_actions: jax.Array | None = None,
     ) -> _model.Actions:
         observation = _model.preprocess_observation(
             None, observation, train=False, image_keys=list(observation.images.keys())
@@ -764,6 +838,9 @@ class Pi05(_model.BaseModel):
         if noise is None:
             noise = jax.random.normal(rng, (batch_size, self.action_horizon, self.action_dim))
 
+        if initial_actions is not None:
+            self._validate_initial_actions(initial_actions)
+
         generated_subtask_tokens, _kv_cache, _prefix_mask, _prefix_ar_mask = self.sample_low_level_task(
             rng, observation, max_decoding_steps=20, paligemma_eos_token=1, temperature=0.0
         )
@@ -771,6 +848,7 @@ class Pi05(_model.BaseModel):
             observation, generated_subtask_tokens
         )
         x_0 = self._sample_actions_with_prefix_cache(
-            observation, kv_cache, prefix_mask, num_steps=num_steps, noise=noise
+            observation, kv_cache, prefix_mask, num_steps=num_steps, noise=noise,
+            initial_actions=initial_actions,
         )
         return (x_0, generated_subtask_tokens)

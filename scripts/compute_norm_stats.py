@@ -1,8 +1,8 @@
 """Compute normalization statistics for a config.
 
 This script computes global normalization statistics for a given config and saves
-them to the config assets directory. Quantile stats follow the repo default:
-1st/99th percentiles map to [-1, 1] during quantile normalization.
+them to the config assets directory.  It also computes per-timestep action stats
+and the action-correlation Cholesky factor by default.
 """
 
 import numpy as np
@@ -169,10 +169,47 @@ def _load_checkpoint(checkpoint_path: str, keys: list[str]):
         return None
 
 
+class _RunningCovariance:
+    """Accumulate running sums for covariance computation over flattened action vectors."""
+
+    def __init__(self):
+        self._count = 0
+        self._sum: np.ndarray | None = None
+        self._sum_outer: np.ndarray | None = None
+
+    def update(self, batch_flat: np.ndarray) -> None:
+        """Update with a batch of flattened vectors, shape (batch_size, flat_dim)."""
+        n = batch_flat.shape[0]
+        if self._count == 0:
+            self._sum = np.sum(batch_flat, axis=0)
+            self._sum_outer = batch_flat.T @ batch_flat
+        else:
+            self._sum += np.sum(batch_flat, axis=0)
+            self._sum_outer += batch_flat.T @ batch_flat
+        self._count += n
+
+    def get_all_actions(self) -> tuple[np.ndarray, np.ndarray, int]:
+        """Return (sum, sum_outer, count) for downstream covariance computation."""
+        return self._sum, self._sum_outer, self._count
+
+
+def _stack_norm_stats(stats_by_timestep: list[normalize.NormStats]) -> normalize.NormStats:
+    q01 = None if stats_by_timestep[0].q01 is None else np.stack([s.q01 for s in stats_by_timestep])
+    q99 = None if stats_by_timestep[0].q99 is None else np.stack([s.q99 for s in stats_by_timestep])
+    return normalize.NormStats(
+        mean=np.stack([s.mean for s in stats_by_timestep]),
+        std=np.stack([s.std for s in stats_by_timestep]),
+        q01=q01,
+        q99=q99,
+    )
+
+
 def main(
     config_name: str,
     max_frames: int | None = None,
     checkpoint_interval: int = 5000,
+    compute_action_correlation: bool = True,
+    compute_per_timestep: bool = True,
 ):
     config = _config.get_config(config_name)
     data_config = config.data.create(config.assets_dirs, config.model)
@@ -186,6 +223,7 @@ def main(
             data_config, config.model.action_horizon, config.batch_size, config.model, config.num_workers, max_frames
         )
 
+    action_horizon = config.model.action_horizon
     keys = ["state", "actions"]
     checkpoint_path = f"/tmp/norm_stats_checkpoint_{config_name}.pkl"
 
@@ -198,6 +236,11 @@ def main(
     per_dim_stats: dict[str, list[normalize.RunningStats]] = {}
     stats: dict = {}  # unused but kept for checkpoint compat
     start_batch = 0
+
+    cov_accumulator = _RunningCovariance() if compute_action_correlation else None
+    per_timestep_stats: list[normalize.RunningStats] | None = (
+        [normalize.RunningStats() for _ in range(action_horizon)] if compute_per_timestep else None
+    )
 
     resumed = _load_checkpoint(checkpoint_path, keys)
     if resumed is not None:
@@ -245,6 +288,24 @@ def main(
                 for d in range(flat.shape[-1]):
                     per_dim_stats[key][d].update(flat[:, d:d+1])
 
+        # For covariance and per-timestep stats, filter to samples where
+        # all action dims are present (fully-masked) so mixed single-arm /
+        # bimanual data doesn't pollute the full-dim statistics.
+        if cov_accumulator is not None or per_timestep_stats is not None:
+            actions_arr = np.asarray(batch["actions"])
+            if actions_arr.ndim == 3 and actions_arr.shape[1] == action_horizon:
+                if dim_mask is not None:
+                    mask = np.asarray(dim_mask)
+                    all_real = mask.all(axis=-1)
+                    actions_arr = actions_arr[all_real]
+                if actions_arr.shape[0] > 0:
+                    if cov_accumulator is not None:
+                        flat_actions = actions_arr.reshape(actions_arr.shape[0], -1)
+                        cov_accumulator.update(flat_actions)
+                    if per_timestep_stats is not None:
+                        for t in range(action_horizon):
+                            per_timestep_stats[t].update(actions_arr[:, t, :])
+
         if (batch_idx + 1) % checkpoint_interval == 0:
             _save_checkpoint(
                 checkpoint_path, batch_idx + 1,
@@ -272,9 +333,50 @@ def main(
     else:
         norm_stats = {key: stats.get_statistics() for key, stats in stats.items()}
 
+    if cov_accumulator is not None and cov_accumulator._count > 0:
+        _, _, cov_count = cov_accumulator.get_all_actions()
+        print(f"\nComputing action-correlation Cholesky from {cov_count:,} fully-masked samples...")
+
+        actions_mean = norm_stats["actions"].mean
+        actions_std = norm_stats["actions"].std
+        flat_dim = action_horizon * len(actions_mean)
+
+        # Build the raw covariance from running sums.
+        s, s_outer, n = cov_accumulator.get_all_actions()
+        raw_mean = s / n
+        raw_cov = s_outer / n - np.outer(raw_mean, raw_mean)
+
+        # Transform to normalized action space: Cov_norm = D^{-1} Cov_raw D^{-1}
+        std_flat = np.tile(actions_std, action_horizon)
+        inv_std = 1.0 / np.maximum(std_flat, 1e-8)
+        norm_cov = np.diag(inv_std) @ raw_cov @ np.diag(inv_std)
+        norm_cov += 1e-6 * np.eye(flat_dim)
+
+        L = np.linalg.cholesky(norm_cov)
+        print(f"  Cholesky factor shape: {L.shape}, cond(norm_cov): {np.linalg.cond(norm_cov):.2e}")
+
+        action_stats = norm_stats["actions"]
+        norm_stats["actions"] = normalize.NormStats(
+            mean=action_stats.mean,
+            std=action_stats.std,
+            q01=action_stats.q01,
+            q99=action_stats.q99,
+            action_correlation_cholesky=L,
+        )
+    elif compute_action_correlation:
+        print("\nWarning: --compute-action-correlation was set but no fully-masked action samples found.")
+
     output_path = config.assets_dirs
     print(f"Writing stats to: {output_path}")
     normalize.save(output_path, norm_stats)
+
+    if per_timestep_stats is not None and per_timestep_stats[0]._count >= 2:
+        per_ts_results = [s.get_statistics() for s in per_timestep_stats]
+        per_timestep_action_stats = _stack_norm_stats(per_ts_results)
+        print(f"Writing per-timestep action stats to: {output_path}")
+        normalize.save_actions_per_timestep(output_path, per_timestep_action_stats)
+    elif compute_per_timestep:
+        print("\nWarning: not enough fully-masked samples for per-timestep stats.")
 
     # Clean up checkpoint
     import os

@@ -44,6 +44,20 @@ class Pi05Config(_model.BaseModelConfig):
     # language/vision prefix cache into the VLM branch.
     stop_gradient_flow_to_prefix: bool = False
 
+    # Time threshold for inpainting during inference.
+    # Only enforce the constraint while t > threshold; let the model run
+    # freely in the final denoising steps for smoother blending.
+    # 0.0 means always enforce (hard inpainting at every step).
+    time_threshold_inpaint: float = 0.0
+
+    # When True, use the action-correlation Cholesky factor to propagate
+    # corrections from constrained (O) to unconstrained (U) dimensions.
+    use_correlation_inpainting: bool = False
+
+    # Blending weight for the correlation-aware correction (0 = no
+    # correction, 1 = full conditional-mean correction).
+    correlation_beta: float = 0.5
+
     def __post_init__(self):
         if self.max_token_len is None:
             if self.pi05:

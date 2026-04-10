@@ -32,6 +32,20 @@ class Pi0Config(_model.BaseModelConfig):
     # This config option is not used directly by the model, but it is read by the ModelTransformFactory.
     discrete_state_input: bool = None  # type: ignore
 
+    # Time threshold for inpainting during inference.
+    # Only enforce the constraint while t > threshold; let the model run
+    # freely in the final denoising steps for smoother blending.
+    # 0.0 means always enforce (hard inpainting at every step).
+    time_threshold_inpaint: float = 0.0
+
+    # When True, use the action-correlation Cholesky factor to propagate
+    # corrections from constrained (O) to unconstrained (U) dimensions.
+    use_correlation_inpainting: bool = False
+
+    # Blending weight for the correlation-aware correction (0 = no
+    # correction, 1 = full conditional-mean correction).
+    correlation_beta: float = 0.5
+
     def __post_init__(self):
         if self.max_token_len is None:
             object.__setattr__(self, "max_token_len", 200 if self.pi05 else 48)

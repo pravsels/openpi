@@ -69,3 +69,32 @@ for step in range(num_steps):
 ```
 
 Here, the `host` and `port` arguments specify the IP address and port of the remote policy server. You can also specify these as command-line arguments to your robot code, or hard-code them in your robot codebase. The `observation` is a dictionary of observations and the prompt, following the specification of the policy inputs for the policy you are serving. We have concrete examples of how to construct this dictionary for different environments in the [simple client example](../examples/simple_client/main.py).
+
+## Action inpainting (chunk overlap)
+
+When executing action chunks open-loop, you can improve smoothness between consecutive chunks by forwarding the tail of the previous chunk as `initial_actions` for the next inference call. This constrains the denoising process so the beginning of the new chunk matches the end of the old one.
+
+```python
+next_initial_actions = None
+
+for step in range(num_steps):
+    if step % actions_to_execute == 0:
+        observation = get_observation()
+        output = policy.infer(observation, initial_actions=next_initial_actions)
+        chunk = output["actions"]  # (action_horizon, action_dim)
+
+        # Save the overlap region for next call.
+        tail_start = actions_to_execute  # e.g. 26
+        tail_end = tail_start + tail_actions_to_keep  # e.g. 30
+        next_initial_actions = chunk[tail_start:tail_end]
+
+    action = chunk[step % actions_to_execute]
+    execute(action)
+```
+
+Key points:
+
+- `initial_actions` is in the same (unnormalized) action space as the policy output. Normalization is handled internally.
+- This is sampler-level constrained generation — it overrides coordinates in the denoising loop, not prompt conditioning.
+- CFG + inpainting is not yet supported; enabling both will raise `NotImplementedError`.
+- To enable correlation-aware inpainting (which propagates the constraint to uncorrelated dimensions), set `use_correlation_inpainting: true` in the model config and run `compute_norm_stats.py --compute-action-correlation` to precompute the Cholesky factor.

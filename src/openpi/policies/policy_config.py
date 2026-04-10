@@ -108,6 +108,16 @@ def create_trained_policy(
         except ImportError:
             pytorch_device = "cpu"
 
+    # If the model config enables correlation-aware inpainting, load the
+    # Cholesky factor from norm stats and attach it to the model.
+    if getattr(train_config.model, "use_correlation_inpainting", False):
+        from openpi.models import action_inpainting as _inpaint
+
+        L = _inpaint.load_correlation_cholesky(
+            norm_stats, train_config.model.action_horizon, train_config.model.action_dim,
+        )
+        model._correlation_cholesky = L
+
     return _policy.Policy(
         model,
         transforms=[

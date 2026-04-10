@@ -14,6 +14,12 @@ class NormStats:
     q01: numpydantic.NDArray | None = None  # 1st quantile
     q99: numpydantic.NDArray | None = None  # 99th quantile
 
+    # Cholesky decomposition of the empirical action covariance matrix.
+    # Shape: [action_horizon * action_dim, action_horizon * action_dim]
+    # Used for correlation-aware inpainting during inference.
+    # Computed by compute_norm_stats.py with --correlation flag.
+    action_correlation_cholesky: numpydantic.NDArray | None = None
+
 
 class RunningStats:
     """Compute running statistics of a batch of vectors."""
@@ -116,6 +122,40 @@ class RunningStats:
                 q_values.append(edges[idx])
             results.append(np.array(q_values))
         return results
+
+
+def compute_action_correlation_cholesky(
+    actions: np.ndarray,
+    mean: np.ndarray,
+    std: np.ndarray,
+    eps: float = 1e-6,
+) -> np.ndarray:
+    """Compute Cholesky factor of the normalized action covariance.
+
+    Args:
+        actions: Raw actions, shape (N, action_horizon, action_dim).
+        mean: Per-dimension mean, shape (action_dim,).
+        std: Per-dimension std, shape (action_dim,).
+        eps: Regularization added to the diagonal for numerical stability.
+
+    Returns:
+        Lower-triangular Cholesky factor L of the covariance in normalized
+        action space.  Shape (action_horizon * action_dim, action_horizon * action_dim).
+        The covariance can be recovered as L @ L.T.
+    """
+    n, ah, ad = actions.shape
+    flat = actions.reshape(n, ah * ad)
+
+    # Tile the per-dim statistics across the action horizon so each
+    # timestep uses the same mean/std (global normalization).
+    mean_flat = np.tile(mean, ah)
+    std_flat = np.tile(std, ah)
+    std_flat = np.maximum(std_flat, 1e-8)
+
+    normalized = (flat - mean_flat) / std_flat
+    cov = np.cov(normalized, rowvar=False)
+    cov += eps * np.eye(cov.shape[0])
+    return np.linalg.cholesky(cov)
 
 
 class _NormStatsDict(pydantic.BaseModel):
