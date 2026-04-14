@@ -40,7 +40,7 @@ BASELINE_HF_REPO="pravsels/pi05-build-block-tower-6mix"
 BASELINE_STEP="retain/step_49999/alpha_0.5"
 BASELINE_LOCAL_DIR="${data_dir}/checkpoints/pi05_build_block_tower_baseline_6mix"
 BASELINE_CKPT_DIR="${BASELINE_LOCAL_DIR}/${BASELINE_STEP}"
-ASSETS_DIR="${BASELINE_LOCAL_DIR}/baseline/assets"
+ASSETS_DIR="${BASELINE_CKPT_DIR}/assets"
 
 CHECKPOINT_DIR="${data_dir}/checkpoints/${CONFIG_NAME}/${EXP_NAME}"
 
