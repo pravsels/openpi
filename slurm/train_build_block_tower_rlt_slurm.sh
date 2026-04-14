@@ -72,13 +72,31 @@ else
     echo "Baseline checkpoint ready at ${BASELINE_CKPT_DIR}/params"
 fi
 
-# Verify baseline assets exist
+# Download baseline assets from HuggingFace if not present locally
 if [ ! -d "${ASSETS_DIR}" ] || [ -z "$(ls -A "${ASSETS_DIR}"/*.json 2>/dev/null)" ]; then
-    echo "ERROR: Baseline assets not found at ${ASSETS_DIR}"
-    echo "The baseline training should have produced norm stats here."
-    exit 1
+    echo "Downloading baseline assets from ${BASELINE_HF_REPO}..."
+    mkdir -p "${ASSETS_DIR}"
+    HF_TOKEN=$(cat "${home_dir}/.hf_token")
+    HF_HOME="${HF_CACHE}" huggingface-cli download \
+        "${BASELINE_HF_REPO}" \
+        --include "assets/*" \
+        --local-dir "${BASELINE_LOCAL_DIR}" \
+        --token "${HF_TOKEN}"
+    if [ ! -d "${ASSETS_DIR}" ] || [ -z "$(ls -A "${ASSETS_DIR}"/*.json 2>/dev/null)" ]; then
+        ALT_ASSETS="${BASELINE_LOCAL_DIR}/assets"
+        if [ -d "${ALT_ASSETS}" ]; then
+            mv "${ALT_ASSETS}"/* "${ASSETS_DIR}/"
+            echo "Moved assets from HF structure to ${ASSETS_DIR}"
+        else
+            echo "ERROR: Could not find downloaded assets."
+            echo "Searched: ${ASSETS_DIR} and ${ALT_ASSETS}"
+            exit 1
+        fi
+    fi
+    echo "Baseline assets ready at ${ASSETS_DIR}"
+else
+    echo "Using baseline assets from ${ASSETS_DIR}"
 fi
-echo "Using baseline assets from ${ASSETS_DIR}"
 
 start_time="$(date -Is --utc)"
 echo "===================================="
