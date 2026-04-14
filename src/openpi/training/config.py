@@ -1850,7 +1850,7 @@ _CONFIGS = [
             pi05=True, action_horizon=50, rl_vla_loss_weight=0.0
         ).get_rl_freeze_filter(),
         weight_loader=weight_loaders.RLTokenCheckpointWeightLoader(
-            "checkpoints/pi05_build_block_tower_baseline_6mix/baseline/49999/params"
+            "checkpoints/pi05_build_block_tower_baseline_6mix/retain/step_49999/alpha_0.5/params"
         ),
         num_train_steps=20_000,
         val_interval=1000,
