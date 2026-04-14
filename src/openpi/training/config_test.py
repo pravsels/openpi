@@ -129,7 +129,7 @@ def test_binpack_config_can_enable_control_mode_advantage_prompt(tmp_path):
     model_config = pi0_config.Pi0Config(pi05=True, action_horizon=2)
     data_config = factory.create(tmp_path, model_config)
 
-    assert any(isinstance(t, _transforms.InjectAdvantagePrompt) for t in data_config.data_transforms.inputs)
+    assert any(isinstance(t, _transforms.SetAdvantageLabelFromControlMode) for t in data_config.data_transforms.inputs)
 
 
 def test_binpack_advantage_prompt_runs_before_binpack_inputs(tmp_path):
@@ -140,7 +140,7 @@ def test_binpack_advantage_prompt_runs_before_binpack_inputs(tmp_path):
     model_config = pi0_config.Pi0Config(pi05=True, action_horizon=2)
     data_config = factory.create(tmp_path, model_config)
 
-    assert isinstance(data_config.data_transforms.inputs[0], _transforms.InjectAdvantagePrompt)
+    assert isinstance(data_config.data_transforms.inputs[0], _transforms.SetAdvantageLabelFromControlMode)
 
 
 def test_binpack_config_can_select_positive_only_advantage_mode(tmp_path):
@@ -153,7 +153,7 @@ def test_binpack_config_can_select_positive_only_advantage_mode(tmp_path):
     data_config = factory.create(tmp_path, model_config)
 
     transform = data_config.data_transforms.inputs[0]
-    assert isinstance(transform, _transforms.InjectAdvantagePrompt)
+    assert isinstance(transform, _transforms.SetAdvantageLabelFromControlMode)
     assert transform.mode == "positive_only"
 
 
@@ -167,7 +167,7 @@ def test_binpack_config_passes_advantage_dropout_rate(tmp_path):
     data_config = factory.create(tmp_path, model_config)
 
     transform = data_config.data_transforms.inputs[0]
-    assert isinstance(transform, _transforms.InjectAdvantagePrompt)
+    assert isinstance(transform, _transforms.SetAdvantageLabelFromControlMode)
     assert transform.dropout_rate == 0.3
 
 
@@ -185,21 +185,94 @@ def test_reward_recap_binpack_configs_exist():
         assert cfg.data.advantage_dropout_rate == 0.3
 
 
-def test_reward_recap_block_tower_configs_exist():
-    positive_only = _config.get_config("pi05_build_block_tower_positive_only")
-    mixed = _config.get_config("pi05_build_block_tower_mixed")
+def test_build_block_tower_recap_configs_exist():
+    nonhier_positive_only = _config.get_config("pi05_build_block_tower_recap_positive_only")
+    nonhier_mixed = _config.get_config("pi05_build_block_tower_recap_mixed")
+    hier_positive_only = _config.get_config("pi05_build_block_tower_subtask_recap_positive_only")
+    hier_mixed = _config.get_config("pi05_build_block_tower_subtask_recap_mixed")
 
-    assert positive_only.data.use_control_mode_advantage_prompt is True
-    assert positive_only.data.advantage_prompt_mode == "positive_only"
-    assert positive_only.data.advantage_dropout_rate == 0.3
+    for cfg, mode in (
+        (nonhier_positive_only, "positive_only"),
+        (nonhier_mixed, "mixed"),
+        (hier_positive_only, "positive_only"),
+        (hier_mixed, "mixed"),
+    ):
+        assert cfg.data.use_control_mode_advantage_prompt is True
+        assert cfg.data.advantage_prompt_mode == mode
+        assert cfg.data.advantage_dropout_rate == 0.3
 
-    assert mixed.data.use_control_mode_advantage_prompt is True
-    assert mixed.data.advantage_prompt_mode == "mixed"
-    assert mixed.data.advantage_dropout_rate == 0.3
+
+def test_build_block_tower_recap_configs_use_same_dataset_mix():
+    expected_repo_ids = (
+        "villekuosmanen/build_block_tower",
+        "villekuosmanen/dAgger_build_block_tower_1.0.0",
+        "villekuosmanen/dAgger_build_block_tower_1.1.0",
+        "villekuosmanen/dAgger_build_block_tower_1.2.0",
+        "villekuosmanen/dAgger_build_block_tower_1.3.0",
+        "villekuosmanen/dAgger_build_block_tower_1.4.0",
+    )
+
+    configs = (
+        _config.get_config("pi05_build_block_tower_recap_positive_only"),
+        _config.get_config("pi05_build_block_tower_recap_mixed"),
+        _config.get_config("pi05_build_block_tower_subtask_recap_positive_only"),
+        _config.get_config("pi05_build_block_tower_subtask_recap_mixed"),
+    )
+
+    for cfg in configs:
+        for repo_id in expected_repo_ids:
+            assert repo_id in cfg.data.repo_id
 
 
-def test_build_block_tower_baseline_uses_base_and_dagger_datasets():
-    baseline = _config.get_config("pi05_build_block_tower_baseline")
+def test_build_block_tower_recap_configs_split_hierarchical_prompt_paths(tmp_path, monkeypatch):
+    class _DummyTokenizer:
+        def __init__(self, *args, **kwargs):
+            pass
+
+    monkeypatch.setattr(_config._tokenizer, "PaligemmaTokenizer", _DummyTokenizer)
+
+    nonhier = _config.get_config("pi05_build_block_tower_recap_mixed")
+    hier = _config.get_config("pi05_build_block_tower_subtask_recap_mixed")
+
+    nonhier_data = nonhier.data.create(tmp_path, nonhier.model)
+    hier_data = hier.data.create(tmp_path, hier.model)
+
+    assert any(
+        isinstance(transform, _transforms.TokenizeHighPrompt)
+        for transform in nonhier_data.model_transforms.inputs
+    )
+    assert not any(
+        isinstance(transform, _transforms.TokenizeHighLowPrompt)
+        for transform in nonhier_data.model_transforms.inputs
+    )
+
+    assert any(
+        isinstance(transform, _transforms.TokenizeHighLowPrompt)
+        for transform in hier_data.model_transforms.inputs
+    )
+
+
+def test_build_block_tower_hierarchical_recap_disables_fast_tokens(tmp_path, monkeypatch):
+    class _DummyTokenizer:
+        def __init__(self, *args, **kwargs):
+            pass
+
+    monkeypatch.setattr(_config._tokenizer, "PaligemmaTokenizer", _DummyTokenizer)
+
+    hier = _config.get_config("pi05_build_block_tower_subtask_recap_mixed")
+    hier_data = hier.data.create(tmp_path, hier.model)
+
+    assert hier.model.subtask_loss_weight > 0
+    assert hier.model.fast_token_loss_weight == 0.0
+
+    tokenize = next(
+        transform for transform in hier_data.model_transforms.inputs if isinstance(transform, _transforms.TokenizeHighLowPrompt)
+    )
+    assert tokenize.use_fast_tokens is False
+
+
+def test_build_block_tower_recap_uses_base_and_dagger_datasets():
+    recap = _config.get_config("pi05_build_block_tower_recap_mixed")
 
     for repo_id in (
         "villekuosmanen/build_block_tower",
@@ -209,29 +282,41 @@ def test_build_block_tower_baseline_uses_base_and_dagger_datasets():
         "villekuosmanen/dAgger_build_block_tower_1.3.0",
         "villekuosmanen/dAgger_build_block_tower_1.4.0",
     ):
-        assert repo_id in baseline.data.repo_id
+        assert repo_id in recap.data.repo_id
 
 
-def test_build_block_tower_baseline_uses_17d_outputs(tmp_path):
-    baseline = _config.get_config("pi05_build_block_tower_baseline")
-    data_config = baseline.data.create(tmp_path, baseline.model)
+def test_build_block_tower_recap_uses_17d_outputs(tmp_path, monkeypatch):
+    class _DummyTokenizer:
+        def __init__(self, *args, **kwargs):
+            pass
+
+    monkeypatch.setattr(_config._tokenizer, "PaligemmaTokenizer", _DummyTokenizer)
+
+    recap = _config.get_config("pi05_build_block_tower_recap_mixed")
+    data_config = recap.data.create(tmp_path, recap.model)
 
     assert data_config.action_sequence_keys == ("action",)
     assert data_config.data_transforms.outputs[0].action_dim == 17
 
 
-def test_build_block_tower_baseline_only_deltas_real_7d_dims(tmp_path):
-    baseline = _config.get_config("pi05_build_block_tower_baseline")
-    data_config = baseline.data.create(tmp_path, baseline.model)
+def test_build_block_tower_recap_only_deltas_real_7d_dims(tmp_path, monkeypatch):
+    class _DummyTokenizer:
+        def __init__(self, *args, **kwargs):
+            pass
+
+    monkeypatch.setattr(_config._tokenizer, "PaligemmaTokenizer", _DummyTokenizer)
+
+    recap = _config.get_config("pi05_build_block_tower_recap_mixed")
+    data_config = recap.data.create(tmp_path, recap.model)
 
     delta = next(t for t in data_config.data_transforms.inputs if isinstance(t, _transforms.DeltaActionsFromState))
     assert tuple(delta.mask) == tuple([True] * 10 + [False] * 6 + [True])
 
 
 def test_build_block_tower_rlt_6mix_references_published_baseline_checkpoint():
-    baseline = _config.get_config("pi05_build_block_tower_baseline")
+    recap = _config.get_config("pi05_build_block_tower_recap_mixed")
     rlt = _config.get_config("pi05_rlt_build_block_tower_6mix")
-    expected_step = str(baseline.num_train_steps - 1)
+    expected_step = str(recap.num_train_steps - 1)
 
     assert expected_step == "49999"
     assert rlt.num_train_steps == 20_000
@@ -242,6 +327,7 @@ def test_build_block_tower_rlt_6mix_references_published_baseline_checkpoint():
     )
 
     train_script = pathlib.Path("slurm/train_build_block_tower_slurm.sh").read_text()
+    assert 'CONFIG_NAME="pi05_build_block_tower_recap_mixed"' in train_script
     assert 'EXP_NAME="baseline"' in train_script
 
     rlt_script = pathlib.Path("slurm/train_build_block_tower_rlt_slurm.sh").read_text()
@@ -249,14 +335,27 @@ def test_build_block_tower_rlt_6mix_references_published_baseline_checkpoint():
     assert 'EXP_NAME="rlt_6mix_v1"' in rlt_script
     assert 'BASELINE_HF_REPO="pravsels/pi05-build-block-tower-6mix"' in rlt_script
     assert f'BASELINE_STEP="{expected_step}"' in rlt_script
-    assert 'pi05_build_block_tower_baseline_6mix/baseline/${BASELINE_STEP}' in rlt_script
+    assert 'BASELINE_LOCAL_DIR="${data_dir}/checkpoints/pi05_build_block_tower_baseline_6mix/baseline"' in rlt_script
 
 
 def test_build_block_tower_rlt_6mix_uses_same_dataset_mix_as_baseline():
-    baseline = _config.get_config("pi05_build_block_tower_baseline")
+    recap = _config.get_config("pi05_build_block_tower_recap_mixed")
     rlt = _config.get_config("pi05_rlt_build_block_tower_6mix")
 
-    assert rlt.data.repo_id == baseline.data.repo_id
+    assert rlt.data.repo_id == recap.data.repo_id
+
+
+def test_build_block_tower_recap_slurm_script_references_existing_configs():
+    script = pathlib.Path("slurm/train_build_block_tower_recap_slurm.sh").read_text()
+
+    for config_name in (
+        "pi05_build_block_tower_recap_positive_only",
+        "pi05_build_block_tower_recap_mixed",
+        "pi05_build_block_tower_subtask_recap_positive_only",
+        "pi05_build_block_tower_subtask_recap_mixed",
+    ):
+        assert config_name in script
+        _config.get_config(config_name)
 
 
 def test_reward_recap_slurm_script_references_existing_configs():

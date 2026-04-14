@@ -150,7 +150,7 @@ class ModelTransformFactory(GroupFactory):
                     inputs=[
                         _transforms.InjectDefaultPrompt(self.default_prompt),
                         _transforms.ResizeImages(224, 224),
-                        _transforms.TokenizePrompt(
+                        _transforms.TokenizeHighPrompt(
                             _tokenizer.PaligemmaTokenizer(model_config.max_token_len),
                             discrete_state_input=model_config.discrete_state_input,
                         ),
@@ -470,9 +470,8 @@ class LeRobotBinPackDataConfig(DataConfigFactory):
         input_transforms: list[_transforms.DataTransformFn] = []
         if self.use_control_mode_advantage_prompt:
             input_transforms.append(
-                _transforms.InjectAdvantagePrompt(
+                _transforms.SetAdvantageLabelFromControlMode(
                     mode=self.advantage_prompt_mode,
-                    default_prompt=self.default_prompt,
                     dropout_rate=self.advantage_dropout_rate,
                 )
             )
@@ -571,9 +570,8 @@ class LeRobotBlockTowerDataConfig(DataConfigFactory):
         input_transforms: list[_transforms.DataTransformFn] = []
         if self.use_control_mode_advantage_prompt:
             input_transforms.append(
-                _transforms.InjectAdvantagePrompt(
+                _transforms.SetAdvantageLabelFromControlMode(
                     mode=self.advantage_prompt_mode,
-                    default_prompt=self.default_prompt,
                     dropout_rate=self.advantage_dropout_rate,
                 )
             )
@@ -602,6 +600,88 @@ class LeRobotBlockTowerDataConfig(DataConfigFactory):
         # Match bin-pack semantics: keep rot6d channels identity-normalized under
         # both quantile and z-score normalization so we don't distort the
         # rotation representation.
+        def _set_rot6d_identity(stats: _transforms.NormStats) -> _transforms.NormStats:
+            mean = np.array(stats.mean, copy=True)
+            std = np.array(stats.std, copy=True)
+            if mean.shape[-1] < _ROT6D_SLICE.stop or std.shape[-1] < _ROT6D_SLICE.stop:
+                raise ValueError(
+                    "Block-tower rot6d identity normalization expects at least 17D stats "
+                    f"(got mean {mean.shape}, std {std.shape}). "
+                    "Regenerate norm stats after enabling rot6d encoding."
+                )
+            mean[..., _ROT6D_SLICE] = 0.0
+            std[..., _ROT6D_SLICE] = 1.0
+            q01 = None if stats.q01 is None else np.array(stats.q01, copy=True)
+            q99 = None if stats.q99 is None else np.array(stats.q99, copy=True)
+            if q01 is not None:
+                q01[..., _ROT6D_SLICE] = -1.0
+            if q99 is not None:
+                q99[..., _ROT6D_SLICE] = 1.0
+            return _normalize.NormStats(mean=mean, std=std, q01=q01, q99=q99)
+
+        patched_norm_stats = base_config.norm_stats
+        if patched_norm_stats is not None:
+            patched_norm_stats = dict(patched_norm_stats)
+            if "state" in patched_norm_stats:
+                patched_norm_stats["state"] = _set_rot6d_identity(patched_norm_stats["state"])
+            if "actions" in patched_norm_stats:
+                patched_norm_stats["actions"] = _set_rot6d_identity(patched_norm_stats["actions"])
+
+        patched_per_ts = base_config.per_timestep_action_norm_stats
+        if patched_per_ts is not None:
+            patched_per_ts = _set_rot6d_identity(patched_per_ts)
+
+        use_per_timestep_action_norm = base_config.use_per_timestep_action_norm
+        if self.use_delta_actions and use_per_timestep_action_norm is None:
+            use_per_timestep_action_norm = True
+        return dataclasses.replace(
+            base_config,
+            norm_stats=patched_norm_stats,
+            per_timestep_action_norm_stats=patched_per_ts,
+            data_transforms=data_transforms,
+            model_transforms=model_transforms,
+            action_sequence_keys=("action",),
+            use_per_timestep_action_norm=use_per_timestep_action_norm,
+        )
+
+
+@dataclasses.dataclass(frozen=True)
+class LeRobotBlockTowerSubtaskDataConfig(LeRobotBlockTowerDataConfig):
+    """Hierarchical build_block_tower config with explicit subtask prompts."""
+
+    @override
+    def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
+        _ROT6D_SLICE = slice(10, 16)
+
+        input_transforms: list[_transforms.DataTransformFn] = []
+        input_transforms.append(block_tower_policy.BlockTowerSubtaskInputs(default_prompt=self.default_prompt or ""))
+        if self.use_control_mode_advantage_prompt:
+            input_transforms.append(
+                _transforms.SetAdvantageLabelFromControlMode(
+                    mode=self.advantage_prompt_mode,
+                    dropout_rate=self.advantage_dropout_rate,
+                )
+            )
+
+        data_transforms = _transforms.Group(
+            inputs=input_transforms,
+            outputs=[block_tower_policy.BlockTowerOutputs(action_dim=17)],
+        )
+        if self.use_delta_actions:
+            delta_action_mask = self.delta_action_mask
+            if delta_action_mask is None:
+                delta_action_mask = tuple([True] * 10 + [False] * 6 + [True])
+            output_transforms = []
+            if not self.output_delta_actions:
+                output_transforms.append(_transforms.AbsoluteActionsFromState(delta_action_mask))
+            data_transforms = data_transforms.push(
+                inputs=[_transforms.DeltaActionsFromState(delta_action_mask)],
+                outputs=output_transforms,
+            )
+
+        model_transforms = SubtaskModelTransformFactory()(model_config)
+        base_config = self.create_base_config(assets_dirs, model_config)
+
         def _set_rot6d_identity(stats: _transforms.NormStats) -> _transforms.NormStats:
             mean = np.array(stats.mean, copy=True)
             std = np.array(stats.std, copy=True)
@@ -959,6 +1039,17 @@ class TrainConfig:
 
 
 # Use `get_config` if you need to get a config by name in your code.
+_BLOCK_TOWER_6MIX_REPO_ID = (
+    "["
+    "villekuosmanen/build_block_tower, "
+    "villekuosmanen/dAgger_build_block_tower_1.0.0, "
+    "villekuosmanen/dAgger_build_block_tower_1.1.0, "
+    "villekuosmanen/dAgger_build_block_tower_1.2.0, "
+    "villekuosmanen/dAgger_build_block_tower_1.3.0, "
+    "villekuosmanen/dAgger_build_block_tower_1.4.0"
+    "]"
+)
+
 _CONFIGS = [
     # ⭐ Libero Subtask Training Configurations - Three libero training modes
     
@@ -1307,97 +1398,6 @@ _CONFIGS = [
         pytorch_weight_path="/path/to/your/pytorch_weight_path",
         num_train_steps=30_000,
     ),
-    TrainConfig(
-        name="pi05_bin_pack_coffee_capsules",
-        model=pi0_config.Pi0Config(pi05=True, action_horizon=50),
-        data=LeRobotBinPackDataConfig(
-            repo_id=(
-                "["
-                "villekuosmanen/bin_pick_pack_coffee_capsules, "
-                "villekuosmanen/bin_pick_pack_coffee_capsules_continuous, "
-                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.0.0, "
-                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.1.0, "
-                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.2.0, "
-                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.3.1, "
-                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.4.0, "
-                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.5.0, "
-                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.5.1, "
-                "villekuosmanen/free_play_bin_pick_pack_coffee_capsules"
-                "]"
-            ),
-            base_config=DataConfig(prompt_from_task=True),
-        ),
-        batch_size=36,
-        lr_schedule=_optimizer.CosineDecaySchedule(
-            warmup_steps=10_000,
-            peak_lr=5e-5,
-            decay_steps=1_000_000,
-            decay_lr=5e-5,
-        ),
-        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
-        ema_decay=0.999,
-        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
-        num_train_steps=30_000,
-    ),
-    TrainConfig(
-        name="pi05_bin_pack_coffee_capsules_delta",
-        model=pi0_config.Pi0Config(pi05=True, action_horizon=50),
-        data=LeRobotBinPackDataConfig(
-            repo_id=(
-                "["
-                "villekuosmanen/bin_pick_pack_coffee_capsules, "
-                "villekuosmanen/bin_pick_pack_coffee_capsules_continuous, "
-                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.0.0, "
-                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.1.0, "
-                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.2.0, "
-                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.3.1, "
-                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.4.0, "
-                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.5.0, "
-                "villekuosmanen/dAgger_bin_pick_pack_coffee_capsules_1.5.1, "
-                "villekuosmanen/free_play_bin_pick_pack_coffee_capsules"
-                "]"
-            ),
-            base_config=DataConfig(prompt_from_task=True),
-            use_delta_actions=True,
-            output_delta_actions=True,
-        ),
-        batch_size=36,
-        lr_schedule=_optimizer.CosineDecaySchedule(
-            warmup_steps=10_000,
-            peak_lr=5e-5,
-            decay_steps=1_000_000,
-            decay_lr=5e-5,
-        ),
-        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
-        ema_decay=0.999,
-        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
-        num_train_steps=30_000,
-    ),
-    TrainConfig(
-        name="pi05_bin_pack_coffee_capsules_delta_single_dataset",
-        model=pi0_config.Pi0Config(pi05=True, action_horizon=50),
-        data=LeRobotBinPackDataConfig(
-            repo_id=(
-                "["
-                "villekuosmanen/bin_pick_pack_coffee_capsules"
-                "]"
-            ),
-            base_config=DataConfig(prompt_from_task=True),
-            use_delta_actions=True,
-            output_delta_actions=True,
-        ),
-        batch_size=36,
-        lr_schedule=_optimizer.CosineDecaySchedule(
-            warmup_steps=10_000,
-            peak_lr=5e-5,
-            decay_steps=1_000_000,
-            decay_lr=5e-5,
-        ),
-        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
-        ema_decay=0.999,
-        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
-        num_train_steps=30_000,
-    ),
     # Reward recap configs for bin-pack.
     # Keep only the canonical positive_only and mixed variants, both starting from pi05 base weights.
     TrainConfig(
@@ -1457,39 +1457,6 @@ _CONFIGS = [
             use_control_mode_advantage_prompt=True,
             advantage_prompt_mode="mixed",
             advantage_dropout_rate=0.3,
-            use_delta_actions=True,
-            output_delta_actions=True,
-        ),
-        batch_size=36,
-        lr_schedule=_optimizer.CosineDecaySchedule(
-            warmup_steps=10_000,
-            peak_lr=5e-5,
-            decay_steps=1_000_000,
-            decay_lr=5e-5,
-        ),
-        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
-        ema_decay=0.999,
-        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
-        num_train_steps=50_000,
-    ),
-    #
-    # Build block tower configs.
-    #
-    TrainConfig(
-        name="pi05_build_block_tower_baseline",
-        model=pi0_config.Pi0Config(pi05=True, action_horizon=50),
-        data=LeRobotBlockTowerDataConfig(
-            repo_id=(
-                "["
-                "villekuosmanen/build_block_tower, "
-                "villekuosmanen/dAgger_build_block_tower_1.0.0, "
-                "villekuosmanen/dAgger_build_block_tower_1.1.0, "
-                "villekuosmanen/dAgger_build_block_tower_1.2.0, "
-                "villekuosmanen/dAgger_build_block_tower_1.3.0, "
-                "villekuosmanen/dAgger_build_block_tower_1.4.0"
-                "]"
-            ),
-            base_config=DataConfig(prompt_from_task=True),
             use_delta_actions=True,
             output_delta_actions=True,
         ),
@@ -1747,22 +1714,122 @@ _CONFIGS = [
         wandb_enabled=True,
     ),
     #
+    # Build-block-tower reward recap configs.
+    #
+    TrainConfig(
+        name="pi05_build_block_tower_recap_positive_only",
+        model=pi0_config.Pi0Config(pi05=True, action_horizon=50),
+        data=LeRobotBlockTowerDataConfig(
+            repo_id=_BLOCK_TOWER_6MIX_REPO_ID,
+            base_config=DataConfig(prompt_from_task=True),
+            use_control_mode_advantage_prompt=True,
+            advantage_prompt_mode="positive_only",
+            advantage_dropout_rate=0.3,
+            use_delta_actions=True,
+            output_delta_actions=True,
+        ),
+        batch_size=36,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=10_000,
+            peak_lr=5e-5,
+            decay_steps=1_000_000,
+            decay_lr=5e-5,
+        ),
+        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
+        ema_decay=0.999,
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
+        num_train_steps=50_000,
+    ),
+    TrainConfig(
+        name="pi05_build_block_tower_recap_mixed",
+        model=pi0_config.Pi0Config(pi05=True, action_horizon=50),
+        data=LeRobotBlockTowerDataConfig(
+            repo_id=_BLOCK_TOWER_6MIX_REPO_ID,
+            base_config=DataConfig(prompt_from_task=True),
+            use_control_mode_advantage_prompt=True,
+            advantage_prompt_mode="mixed",
+            advantage_dropout_rate=0.3,
+            use_delta_actions=True,
+            output_delta_actions=True,
+        ),
+        batch_size=36,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=10_000,
+            peak_lr=5e-5,
+            decay_steps=1_000_000,
+            decay_lr=5e-5,
+        ),
+        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
+        ema_decay=0.999,
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
+        num_train_steps=50_000,
+    ),
+    TrainConfig(
+        name="pi05_build_block_tower_subtask_recap_positive_only",
+        model=pi05_config.Pi05Config(
+            action_horizon=50,
+            subtask_loss_weight=1.0,
+            fast_token_loss_weight=0.0,
+            flow_matching_loss_weight=1.0,
+        ),
+        data=LeRobotBlockTowerSubtaskDataConfig(
+            repo_id=_BLOCK_TOWER_6MIX_REPO_ID,
+            base_config=DataConfig(prompt_from_task=True),
+            use_control_mode_advantage_prompt=True,
+            advantage_prompt_mode="positive_only",
+            advantage_dropout_rate=0.3,
+            use_delta_actions=True,
+            output_delta_actions=True,
+        ),
+        batch_size=36,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=10_000,
+            peak_lr=5e-5,
+            decay_steps=1_000_000,
+            decay_lr=5e-5,
+        ),
+        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
+        ema_decay=0.999,
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
+        num_train_steps=50_000,
+    ),
+    TrainConfig(
+        name="pi05_build_block_tower_subtask_recap_mixed",
+        model=pi05_config.Pi05Config(
+            action_horizon=50,
+            subtask_loss_weight=1.0,
+            fast_token_loss_weight=0.0,
+            flow_matching_loss_weight=1.0,
+        ),
+        data=LeRobotBlockTowerSubtaskDataConfig(
+            repo_id=_BLOCK_TOWER_6MIX_REPO_ID,
+            base_config=DataConfig(prompt_from_task=True),
+            use_control_mode_advantage_prompt=True,
+            advantage_prompt_mode="mixed",
+            advantage_dropout_rate=0.3,
+            use_delta_actions=True,
+            output_delta_actions=True,
+        ),
+        batch_size=36,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=10_000,
+            peak_lr=5e-5,
+            decay_steps=1_000_000,
+            decay_lr=5e-5,
+        ),
+        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
+        ema_decay=0.999,
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
+        num_train_steps=50_000,
+    ),
+    #
     # RL Token (RLT Stage 1) configs.
     #
     TrainConfig(
         name="pi05_rlt_build_block_tower_6mix",
         model=pi0_rl_config.Pi0RLConfig(pi05=True, action_horizon=50, rl_vla_loss_weight=0.0),
         data=LeRobotBlockTowerDataConfig(
-            repo_id=(
-                "["
-                "villekuosmanen/build_block_tower, "
-                "villekuosmanen/dAgger_build_block_tower_1.0.0, "
-                "villekuosmanen/dAgger_build_block_tower_1.1.0, "
-                "villekuosmanen/dAgger_build_block_tower_1.2.0, "
-                "villekuosmanen/dAgger_build_block_tower_1.3.0, "
-                "villekuosmanen/dAgger_build_block_tower_1.4.0"
-                "]"
-            ),
+            repo_id=_BLOCK_TOWER_6MIX_REPO_ID,
             base_config=DataConfig(
                 prompt_from_task=True,
                 episode_split=EpisodeSplitConfig(val_ratio=0.1, seed=42),
@@ -1783,7 +1850,7 @@ _CONFIGS = [
             pi05=True, action_horizon=50, rl_vla_loss_weight=0.0
         ).get_rl_freeze_filter(),
         weight_loader=weight_loaders.RLTokenCheckpointWeightLoader(
-            "checkpoints/pi05_build_block_tower_baseline_6mix/baseline/49999/params"
+            "checkpoints/pi05_build_block_tower_baseline_6mix/retain/step_49999/alpha_0.5/params"
         ),
         num_train_steps=20_000,
         val_interval=1000,

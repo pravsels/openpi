@@ -3,6 +3,7 @@ import dataclasses
 import flax.nnx as nnx
 import jax
 import jax.numpy as jnp
+import pytest
 
 from openpi.models.pi05 import Pi05
 import openpi.models.pi05_config as _pi05_config
@@ -165,7 +166,9 @@ def test_pi05_sample_actions_cfg_reuses_conditional_subtask_tokens():
     model = config.create(jax.random.key(0))
     obs = config.fake_obs(batch_size=1)
     uncond_obs = config.fake_obs(batch_size=1).replace(
-        tokenized_prompt=jnp.full_like(obs.tokenized_prompt, 9),
+        tokenized_prompt=obs.tokenized_prompt,
+        tokenized_prompt_mask=obs.tokenized_prompt_mask,
+        action_tokenized_prompt=jnp.full_like(obs.action_tokenized_prompt, 9),
     )
 
     expected_tokens = jnp.array([[7, 3, 0]], dtype=jnp.int32)
@@ -185,9 +188,9 @@ def test_pi05_sample_actions_cfg_reuses_conditional_subtask_tokens():
 
     def build_cache(observation, output_tokens):
         assert jnp.array_equal(output_tokens, expected_tokens)
-        if jnp.array_equal(observation.tokenized_prompt, obs.tokenized_prompt):
+        if jnp.array_equal(observation.action_tokenized_prompt, obs.action_tokenized_prompt):
             return "cond-cache", cond_prefix_mask
-        assert jnp.array_equal(observation.tokenized_prompt, uncond_obs.tokenized_prompt)
+        assert jnp.array_equal(observation.action_tokenized_prompt, uncond_obs.action_tokenized_prompt)
         return "uncond-cache", uncond_prefix_mask
 
     model._build_prefix_cache_from_output_tokens = build_cache
@@ -221,3 +224,47 @@ def test_pi05_sample_actions_cfg_reuses_conditional_subtask_tokens():
 
     assert jnp.array_equal(actions, expected_actions)
     assert jnp.array_equal(tokens, expected_tokens)
+
+
+def test_pi05_sample_actions_cfg_requires_post_subtask_action_prompts():
+    config = _pi05_config.Pi05Config(
+        paligemma_variant="dummy",
+        action_expert_variant="dummy",
+        action_dim=8,
+        action_horizon=4,
+        max_token_len=16,
+        subtask_loss_weight=0.0,
+        fast_token_loss_weight=0.0,
+        flow_matching_loss_weight=1.0,
+    )
+    model = config.create(jax.random.key(0))
+    obs = config.fake_obs(batch_size=1).replace(
+        action_tokenized_prompt=None,
+        action_tokenized_prompt_mask=None,
+    )
+
+    model.sample_low_level_task = lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("should not decode"))
+
+    with pytest.raises(ValueError, match="action_tokenized_prompt"):
+        model.sample_actions_cfg(jax.random.key(1), obs, obs, guidance_scale=2.0)
+
+
+def test_pi05_sample_actions_cfg_requires_shared_prefix_prompt():
+    config = _pi05_config.Pi05Config(
+        paligemma_variant="dummy",
+        action_expert_variant="dummy",
+        action_dim=8,
+        action_horizon=4,
+        max_token_len=16,
+        subtask_loss_weight=0.0,
+        fast_token_loss_weight=0.0,
+        flow_matching_loss_weight=1.0,
+    )
+    model = config.create(jax.random.key(0))
+    obs = config.fake_obs(batch_size=1)
+    uncond_obs = obs.replace(tokenized_prompt=jnp.full_like(obs.tokenized_prompt, 9))
+
+    model.sample_low_level_task = lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("should not decode"))
+
+    with pytest.raises(ValueError, match="share the same tokenized_prompt"):
+        model.sample_actions_cfg(jax.random.key(1), obs, uncond_obs, guidance_scale=2.0)

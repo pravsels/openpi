@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=pi05_block_tower
+#SBATCH --job-name=pi05_block_tower_recap
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:4
 #SBATCH --ntasks-per-node=1
@@ -12,6 +12,35 @@
 #SBATCH --requeue
 
 set -e
+
+MODE="${1:?Usage: sbatch $0 <positive_only|mixed|subtask_positive_only|subtask_mixed>}"
+
+case "${MODE}" in
+    positive_only)
+        CONFIG_NAME="pi05_build_block_tower_recap_positive_only"
+        EXP_NAME="positive_only"
+        TRAIN_EXTRA_ARGS=""
+        ;;
+    mixed)
+        CONFIG_NAME="pi05_build_block_tower_recap_mixed"
+        EXP_NAME="mixed"
+        TRAIN_EXTRA_ARGS=""
+        ;;
+    subtask_positive_only)
+        CONFIG_NAME="pi05_build_block_tower_subtask_recap_positive_only"
+        EXP_NAME="subtask_positive_only"
+        TRAIN_EXTRA_ARGS="--batch-size=128 --fsdp-devices=4"
+        ;;
+    subtask_mixed)
+        CONFIG_NAME="pi05_build_block_tower_subtask_recap_mixed"
+        EXP_NAME="subtask_mixed"
+        TRAIN_EXTRA_ARGS="--batch-size=128 --fsdp-devices=4"
+        ;;
+    *)
+        echo "ERROR: unknown mode '${MODE}'. Use 'positive_only', 'mixed', 'subtask_positive_only', or 'subtask_mixed'."
+        exit 1
+        ;;
+esac
 
 module purge
 module load brics/apptainer-multi-node
@@ -28,10 +57,6 @@ WANDB_CACHE_DIR="${scratch_dir}/.cache/wandb"
 WANDB_CONFIG_DIR="${scratch_dir}/.config/wandb"
 XDG_CACHE_HOME="${scratch_dir}/.cache"
 XDG_CONFIG_HOME="${scratch_dir}/.config"
-
-# Training config — switch between baseline and dyna here.
-CONFIG_NAME="pi05_build_block_tower_recap_mixed"
-EXP_NAME="baseline"
 
 CHECKPOINT_DIR="${data_dir}/checkpoints/${CONFIG_NAME}/${EXP_NAME}"
 ASSETS_DIR="${CHECKPOINT_DIR}/assets"
@@ -51,14 +76,15 @@ start_time="$(date -Is --utc)"
 echo "===================================="
 echo "Job ID: ${SLURM_JOB_ID}"
 echo "Node: ${SLURM_NODELIST}"
+echo "Mode: ${MODE}"
+echo "Config: ${CONFIG_NAME}"
 echo "Started (UTC): ${start_time}"
 echo "===================================="
 
-# Training commands
 COMPUTE_NORM_STATS_CMD="uv run scripts/compute_norm_stats_per_timestep.py --config-name=${CONFIG_NAME} --assets-dir=${ASSETS_DIR}"
 NORM_STATS_PATH="${ASSETS_DIR}/norm_stats.json"
 PER_TIMESTEP_STATS_PATH="${ASSETS_DIR}/norm_stats_actions_per_timestep.json"
-TRAIN_CMD="uv run scripts/train.py ${CONFIG_NAME} --exp-name=${EXP_NAME} --assets-dir=${ASSETS_DIR} --resume"
+TRAIN_CMD="uv run scripts/train.py ${CONFIG_NAME} --exp-name=${EXP_NAME} --assets-dir=${ASSETS_DIR} --resume ${TRAIN_EXTRA_ARGS}"
 
 EXPORT_VARS="export PYTHONUNBUFFERED=1"
 EXPORT_VARS="${EXPORT_VARS} && export WANDB_MODE=offline"
@@ -71,6 +97,8 @@ EXPORT_VARS="${EXPORT_VARS} && export WANDB_ENTITY=pravsels"
 EXPORT_VARS="${EXPORT_VARS} && export OPENPI_DATA_HOME=${data_dir}"
 EXPORT_VARS="${EXPORT_VARS} && export UV_PROJECT_ENVIRONMENT=${data_dir}/.venv"
 EXPORT_VARS="${EXPORT_VARS} && export HF_TOKEN=\$(cat ${home_dir}/.hf_token)"
+EXPORT_VARS="${EXPORT_VARS} && export XLA_PYTHON_CLIENT_PREALLOCATE=false"
+EXPORT_VARS="${EXPORT_VARS} && export XLA_PYTHON_CLIENT_ALLOCATOR=platform"
 
 PRECOMPUTE_CMD=""
 

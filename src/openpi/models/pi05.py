@@ -369,7 +369,8 @@ class Pi05(_model.BaseModel):
         prefix_token_embeddings, prefix_mask, prefix_ar_mask = self.embed_prefix(observation)
         prefix_attn_mask = make_attn_mask(prefix_mask, prefix_ar_mask)
 
-        # left to right align all input token sequences
+        # Right-align the real prefix tokens inside the padded window so the
+        # decode loop can append new tokens immediately after the prefix.
         prefix_token_embeddings, prefix_mask, prefix_attn_mask = left_to_right_align(
             prefix_token_embeddings, prefix_mask, prefix_attn_mask
         )
@@ -377,6 +378,8 @@ class Pi05(_model.BaseModel):
         prefill_len = jnp.sum(prefix_mask, axis=-1)
         prefix_start = prefill_size - prefill_len
 
+        # Run one prefill pass over the existing prefix to initialize the KV
+        # cache, then decode the next token from the final prefix position.
         prefix_attn_mask = jnp.pad(prefix_attn_mask, ((0, 0), (0, 0), (0, max_decoding_steps)))
         prefix_positions = jnp.cumsum(prefix_mask, axis=-1) - 1
         (prefix_out, _), kv_cache = self.PaliGemma.llm(
@@ -385,10 +388,10 @@ class Pi05(_model.BaseModel):
         last_token_embedding = prefix_out[:, -1:]
         last_logits = self.PaliGemma.llm(last_token_embedding, method="deembed")
         last_logits = jax.nn.log_softmax(last_logits, axis=-1)
-        output_tokens = jnp.zeros((batch_size, max_decoding_steps))
+        subtask_tokens = jnp.zeros((batch_size, max_decoding_steps))
 
         def step(carry):
-            rng, last_logit, output_tokens, cache, _, step = carry
+            rng, last_logit, subtask_tokens, cache, _, step = carry
 
             # Sample token from last logit
             # Split RNG for this step
@@ -399,14 +402,15 @@ class Pi05(_model.BaseModel):
                 lambda _: jnp.argmax(last_logit, axis=-1),
                 operand=None,
             )
-            output_tokens = put_along_last_axis(output_tokens, jnp.broadcast_to(step, (token.shape[0], 1)), token)
+            subtask_tokens = put_along_last_axis(subtask_tokens, jnp.broadcast_to(step, (token.shape[0], 1)), token)
 
             # Check for early stopping --> stop if all batch elements have EOS token
             ### TODO: erase extra decoded token due to mismatch
             has_eos = jnp.any(token == paligemma_eos_token, axis=-1)
             all_eos = jnp.all(has_eos)
 
-            # Decode one step
+            # Feed the sampled token back through the model using the cached
+            # prefix. The mask grows by one visible position per decode step.
             token_embedding = self.PaliGemma.llm(token, method="embed")
             positions = prefill_len[:, None] + step
             mask = jnp.logical_and(
@@ -422,7 +426,7 @@ class Pi05(_model.BaseModel):
             last_logits = self.PaliGemma.llm(last_token_embedding, method="deembed")
             last_logits = jax.nn.log_softmax(last_logits, axis=-1)
 
-            return rng, last_logits, output_tokens, kv_cache, all_eos, step + 1
+            return rng, last_logits, subtask_tokens, kv_cache, all_eos, step + 1
 
         def cond(carry):
             _, _, _, _, all_eos, step = carry
@@ -430,18 +434,18 @@ class Pi05(_model.BaseModel):
             # return step < max_decoding_steps
 
         # Use lax.while_loop so we can jit the full decoding loop.
-        _, _, output_tokens, kv_cache, _, _ = jax.lax.while_loop(
-            cond, step, (rng, last_logits, output_tokens, kv_cache, False, 0)
+        _, _, subtask_tokens, kv_cache, _, _ = jax.lax.while_loop(
+            cond, step, (rng, last_logits, subtask_tokens, kv_cache, False, 0)
         )
 
-        mask = jnp.concatenate([prefix_mask, (output_tokens != 0).astype(jnp.bool_)], axis=1)
+        mask = jnp.concatenate([prefix_mask, (subtask_tokens != 0).astype(jnp.bool_)], axis=1)
         ar_mask = jnp.concatenate([prefix_ar_mask, jnp.ones(max_decoding_steps, dtype=jnp.bool_)], axis=0)
         # Notice:
-        #  output_tokens [B, max_decoding_steps]
+        #  subtask_tokens [B, max_decoding_steps]
         #  kv_cache [B, prefix_len+max_decoding_steps, ...]
         #  mask [B, prefix_len+max_decoding_steps]
         #  ar_mask [prefix_len+max_decoding_steps]
-        return output_tokens, kv_cache, mask, ar_mask
+        return subtask_tokens, kv_cache, mask, ar_mask
 
     @staticmethod
     def _combine_cfg_velocity(
@@ -450,6 +454,41 @@ class Pi05(_model.BaseModel):
         guidance_scale: float | jax.Array,
     ) -> jax.Array:
         return v_uncond + guidance_scale * (v_cond - v_uncond)
+
+    def _validate_cfg_observations(
+        self,
+        observation: _model.Observation,
+        uncond_observation: _model.Observation,
+    ) -> None:
+        if observation.tokenized_prompt is None or observation.tokenized_prompt_mask is None:
+            raise ValueError("sample_actions_cfg requires tokenized_prompt and tokenized_prompt_mask on observation.")
+        if uncond_observation.tokenized_prompt is None or uncond_observation.tokenized_prompt_mask is None:
+            raise ValueError(
+                "sample_actions_cfg requires tokenized_prompt and tokenized_prompt_mask on uncond_observation."
+            )
+        if observation.action_tokenized_prompt is None or observation.action_tokenized_prompt_mask is None:
+            raise ValueError(
+                "sample_actions_cfg requires action_tokenized_prompt/action_tokenized_prompt_mask on observation "
+                "so conditioning is appended after sample_low_level_task."
+            )
+        if (
+            uncond_observation.action_tokenized_prompt is None
+            or uncond_observation.action_tokenized_prompt_mask is None
+        ):
+            raise ValueError(
+                "sample_actions_cfg requires action_tokenized_prompt/action_tokenized_prompt_mask on "
+                "uncond_observation so conditioning is appended after sample_low_level_task."
+            )
+
+        same_prompt = bool(jnp.array_equal(observation.tokenized_prompt, uncond_observation.tokenized_prompt))
+        same_prompt_mask = bool(
+            jnp.array_equal(observation.tokenized_prompt_mask, uncond_observation.tokenized_prompt_mask)
+        )
+        if not same_prompt or not same_prompt_mask:
+            raise ValueError(
+                "sample_actions_cfg expects conditional and unconditional observations to share the same "
+                "tokenized_prompt/tokenized_prompt_mask and differ only in action_tokenized_prompt."
+            )
 
     def _append_action_prompt_to_prefix(
         self,
@@ -461,6 +500,9 @@ class Pi05(_model.BaseModel):
         if observation.action_tokenized_prompt is None or observation.action_tokenized_prompt_mask is None:
             return prefix_tokens, prefix_mask, prefix_ar_mask
 
+        # Embed observation.action_tokenized_prompt (for example
+        # "\nAdvantage: positive;\nAction: ") and concatenate it after the current
+        # prefix, which already contains the generated subtask tokens.
         action_prompt_tokens = self.PaliGemma.llm(observation.action_tokenized_prompt, method="embed")
         action_prompt_mask = observation.action_tokenized_prompt_mask
         action_prompt_ar_mask = jnp.ones(action_prompt_tokens.shape[1], dtype=jnp.bool_)
@@ -470,24 +512,34 @@ class Pi05(_model.BaseModel):
             jnp.concatenate([prefix_ar_mask, action_prompt_ar_mask], axis=0),
         )
 
-    def _build_prefix_cache_from_output_tokens(
+    def build_prefix_cache_with_generated_subtask(
         self,
         observation: _model.Observation,
-        output_tokens: jax.Array,
+        generated_subtask_tokens: jax.Array,
     ) -> tuple[object, jax.Array]:
+        # Start from the original high-level prefix stored on the observation.
         prefix_token_embeddings, prefix_mask, prefix_ar_mask = self.embed_prefix(observation)
-        output_tokens = output_tokens.astype(jnp.int32)
-        output_mask = (output_tokens != 0).astype(jnp.bool_)
-        output_token_embeddings = self.PaliGemma.llm(output_tokens, method="embed")
+        generated_subtask_tokens = generated_subtask_tokens.astype(jnp.int32)
+        generated_token_mask = (generated_subtask_tokens != 0).astype(jnp.bool_)
+        # Embed the sampled subtask text so it becomes part of the prefix seen by
+        # the action denoiser.
+        generated_subtask_embeddings = self.PaliGemma.llm(generated_subtask_tokens, method="embed")
 
-        full_prefix_tokens = jnp.concatenate([prefix_token_embeddings, output_token_embeddings], axis=1)
-        full_prefix_mask = jnp.concatenate([prefix_mask, output_mask], axis=1)
-        full_prefix_ar_mask = jnp.concatenate([prefix_ar_mask, jnp.ones(output_tokens.shape[1], dtype=jnp.bool_)], axis=0)
+        full_prefix_tokens = jnp.concatenate([prefix_token_embeddings, generated_subtask_embeddings], axis=1)
+        full_prefix_mask = jnp.concatenate([prefix_mask, generated_token_mask], axis=1)
+        full_prefix_ar_mask = jnp.concatenate(
+            [prefix_ar_mask, jnp.ones(generated_subtask_tokens.shape[1], dtype=jnp.bool_)], axis=0
+        )
+        # Only after the generated subtask has been appended do we add the
+        # separate action-conditioning prefix (for example advantage + "Action:").
         full_prefix_tokens, full_prefix_mask, full_prefix_ar_mask = self._append_action_prompt_to_prefix(
             observation, full_prefix_tokens, full_prefix_mask, full_prefix_ar_mask
         )
+        # Re-run the full prefix through the LLM to rebuild a KV cache whose
+        # final position is right before action generation starts.
         full_prefix_attn_mask = make_attn_mask(full_prefix_mask, full_prefix_ar_mask)
         full_prefix_positions = jnp.cumsum(full_prefix_mask, axis=-1) - 1
+        
         (_, _), kv_cache = self.PaliGemma.llm(
             [full_prefix_tokens, None],
             mask=full_prefix_attn_mask,
@@ -633,12 +685,15 @@ class Pi05(_model.BaseModel):
         if guidance_scale == 1.0:
             return self.sample_actions(rng, observation, num_steps=num_steps, noise=noise)
 
+        # CFG uses two observations with the same high-level prefix but different
+        # action-conditioning suffixes (e.g. conditional advantage vs unconditional).
         observation = _model.preprocess_observation(
             None, observation, train=False, image_keys=list(observation.images.keys())
         )
         uncond_observation = _model.preprocess_observation(
             None, uncond_observation, train=False, image_keys=list(uncond_observation.images.keys())
         )
+        self._validate_cfg_observations(observation, uncond_observation)
 
         batch_size = observation.state.shape[0]
         assert batch_size == 1, "Batch size must be 1 for sample_actions_cfg, subtask can be of different length"
@@ -646,13 +701,25 @@ class Pi05(_model.BaseModel):
         if noise is None:
             noise = jax.random.normal(rng, (batch_size, self.action_horizon, self.action_dim))
 
-        output_tokens, _cond_kv_cache, _cond_prefix_mask, _ = self.sample_low_level_task(
+        # Decode the low-level subtask once from the conditional branch. This is
+        # still plain next-token decoding from the text prefix, just bounded to a
+        # short span that we expect to contain the subtask. Both CFG branches
+        # must then reuse these exact subtask tokens so guidance only changes
+        # action denoising, not the generated subtask itself.
+        generated_subtask_tokens, _cond_kv_cache, _cond_prefix_mask, _ = self.sample_low_level_task(
             rng, observation, max_decoding_steps=20, paligemma_eos_token=1, temperature=0.0
         )
-        cond_kv_cache, cond_prefix_mask = self._build_prefix_cache_from_output_tokens(observation, output_tokens)
-        uncond_kv_cache, uncond_prefix_mask = self._build_prefix_cache_from_output_tokens(
-            uncond_observation, output_tokens
+        # Rebuild two prefix caches from the shared subtask tokens, then append
+        # each branch's action_tokenized_prompt after the subtask boundary.
+        cond_kv_cache, cond_prefix_mask = self.build_prefix_cache_with_generated_subtask(
+            observation, generated_subtask_tokens
         )
+        
+        uncond_kv_cache, uncond_prefix_mask = self.build_prefix_cache_with_generated_subtask(
+            uncond_observation, generated_subtask_tokens
+        )
+        # During denoising, run the action expert once per branch and combine the
+        # two velocity predictions with the CFG guidance formula.
         x_0 = self._sample_actions_cfg_with_prefix_caches(
             observation,
             cond_kv_cache,
@@ -664,7 +731,7 @@ class Pi05(_model.BaseModel):
             num_steps=num_steps,
             noise=noise,
         )
-        return (x_0, output_tokens)
+        return (x_0, generated_subtask_tokens)
 
     @override
     def sample_actions(
@@ -683,11 +750,13 @@ class Pi05(_model.BaseModel):
         if noise is None:
             noise = jax.random.normal(rng, (batch_size, self.action_horizon, self.action_dim))
 
-        output_tokens, _kv_cache, _prefix_mask, _prefix_ar_mask = self.sample_low_level_task(
+        generated_subtask_tokens, _kv_cache, _prefix_mask, _prefix_ar_mask = self.sample_low_level_task(
             rng, observation, max_decoding_steps=20, paligemma_eos_token=1, temperature=0.0
         )
-        kv_cache, prefix_mask = self._build_prefix_cache_from_output_tokens(observation, output_tokens)
+        kv_cache, prefix_mask = self.build_prefix_cache_with_generated_subtask(
+            observation, generated_subtask_tokens
+        )
         x_0 = self._sample_actions_with_prefix_cache(
             observation, kv_cache, prefix_mask, num_steps=num_steps, noise=noise
         )
-        return (x_0, output_tokens)
+        return (x_0, generated_subtask_tokens)

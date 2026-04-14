@@ -55,6 +55,12 @@ def _try_get_key(data: dict, *keys: str):
     return None
 
 
+def _copy_passthrough_metadata(data: dict, inputs: dict) -> None:
+    for key in ("control_mode", "advantage_label"):
+        if key in data:
+            inputs[key] = data[key]
+
+
 def _append_gripper(eef_pose: np.ndarray, gripper: np.ndarray) -> np.ndarray:
     eef_pose = np.asarray(eef_pose, dtype=np.float32)
     if eef_pose.shape[-1] == 7:
@@ -129,6 +135,7 @@ class BlockTowerInputs(transforms.DataTransformFn):
                 "right_wrist_0_rgb": np.False_,
             },
         }
+        _copy_passthrough_metadata(data, inputs)
 
         for pad_key in ("action_is_pad", "action.pos_is_pad", "action/pos_is_pad"):
             if pad_key in data:
@@ -147,6 +154,32 @@ class BlockTowerInputs(transforms.DataTransformFn):
             print(f"[block_tower] prompt: {inputs['prompt']}, state_dim: {state.shape[-1]}, action_dim: {actions.shape[-1]}")
             _LOGGED_PROMPT = True
 
+        return inputs
+
+
+@dataclasses.dataclass(frozen=True)
+class BlockTowerSubtaskInputs(transforms.DataTransformFn):
+    """Hierarchical inputs for build_block_tower datasets."""
+
+    default_prompt: str = "build a block tower"
+
+    def __call__(self, data: dict) -> dict:
+        inputs = BlockTowerInputs(default_prompt=self.default_prompt)(data)
+
+        if "prompt" in data:
+            inputs["high_prompt"] = data["prompt"]
+        elif "task" in data:
+            inputs["high_prompt"] = str(data["task"])
+        else:
+            inputs["high_prompt"] = self.default_prompt
+
+        subtask = _get_key(data, "subtask")
+        if isinstance(subtask, bytes):
+            subtask = subtask.decode("utf-8")
+        elif hasattr(subtask, "item"):
+            subtask = subtask.item()
+        inputs["low_prompt"] = str(subtask)
+        inputs.pop("prompt", None)
         return inputs
 
 

@@ -31,15 +31,16 @@ XDG_CONFIG_HOME="${scratch_dir}/.config"
 
 # Training config
 CONFIG_NAME="pi05_rlt_build_block_tower_6mix"
-EXP_NAME="rlt_6mix_v1"
+EXP_NAME="rlt_6mix_retain_alpha05_v1"
 EXTRA_TRAIN_ARGS="${EXTRA_TRAIN_ARGS:-}"
 
 # Baseline checkpoint and assets (VLA backbone — already trained, assets already computed)
+# Using retain/step_49999/alpha_0.5 checkpoint from the 6mix baseline
 BASELINE_HF_REPO="pravsels/pi05-build-block-tower-6mix"
-BASELINE_STEP="49999"
-BASELINE_LOCAL_DIR="${data_dir}/checkpoints/pi05_build_block_tower_baseline_6mix/baseline"
+BASELINE_STEP="retain/step_49999/alpha_0.5"
+BASELINE_LOCAL_DIR="${data_dir}/checkpoints/pi05_build_block_tower_baseline_6mix"
 BASELINE_CKPT_DIR="${BASELINE_LOCAL_DIR}/${BASELINE_STEP}"
-ASSETS_DIR="${BASELINE_LOCAL_DIR}/assets"
+ASSETS_DIR="${BASELINE_LOCAL_DIR}/baseline/assets"
 
 CHECKPOINT_DIR="${data_dir}/checkpoints/${CONFIG_NAME}/${EXP_NAME}"
 
@@ -49,7 +50,7 @@ mkdir -p "${HF_CACHE}" "${WANDB_DIR}" "${WANDB_CACHE_DIR}" "${WANDB_CONFIG_DIR}"
 if [ -d "${BASELINE_CKPT_DIR}/params" ]; then
     echo "Baseline checkpoint found at ${BASELINE_CKPT_DIR}/params"
 else
-    echo "Downloading baseline checkpoint (step ${BASELINE_STEP}) from ${BASELINE_HF_REPO}..."
+    echo "Downloading baseline checkpoint (${BASELINE_STEP}) from ${BASELINE_HF_REPO}..."
     mkdir -p "${BASELINE_CKPT_DIR}"
     HF_TOKEN=$(cat "${home_dir}/.hf_token")
     HF_HOME="${HF_CACHE}" huggingface-cli download \
