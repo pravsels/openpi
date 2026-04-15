@@ -43,6 +43,8 @@
 - 2026-04-14 — submitted to Slurm as job `3816843`; currently `PD` on `workq` with reason `(Priority)`
 - 2026-04-15 — resubmitted as `3820691`; entered `R` at `07:13:17` on `nid010761`
 - 2026-04-15 — job `3820691` failed at `10:39:32` with `TypeError: Dtype <U7 is not a valid JAX array type` during batch conversion in `data_loader.py`
+- 2026-04-15 — root cause: `control_mode` string field passed through by `_copy_passthrough_metadata` but never consumed (RLT config doesn't use `SetAdvantageLabelFromControlMode`). Fixed in `f09cb60` by popping `control_mode` in `TokenizePrompt` and `TokenizeHighPrompt`. Verified fix inside container — all sample fields numeric.
+- 2026-04-15 — resubmitted as `3829868`
 
 ## Results
 
@@ -57,6 +59,6 @@
 - includes:
 
 ## Next
-- monitor job `3820691`
+- monitor job `3829868`
 - run reconstruction ablation on the 6mix RLT checkpoints (compare against single-dataset RLT results)
 - decide which checkpoints to publish to HuggingFace
