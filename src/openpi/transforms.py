@@ -393,6 +393,7 @@ class TokenizePrompt(DataTransformFn):
     def __call__(self, data: DataDict) -> DataDict:
         if (prompt := data.pop("prompt", None)) is None:
             raise ValueError("Prompt is required")
+        data.pop("control_mode", None)
 
         if self.discrete_state_input:
             if (state := data.get("state", None)) is None:
@@ -416,6 +417,7 @@ class TokenizeHighPrompt(DataTransformFn):
         if (prompt := data.pop("prompt", None)) is None:
             raise ValueError("Prompt is required")
         advantage_label = data.pop("advantage_label", None)
+        data.pop("control_mode", None)
 
         if self.discrete_state_input:
             if (state := data.get("state", None)) is None:
