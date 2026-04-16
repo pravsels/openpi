@@ -32,6 +32,7 @@ XDG_CONFIG_HOME="${scratch_dir}/.config"
 # Training config
 CONFIG_NAME="pi05_rlt_build_block_tower_6mix"
 EXP_NAME="rlt_6mix_retain_alpha05_v1"
+NUM_TRAIN_STEPS=50000
 EXTRA_TRAIN_ARGS="${EXTRA_TRAIN_ARGS:-}"
 
 # Baseline checkpoint and assets (VLA backbone — already trained, assets already computed)
@@ -110,7 +111,7 @@ echo "Baseline checkpoint: step ${BASELINE_STEP}"
 echo "Assets: ${ASSETS_DIR}"
 echo "===================================="
 
-TRAIN_CMD="uv run scripts/train.py ${CONFIG_NAME} --exp-name=${EXP_NAME} --assets-dir=${ASSETS_DIR} --resume ${EXTRA_TRAIN_ARGS}"
+TRAIN_CMD="uv run scripts/train.py ${CONFIG_NAME} --exp-name=${EXP_NAME} --assets-dir=${ASSETS_DIR} --num-train-steps=${NUM_TRAIN_STEPS} --resume ${EXTRA_TRAIN_ARGS}"
 
 EXPORT_VARS="export PYTHONUNBUFFERED=1"
 EXPORT_VARS="${EXPORT_VARS} && export WANDB_MODE=offline"
