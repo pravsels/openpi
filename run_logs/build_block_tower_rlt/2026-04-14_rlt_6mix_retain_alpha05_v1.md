@@ -45,20 +45,37 @@
 - 2026-04-15 — job `3820691` failed at `10:39:32` with `TypeError: Dtype <U7 is not a valid JAX array type` during batch conversion in `data_loader.py`
 - 2026-04-15 — root cause: `control_mode` string field passed through by `_copy_passthrough_metadata` but never consumed (RLT config doesn't use `SetAdvantageLabelFromControlMode`). Fixed in `f09cb60` by popping `control_mode` in `TokenizePrompt` and `TokenizeHighPrompt`. Verified fix inside container — all sample fields numeric.
 - 2026-04-15 — resubmitted as `3829868`
+- 2026-04-15 — job `3829868` completed successfully in 05:42:58 on `nid010961`. All 20k steps trained, checkpoints saved at 5000/10000/15000/19999.
+
+## Job (resubmit — `3829868` — retain/alpha_0.5 backbone — success)
+- job_id: 3829868
+- submitted: 2026-04-15
+- start: `2026-04-15T13:58:49`
+- start_human: Tuesday, Apr 15th, 2026
+- end: `2026-04-15T19:41:53`
+- end_human: Tuesday, Apr 15th, 2026
+- runtime: 05:42:58
+- node: nid010961
 
 ## Results
+- final step: 19999
+- final train_loss: 356.3 (step 19900)
+- final val_loss: 464.8 (step 19000)
+- loss_one_liner: Train loss decreased steadily from early steps down to ~356; val loss higher at ~465 but no sign of divergence.
+- checkpoints: 5000, 10000, 15000, 19999
+- checkpoint_dir: `/home/u6cr/pravsels.u6cr/openpi_rlt_block_tower/checkpoints/pi05_rlt_build_block_tower_6mix/rlt_6mix_retain_alpha05_v1`
 
 ## W&B
-- local: pending
-- synced: pending
+- local: `/scratch/u6cr/pravsels.u6cr/openpi/wandb/offline-run-20260415_135934-g5myo76p`
+- synced: https://wandb.ai/pravsels/pi05-build-block-tower-rlt-6mix-retain-alpha05/runs/g5myo76p
 - notes:
 
 ## HuggingFace
-- repo: pending
-- uploaded: pending
-- includes:
+- repo: https://huggingface.co/pravsels/pi05-build-block-tower-rlt-6mix-retain-alpha05
+- uploaded: checkpoint 19999 (params only, no train_state)
+- includes: README.md, TRAINING_LOG.md, assets (norm stats, valid indices, episode split), checkpoint hash
 
 ## Next
-- monitor job `3829868`
+- sync W&B run and review training curves
 - run reconstruction ablation on the 6mix RLT checkpoints (compare against single-dataset RLT results)
 - decide which checkpoints to publish to HuggingFace
