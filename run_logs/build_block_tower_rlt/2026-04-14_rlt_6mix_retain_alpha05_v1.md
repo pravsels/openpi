@@ -75,7 +75,13 @@
 - uploaded: checkpoint 19999 (params only, no train_state)
 - includes: README.md, TRAINING_LOG.md, assets (norm stats, valid indices, episode split), checkpoint hash
 
+## Job (resumed — `3849252` — 50k steps)
+- job_id: 3849252
+- submitted: 2026-04-15
+- resumed from: step 19999
+- target: 50,000 steps
+
 ## Next
-- sync W&B run and review training curves
+- monitor job `3849252`
 - run reconstruction ablation on the 6mix RLT checkpoints (compare against single-dataset RLT results)
-- decide which checkpoints to publish to HuggingFace
+- decide which additional checkpoints to publish to HuggingFace
