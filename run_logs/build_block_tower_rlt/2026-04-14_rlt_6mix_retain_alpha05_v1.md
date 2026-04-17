@@ -46,6 +46,8 @@
 - 2026-04-15 — root cause: `control_mode` string field passed through by `_copy_passthrough_metadata` but never consumed (RLT config doesn't use `SetAdvantageLabelFromControlMode`). Fixed in `f09cb60` by popping `control_mode` in `TokenizePrompt` and `TokenizeHighPrompt`. Verified fix inside container — all sample fields numeric.
 - 2026-04-15 — resubmitted as `3829868`
 - 2026-04-15 — job `3829868` completed successfully in 05:42:58 on `nid010961`. All 20k steps trained, checkpoints saved at 5000/10000/15000/19999.
+- 2026-04-16 — resumed as `3849252` to 50k steps; completed in 08:34:02 on `nid010713`. Val loss bottomed at 414.3 (step 45k) then rose to 425 — best checkpoint is 45000.
+- 2026-04-16 — uploaded checkpoint 45000 to HF, updated README with full loss/gap table.
 
 ## Job (resubmit — `3829868` — retain/alpha_0.5 backbone — success)
 - job_id: 3829868
@@ -72,16 +74,32 @@
 
 ## HuggingFace
 - repo: https://huggingface.co/pravsels/pi05-build-block-tower-rlt-6mix-retain-alpha05
-- uploaded: checkpoint 19999 (params only, no train_state)
-- includes: README.md, TRAINING_LOG.md, assets (norm stats, valid indices, episode split), checkpoint hash
+- uploaded: checkpoints 19999, 45000 (params only, no train_state)
+- includes: README.md, TRAINING_LOG.md, assets (norm stats, valid indices, episode split), checkpoint hashes
 
-## Job (resumed — `3849252` — 50k steps)
+## Job (resumed — `3849252` — 50k steps — success)
 - job_id: 3849252
-- submitted: 2026-04-15
+- submitted: 2026-04-16
+- start: `2026-04-16T08:15:36`
+- start_human: Wednesday, Apr 16th, 2026
+- end: `2026-04-16T16:49:38`
+- end_human: Wednesday, Apr 16th, 2026
+- runtime: 08:34:02
+- node: nid010713
 - resumed from: step 19999
 - target: 50,000 steps
+- W&B local: `/scratch/u6cr/pravsels.u6cr/openpi/wandb/offline-run-20260416_081925-g5myo76p`
+- W&B synced: https://wandb.ai/pravsels/pi05-build-block-tower-rlt-6mix-retain-alpha05/runs/g5myo76p
+
+## Results (updated — 50k steps)
+- final step: 49999
+- final train_loss: 256.4 (step 49900)
+- best val_loss: 414.3 (step 45000)
+- final val_loss: 425.4 (step 49000)
+- loss_one_liner: Val loss continued decreasing from 465 to 414 (best at step 45k), then turned upward — overfitting inflection at ~45k.
+- checkpoints: 5000, 10000, 15000, 19999, 25000, 30000, 35000, 40000, 45000, 49999
+- recommended checkpoint: **45000** (lowest val loss)
+- checkpoint_dir: `/scratch/u6cr/pravsels.u6cr/openpi/checkpoints/pi05_rlt_build_block_tower_6mix/rlt_6mix_retain_alpha05_v1`
 
 ## Next
-- monitor job `3849252`
 - run reconstruction ablation on the 6mix RLT checkpoints (compare against single-dataset RLT results)
-- decide which additional checkpoints to publish to HuggingFace
