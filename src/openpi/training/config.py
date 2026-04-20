@@ -562,9 +562,17 @@ class LeRobotBlockTowerDataConfig(DataConfigFactory):
     use_delta_actions: bool = False
     delta_action_mask: Sequence[bool] | None = None
     output_delta_actions: bool = False
+    # When True, restricts training to the first 7 (joint) dims of the 17D
+    # canonical action vector. In the input pipeline (which is what training
+    # and norm precompute see): EE channels of state/action are zeroed and
+    # action_dim_mask is forced to joints-only so the flow-matching loss ignores
+    # them. At inference time, BlockTowerOutputs slices the policy output to 7D.
+    joints_only: bool = False
 
     @override
     def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
+        _RAW_DIM = block_tower_policy._RAW_DIM  # 7 (joint dims)
+        _CANONICAL_DIM = block_tower_policy._CANONICAL_DIM  # 17 (full canonical layout)
         _ROT6D_SLICE = slice(10, 16)  # indices of rot6d inside the 17D state/action vector
 
         input_transforms: list[_transforms.DataTransformFn] = []
@@ -575,11 +583,12 @@ class LeRobotBlockTowerDataConfig(DataConfigFactory):
                     dropout_rate=self.advantage_dropout_rate,
                 )
             )
-        input_transforms.append(block_tower_policy.BlockTowerInputs())
+        input_transforms.append(block_tower_policy.BlockTowerInputs(joints_only=self.joints_only))
 
+        output_action_dim = _RAW_DIM if self.joints_only else _CANONICAL_DIM
         data_transforms = _transforms.Group(
             inputs=input_transforms,
-            outputs=[block_tower_policy.BlockTowerOutputs(action_dim=17)],
+            outputs=[block_tower_policy.BlockTowerOutputs(action_dim=output_action_dim)],
         )
         if self.use_delta_actions:
             delta_action_mask = self.delta_action_mask
@@ -597,39 +606,44 @@ class LeRobotBlockTowerDataConfig(DataConfigFactory):
         model_transforms = ModelTransformFactory(default_prompt=self.default_prompt)(model_config)
         base_config = self.create_base_config(assets_dirs, model_config)
 
-        # Match bin-pack semantics: keep rot6d channels identity-normalized under
-        # both quantile and z-score normalization so we don't distort the
-        # rotation representation.
-        def _set_rot6d_identity(stats: _transforms.NormStats) -> _transforms.NormStats:
+        # Pick the normalization-patching slice. In the standard 17D run we only
+        # need to keep the rot6d channels identity-normalized so quantile/z-score
+        # normalization doesn't distort the rotation representation. In the
+        # joints-only run all EE channels (xyz + rot6d + gripper, indices 7..17)
+        # are constant zeros, so a learned norm would divide by ~0; pin the
+        # entire EE slice to identity so the model sees clean zeros instead.
+        identity_slice = slice(_RAW_DIM, _CANONICAL_DIM) if self.joints_only else _ROT6D_SLICE
+
+        def _set_identity(stats: _transforms.NormStats) -> _transforms.NormStats:
             mean = np.array(stats.mean, copy=True)
             std = np.array(stats.std, copy=True)
-            if mean.shape[-1] < _ROT6D_SLICE.stop or std.shape[-1] < _ROT6D_SLICE.stop:
+            if mean.shape[-1] < identity_slice.stop or std.shape[-1] < identity_slice.stop:
                 raise ValueError(
-                    "Block-tower rot6d identity normalization expects at least 17D stats "
+                    f"Block-tower identity normalization expects at least {identity_slice.stop}D stats "
                     f"(got mean {mean.shape}, std {std.shape}). "
-                    "Regenerate norm stats after enabling rot6d encoding."
+                    "Regenerate norm stats with the correct data config."
                 )
-            mean[..., _ROT6D_SLICE] = 0.0
-            std[..., _ROT6D_SLICE] = 1.0
+            mean[..., identity_slice] = 0.0
+            std[..., identity_slice] = 1.0
             q01 = None if stats.q01 is None else np.array(stats.q01, copy=True)
             q99 = None if stats.q99 is None else np.array(stats.q99, copy=True)
             if q01 is not None:
-                q01[..., _ROT6D_SLICE] = -1.0
+                q01[..., identity_slice] = -1.0
             if q99 is not None:
-                q99[..., _ROT6D_SLICE] = 1.0
+                q99[..., identity_slice] = 1.0
             return _normalize.NormStats(mean=mean, std=std, q01=q01, q99=q99)
 
         patched_norm_stats = base_config.norm_stats
         if patched_norm_stats is not None:
             patched_norm_stats = dict(patched_norm_stats)
             if "state" in patched_norm_stats:
-                patched_norm_stats["state"] = _set_rot6d_identity(patched_norm_stats["state"])
+                patched_norm_stats["state"] = _set_identity(patched_norm_stats["state"])
             if "actions" in patched_norm_stats:
-                patched_norm_stats["actions"] = _set_rot6d_identity(patched_norm_stats["actions"])
+                patched_norm_stats["actions"] = _set_identity(patched_norm_stats["actions"])
 
         patched_per_ts = base_config.per_timestep_action_norm_stats
         if patched_per_ts is not None:
-            patched_per_ts = _set_rot6d_identity(patched_per_ts)
+            patched_per_ts = _set_identity(patched_per_ts)
 
         use_per_timestep_action_norm = base_config.use_per_timestep_action_norm
         if self.use_delta_actions and use_per_timestep_action_norm is None:
@@ -652,6 +666,13 @@ class LeRobotBlockTowerSubtaskDataConfig(LeRobotBlockTowerDataConfig):
     @override
     def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
         _ROT6D_SLICE = slice(10, 16)
+
+        if self.joints_only:
+            raise NotImplementedError(
+                "joints_only=True is not yet wired through LeRobotBlockTowerSubtaskDataConfig. "
+                "Use LeRobotBlockTowerDataConfig (flat) for the joints-only ablation, or "
+                "extend this subtask create() to mirror the joints-only path."
+            )
 
         input_transforms: list[_transforms.DataTransformFn] = []
         input_transforms.append(block_tower_policy.BlockTowerSubtaskInputs(default_prompt=self.default_prompt or ""))
@@ -1712,6 +1733,36 @@ _CONFIGS = [
         weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
         num_train_steps=30_000,
         wandb_enabled=True,
+    ),
+    #
+    # Build-block-tower joints-only ablation: train only the first 7 (joint)
+    # dims of the 17D canonical action vector. EE channels of state/action are
+    # zeroed in the input pipeline and the action_dim_mask forces the
+    # flow-matching loss to ignore EE dims. At inference, BlockTowerOutputs
+    # slices the policy output to 7D. Mirrors the historical
+    # pi05_build_block_tower_baseline schedule on the 6-dataset mix.
+    #
+    TrainConfig(
+        name="pi05_build_block_tower_baseline_6mix_joints_only",
+        model=pi0_config.Pi0Config(pi05=True, action_horizon=50),
+        data=LeRobotBlockTowerDataConfig(
+            repo_id=_BLOCK_TOWER_6MIX_REPO_ID,
+            base_config=DataConfig(prompt_from_task=True),
+            use_delta_actions=True,
+            output_delta_actions=True,
+            joints_only=True,
+        ),
+        batch_size=36,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=10_000,
+            peak_lr=5e-5,
+            decay_steps=1_000_000,
+            decay_lr=5e-5,
+        ),
+        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
+        ema_decay=0.999,
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
+        num_train_steps=50_000,
     ),
     #
     # Build-block-tower reward recap configs.

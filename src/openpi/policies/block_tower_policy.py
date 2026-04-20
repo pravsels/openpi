@@ -99,10 +99,16 @@ class BlockTowerInputs(transforms.DataTransformFn):
     they are lifted into the repo-standard semantic 17D layout:
     joints(7) + xyz(3) + rot6d(6) + gripper(1). Otherwise the data falls back
     to a padded 17D compatibility path with a dimension mask.
+
+    When ``joints_only=True``, the EEF semantic lift is bypassed regardless of
+    whether EEF pose fields are present: state/actions are padded to 17D, the
+    EEF channels of state are zeroed, and ``action_dim_mask`` is forced to the
+    joints-only mask so the flow-matching loss never touches the EE dims.
     """
 
     default_prompt: str = "build a block tower"
     model_type: object | None = None
+    joints_only: bool = False
 
     def __call__(self, data: dict) -> dict:
         front = _parse_image(_get_key(data, "observation/images/front", "observation.images.front"))
@@ -113,12 +119,19 @@ class BlockTowerInputs(transforms.DataTransformFn):
         )
 
         actions = _to_canonical_17d(_get_key(data, "action", "actions"))
-        semantic = _semantic_state_and_actions(state[:_RAW_DIM], actions[..., :_RAW_DIM], data)
-        if semantic is not None:
-            state, actions = semantic
-            action_dim_mask = np.array(_SEMANTIC_MASK, copy=True)
-        else:
+        if self.joints_only:
+            state = np.array(state, copy=True)
+            state[..., _RAW_DIM:] = 0.0
+            actions = np.array(actions, copy=True)
+            actions[..., _RAW_DIM:] = 0.0
             action_dim_mask = np.array(_CANONICAL_MASK, copy=True)
+        else:
+            semantic = _semantic_state_and_actions(state[:_RAW_DIM], actions[..., :_RAW_DIM], data)
+            if semantic is not None:
+                state, actions = semantic
+                action_dim_mask = np.array(_SEMANTIC_MASK, copy=True)
+            else:
+                action_dim_mask = np.array(_CANONICAL_MASK, copy=True)
 
         inputs = {
             "state": state,
@@ -162,9 +175,10 @@ class BlockTowerSubtaskInputs(transforms.DataTransformFn):
     """Hierarchical inputs for build_block_tower datasets."""
 
     default_prompt: str = "build a block tower"
+    joints_only: bool = False
 
     def __call__(self, data: dict) -> dict:
-        inputs = BlockTowerInputs(default_prompt=self.default_prompt)(data)
+        inputs = BlockTowerInputs(default_prompt=self.default_prompt, joints_only=self.joints_only)(data)
 
         if "prompt" in data:
             inputs["high_prompt"] = data["prompt"]
