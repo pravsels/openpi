@@ -193,45 +193,66 @@ class Pi0(_model.BaseModel):
         observation = _model.preprocess_observation(preprocess_rng, observation, train=train)
 
         batch_shape = actions.shape[:-2]
+        # Sample epsilon ~ N(0, I).
         noise = jax.random.normal(noise_rng, actions.shape)
+        # Sample t in (0, 1), skewed toward noisier points.
         time = jax.random.beta(time_rng, 1.5, 1, batch_shape) * 0.999 + 0.001
+        # Broadcast t over [action_horizon, action_dim].
         time_expanded = time[..., None, None]
+        # Interpolated point on the action->noise path.
         x_t = time_expanded * noise + (1 - time_expanded) * actions
+        # Target flow velocity at x_t.
         u_t = noise - actions
 
-        # one big forward pass of prefix + suffix at once
         prefix_tokens, prefix_mask, prefix_ar_mask = self.embed_prefix(observation)
-        suffix_tokens, suffix_mask, suffix_ar_mask, adarms_cond = self.embed_suffix(observation, x_t, time)
+        # Suffix carries state + noisy actions + time.
+        suffix_tokens, suffix_mask, suffix_ar_mask, adarms_cond = self.embed_suffix(
+            observation, x_t, time
+        )
+        # Valid token mask.
         input_mask = jnp.concatenate([prefix_mask, suffix_mask], axis=1)
+        # Autoregressive structure.
         ar_mask = jnp.concatenate([prefix_ar_mask, suffix_ar_mask], axis=0)
+        # Final attention mask consumed by transformer.
         attn_mask = make_attn_mask(input_mask, ar_mask)
+        # Packed positions that skip padded tokens.
         positions = jnp.cumsum(input_mask, axis=1) - 1
         (_prefix_out, suffix_out), _ = self.PaliGemma.llm(
             [prefix_tokens, suffix_tokens], mask=attn_mask, positions=positions, adarms_cond=[None, adarms_cond]
         )
+        # Predicted velocity on action token slots.
         v_t = self.action_out_proj(suffix_out[:, -self.action_horizon :])
 
-        per_step_sq = jnp.square(v_t - u_t)  # [*b, ah, ad]
+        # Velocity MSE per [batch, timestep, action_dim].
+        per_step_sq = jnp.square(v_t - u_t)
 
-        # Mask padded action dimensions (e.g. right arm for single-arm data)
         if observation.action_dim_mask is not None:
-            dim_mask = observation.action_dim_mask  # [*b, ad] or [ad]
+            # Marks real action dims (e.g., single-arm in bimanual space).
+            dim_mask = observation.action_dim_mask
             if dim_mask.ndim < per_step_sq.ndim:
-                dim_mask = dim_mask[..., None, :]  # broadcast over ah
+                # Broadcast across timesteps.
+                dim_mask = dim_mask[..., None, :]
+            # Avoid divide-by-zero on bad inputs.
             num_real_dims = jnp.clip(dim_mask.sum(axis=-1, keepdims=True), 1)
+            # Drop padded dims.
             per_step_sq = per_step_sq * dim_mask
+            # Mean over real dims only.
             per_step_loss = per_step_sq.sum(axis=-1) / num_real_dims.squeeze(-1)
         else:
+            # Standard mean over action dims.
             per_step_loss = jnp.mean(per_step_sq, axis=-1)
 
-        # Mask out padded actions at episode boundaries so the model doesn't
-        # learn to predict the repeated last action (which causes freezing).
         if observation.action_is_pad is not None:
+            # True on real timesteps, false on episode-boundary padding.
             mask = ~observation.action_is_pad
+            # Ignore synthetic repeated-tail actions.
             per_step_loss = per_step_loss * mask
+            # Valid timestep count per sample.
             num_real = jnp.clip(mask.sum(axis=-1, keepdims=True), 1)
+            # Keep sample weighting comparable.
             per_step_loss = per_step_loss * (mask.shape[-1] / num_real)
 
+        # [*batch, action_horizon]; caller reduces to scalar.
         return per_step_loss
 
     def build_prefix_cache(

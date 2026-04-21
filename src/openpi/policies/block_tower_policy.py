@@ -103,7 +103,7 @@ class BlockTowerInputs(transforms.DataTransformFn):
     When ``joints_only=True``, the EEF semantic lift is bypassed regardless of
     whether EEF pose fields are present: state/actions are padded to 17D, the
     EEF channels of state are zeroed, and ``action_dim_mask`` is forced to the
-    joints-only mask so the flow-matching loss never touches the EE dims.
+    joints-only mask so the flow-matching loss never touches the EEF dims.
     """
 
     default_prompt: str = "build a block tower"
@@ -120,17 +120,22 @@ class BlockTowerInputs(transforms.DataTransformFn):
 
         actions = _to_canonical_17d(_get_key(data, "action", "actions"))
         if self.joints_only:
+            # In joints-only mode, keep the 17D shape but zero all non-joint channels.
             state = np.array(state, copy=True)
             state[..., _RAW_DIM:] = 0.0
             actions = np.array(actions, copy=True)
             actions[..., _RAW_DIM:] = 0.0
+            # Train loss only on canonical joint dims.
             action_dim_mask = np.array(_CANONICAL_MASK, copy=True)
         else:
+            # Prefer semantic 17D lift (joints + xyz + rot6d + gripper) when fields exist.
             semantic = _semantic_state_and_actions(state[:_RAW_DIM], actions[..., :_RAW_DIM], data)
             if semantic is not None:
                 state, actions = semantic
+                # Semantic layout marks valid EEF channels explicitly.
                 action_dim_mask = np.array(_SEMANTIC_MASK, copy=True)
             else:
+                # Fallback: padded canonical layout (joints valid, remaining dims ignored in loss).
                 action_dim_mask = np.array(_CANONICAL_MASK, copy=True)
 
         inputs = {

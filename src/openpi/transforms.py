@@ -575,11 +575,16 @@ class PadStatesAndActions(DataTransformFn):
     model_action_dim: int
 
     def __call__(self, data: DataDict) -> DataDict:
+        # Use the pre-pad state dim as the source-of-truth for "real" action dims.
         orig_action_dim = data["state"].shape[-1]
+        # Pad state to the model's expected action/state dimension.
         data["state"] = pad_to_dim(data["state"], self.model_action_dim, axis=-1)
         if "actions" in data:
+            # Pad action chunks to the same target dimension.
             data["actions"] = pad_to_dim(data["actions"], self.model_action_dim, axis=-1)
         if "action_dim_mask" in data:
+            # If caller already provided a mask, pad it with False for new dims
+            # so added coordinates are ignored by the loss.
             data["action_dim_mask"] = pad_to_dim(
                 np.asarray(data["action_dim_mask"], dtype=bool),
                 self.model_action_dim,
@@ -587,6 +592,7 @@ class PadStatesAndActions(DataTransformFn):
                 value=False,
             )
         elif orig_action_dim < self.model_action_dim:
+            # Otherwise synthesize a mask: original dims are real, padded tail is fake.
             mask = np.zeros(self.model_action_dim, dtype=bool)
             mask[:orig_action_dim] = True
             data["action_dim_mask"] = mask
