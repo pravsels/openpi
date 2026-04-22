@@ -40,7 +40,7 @@ BASELINE_EXP="joints_only"
 BASELINE_STEP="49999"
 BASELINE_LOCAL_DIR="${data_dir}/checkpoints/pi05_build_block_tower_baseline_6mix_joints_only"
 BASELINE_CKPT_DIR="${BASELINE_LOCAL_DIR}/${BASELINE_EXP}/${BASELINE_STEP}"
-ASSETS_DIR="${BASELINE_LOCAL_DIR}/assets"
+ASSETS_DIR="${BASELINE_CKPT_DIR}/assets"
 
 CHECKPOINT_DIR="${data_dir}/checkpoints/${CONFIG_NAME}/${EXP_NAME}"
 
@@ -73,31 +73,14 @@ else
     echo "Baseline checkpoint ready at ${BASELINE_CKPT_DIR}/params"
 fi
 
-# Download baseline assets from HuggingFace if not present locally.
+# Use self-contained assets from the baseline checkpoint directory.
 if [ ! -d "${ASSETS_DIR}" ] || [ -z "$(ls -A "${ASSETS_DIR}"/*.json 2>/dev/null)" ]; then
-    echo "Downloading baseline assets from ${BASELINE_HF_REPO}..."
-    mkdir -p "${ASSETS_DIR}"
-    HF_TOKEN=$(cat "${home_dir}/.hf_token")
-    HF_HOME="${HF_CACHE}" huggingface-cli download \
-        "${BASELINE_HF_REPO}" \
-        --include "assets/*" \
-        --local-dir "${BASELINE_LOCAL_DIR}" \
-        --token "${HF_TOKEN}"
-    if [ ! -d "${ASSETS_DIR}" ] || [ -z "$(ls -A "${ASSETS_DIR}"/*.json 2>/dev/null)" ]; then
-        ALT_ASSETS="${BASELINE_LOCAL_DIR}/assets"
-        if [ -d "${ALT_ASSETS}" ]; then
-            mv "${ALT_ASSETS}"/* "${ASSETS_DIR}/"
-            echo "Moved assets from HF structure to ${ASSETS_DIR}"
-        else
-            echo "ERROR: Could not find downloaded assets."
-            echo "Searched: ${ASSETS_DIR} and ${ALT_ASSETS}"
-            exit 1
-        fi
-    fi
-    echo "Baseline assets ready at ${ASSETS_DIR}"
-else
-    echo "Using baseline assets from ${ASSETS_DIR}"
+    echo "ERROR: Missing baseline assets at ${ASSETS_DIR}"
+    echo "Expected self-contained assets next to params under ${BASELINE_EXP}/${BASELINE_STEP}."
+    echo "Please sync checkpoint assets on cluster scratch and retry."
+    exit 1
 fi
+echo "Using baseline assets from ${ASSETS_DIR}"
 
 start_time="$(date -Is --utc)"
 echo "===================================="
