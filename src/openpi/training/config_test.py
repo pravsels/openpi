@@ -319,7 +319,7 @@ def test_build_block_tower_rlt_6mix_references_published_baseline_checkpoint():
     expected_step = str(recap.num_train_steps - 1)
 
     assert expected_step == "49999"
-    assert rlt.num_train_steps == 20_000
+    assert rlt.num_train_steps == 50_000
     assert isinstance(rlt.weight_loader, _config.weight_loaders.RLTokenCheckpointWeightLoader)
     assert (
         rlt.weight_loader.params_path
@@ -343,6 +343,24 @@ def test_build_block_tower_rlt_6mix_uses_same_dataset_mix_as_baseline():
     rlt = _config.get_config("pi05_rlt_build_block_tower_6mix")
 
     assert rlt.data.repo_id == recap.data.repo_id
+
+
+def test_build_block_tower_rlt_joints_only_config_and_script():
+    rlt = _config.get_config("pi05_rlt_build_block_tower_6mix_joints_only")
+
+    assert rlt.num_train_steps == 50_000
+    assert isinstance(rlt.weight_loader, _config.weight_loaders.RLTokenCheckpointWeightLoader)
+    assert (
+        rlt.weight_loader.params_path
+        == "checkpoints/pi05_build_block_tower_baseline_6mix_joints_only/joints_only/49999/params"
+    )
+    assert rlt.data.joints_only is True
+
+    rlt_script = pathlib.Path("slurm/train_build_block_tower_rlt_joints_only_slurm.sh").read_text()
+    assert 'CONFIG_NAME="pi05_rlt_build_block_tower_6mix_joints_only"' in rlt_script
+    assert 'EXP_NAME="rlt_6mix_joints_only_v1"' in rlt_script
+    assert 'BASELINE_HF_REPO="pravsels/build_block_tower_baseline_6mix_joints_only"' in rlt_script
+    assert 'BASELINE_STEP="49999"' in rlt_script
 
 
 def test_build_block_tower_recap_slurm_script_references_existing_configs():

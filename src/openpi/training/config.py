@@ -1903,7 +1903,39 @@ _CONFIGS = [
         weight_loader=weight_loaders.RLTokenCheckpointWeightLoader(
             "checkpoints/pi05_build_block_tower_baseline_6mix/retain/step_49999/alpha_0.5/params"
         ),
-        num_train_steps=20_000,
+        num_train_steps=50_000,
+        val_interval=1000,
+        val_num_batches=10,
+    ),
+    TrainConfig(
+        name="pi05_rlt_build_block_tower_6mix_joints_only",
+        model=pi0_rl_config.Pi0RLConfig(pi05=True, action_horizon=50, rl_vla_loss_weight=0.0),
+        data=LeRobotBlockTowerDataConfig(
+            repo_id=_BLOCK_TOWER_6MIX_REPO_ID,
+            base_config=DataConfig(
+                prompt_from_task=True,
+                episode_split=EpisodeSplitConfig(val_ratio=0.1, seed=42),
+            ),
+            use_delta_actions=True,
+            output_delta_actions=True,
+            joints_only=True,
+        ),
+        batch_size=36,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=5e-5,
+            decay_steps=10_000,
+            decay_lr=5e-5,
+        ),
+        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
+        ema_decay=0.999,
+        freeze_filter=pi0_rl_config.Pi0RLConfig(
+            pi05=True, action_horizon=50, rl_vla_loss_weight=0.0
+        ).get_rl_freeze_filter(),
+        weight_loader=weight_loaders.RLTokenCheckpointWeightLoader(
+            "checkpoints/pi05_build_block_tower_baseline_6mix_joints_only/joints_only/49999/params"
+        ),
+        num_train_steps=50_000,
         val_interval=1000,
         val_num_batches=10,
     ),
