@@ -32,16 +32,16 @@
 - exp_name: `rlt_6mix_joints_only_v1`
 - failure: process stuck in data-loading loop (repeated "Fetching 212 files" in stderr, GPUs idle). An `/usr/bin/strace` tracer was found attached to the train.py process (94% CPU), which blocked forward progress. After killing the tracer, the process remained stuck in dataset fetching with no training steps logged.
 
-## Job (resubmit — `4187578` — running)
+## Job (resubmit — `4187578` — success)
 - job_id: 4187578
-- submitted/start: `2026-04-22T21:21+00:00`
+- submitted/start: `2026-04-22T21:30:44+00:00`
 - start_human: Wednesday, Apr 22nd, 2026
-- end: `pending`
-- runtime: `in progress`
+- end: `2026-04-23T06:43:58+00:00`
+- end_human: Wednesday, Apr 23rd, 2026
+- runtime: 09:13:14
 - node: nid010827
 - exp_name: `rlt_6mix_joints_only_v1`
 - checkpoint_dir: `/scratch/u6cr/pravsels.u6cr/openpi/checkpoints/pi05_rlt_build_block_tower_6mix_joints_only/rlt_6mix_joints_only_v1`
-- notes: no strace tracer this time (TracerPid=0). train.py running at ~600% CPU (JAX JIT compilation phase). GPUs at 0% util / ~573 MiB during compilation — expected to start training once compilation completes.
 
 ## Status
 - 2026-04-22 16:52 UTC — submitted as `4180356`; exited quickly with `ExitCode=126` before training loop
@@ -50,25 +50,27 @@
 - 2026-04-22 ~17:00 UTC — startup confirmed: baseline params/assets loaded, dataset metadata loaded, W&B offline run created
 - 2026-04-22 ~21:00 UTC — 4+ hrs in, still no training steps. Discovered `/usr/bin/strace` attached as tracer (94% CPU). Killed tracer but job remained stuck in dataset fetching loop. Cancelled.
 - 2026-04-22 21:21 UTC — cleared old logs, resubmitted as `4187578` on `nid010827`
-- 2026-04-22 21:31 UTC — dataset metadata loaded for all 6 datasets. No strace tracer attached this time.
-- 2026-04-22 21:41 UTC — train.py at 600% CPU / 82 min CPU time (JAX JIT compilation). GPUs idle. Expected — first compilation for this config on this node.
-- 2026-04-22 — checked `task/rlt_block_tower` branch for unmerged fixes: the 5 unmerged commits are all run-log markdown updates and a slurm script tweak. No unmerged Python code changes that could explain the hang.
+- 2026-04-22 21:31 UTC — dataset metadata loaded for all 6 datasets; JAX JIT compilation began (~600% CPU, GPUs idle as expected)
+- 2026-04-22 — checked `task/rlt_block_tower` branch for unmerged fixes: the 5 unmerged commits are all run-log markdown updates and a slurm script tweak. No unmerged Python code changes.
+- 2026-04-23 06:43 UTC — all 50k steps completed successfully (exit code 0). Final checkpoint saved at step 49999.
 
 ## Results
-- pending (run in progress)
+- final train loss: 104.8 (step 49900)
+- final val loss: 190.9 (step 49000)
+- loss dropped steadily: 9521 (step 0) → 104.8 (step 49900); no instability or divergence
+- val loss: 9613 (step 0) → 190.9 (step 49000)
+- checkpoints: 5000, 10000, 15000, 20000, 25000, 30000, 35000, 40000, 45000, 49999
+- checkpoint dir: `/scratch/u6cr/pravsels.u6cr/openpi/checkpoints/pi05_rlt_build_block_tower_6mix_joints_only/rlt_6mix_joints_only_v1/`
 
 ## W&B
-- local: pending (new job)
-- synced: pending — run `wandb sync` after completion
-- notes: pending
+- local: `/scratch/u6cr/pravsels.u6cr/openpi/wandb/offline-run-20260422_213116-j6qz79ah`
+- synced: https://wandb.ai/pravsels/rlt_build_block_tower_6mix_joints_only/runs/j6qz79ah
+- notes: synced to new project `rlt_build_block_tower_6mix_joints_only`
 
 ## HuggingFace
-- repo: pending
-- uploaded checkpoints: pending
-- includes:
+- repo: https://huggingface.co/pravsels/rlt_build_block_tower_6mix_joints_only
+- uploaded checkpoints: `45000` (best val loss among saved checkpoints, val_loss=191.3)
+- includes: `checkpoints/45000/params`, `assets` (norm stats, per-timestep stats, episode split, valid indices)
 
 ## Next
-- monitor `4187578` for first logged train step/loss — JAX compilation should finish within ~20 min of startup, then GPU memory and utilization should spike
-- if GPUs remain idle beyond ~30 min wall time, investigate further
-- after completion, fill final runtime/loss/checkpoint fields and add a one-line loss summary
-- sync W&B offline run and record the dashboard URL
+- evaluate the RLT joints-only model
