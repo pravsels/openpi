@@ -122,11 +122,12 @@ def test_pi05_sample_actions_rebuilds_action_prefix_cache_from_output_tokens():
         )
     )
 
-    def rebuild_cache(observation, output_tokens):
+    def rebuild_cache(observation, output_tokens, *, append_action_prompt=True):
+        assert append_action_prompt is True
         assert jnp.array_equal(output_tokens, expected_tokens)
         return "rebuilt-cache", rebuilt_prefix_mask
 
-    model._build_prefix_cache_from_output_tokens = rebuild_cache
+    model.build_prefix_cache_with_generated_subtask = rebuild_cache
 
     def sample_with_cache(observation, kv_cache, prefix_mask, *, num_steps, noise):
         assert kv_cache == "rebuilt-cache"
@@ -186,14 +187,15 @@ def test_pi05_sample_actions_cfg_reuses_conditional_subtask_tokens():
         )
     )
 
-    def build_cache(observation, output_tokens):
+    def build_cache(observation, output_tokens, *, append_action_prompt=True):
+        assert append_action_prompt is True
         assert jnp.array_equal(output_tokens, expected_tokens)
         if jnp.array_equal(observation.action_tokenized_prompt, obs.action_tokenized_prompt):
             return "cond-cache", cond_prefix_mask
         assert jnp.array_equal(observation.action_tokenized_prompt, uncond_obs.action_tokenized_prompt)
         return "uncond-cache", uncond_prefix_mask
 
-    model._build_prefix_cache_from_output_tokens = build_cache
+    model.build_prefix_cache_with_generated_subtask = build_cache
 
     def sample_cfg_from_caches(
         observation,

@@ -407,3 +407,66 @@ class Pi0(_model.BaseModel):
             num_steps=num_steps, noise=noise,
             velocity_fn=cfg_velocity,
         )
+
+    @staticmethod
+    def _combine_cpg_velocity(
+        v_positive: jax.Array,
+        v_negative: jax.Array,
+        guidance_scale: float | jax.Array,
+    ) -> jax.Array:
+        return v_negative + guidance_scale * (v_positive - v_negative)
+
+    def sample_actions_cpg(
+        self,
+        rng: at.KeyArrayLike,
+        observation: _model.Observation,
+        negative_observation: _model.Observation,
+        *,
+        guidance_scale: float = 1.0,
+        num_steps: int | at.Int[at.Array, ""] = 10,
+        noise: at.Float[at.Array, "b ah ad"] | None = None,
+    ) -> _model.Actions:
+        """DeLock contrastive prompt guidance for the plain Pi0/Pi0.5 policy.
+
+        `observation` is conditioned on the novel prompt, and
+        `negative_observation` is conditioned on the trained prompt. The two
+        branches share the same noised action chunk during denoising.
+        """
+        observation = _model.preprocess_observation(None, observation, train=False)
+        negative_observation = _model.preprocess_observation(None, negative_observation, train=False)
+
+        batch_size = observation.state.shape[0]
+        if noise is None:
+            noise = jax.random.normal(rng, (batch_size, self.action_horizon, self.action_dim))
+
+        positive_kv_cache, positive_prefix_mask = self.build_prefix_cache(observation)
+        negative_kv_cache, negative_prefix_mask = self.build_prefix_cache(negative_observation)
+
+        def cpg_velocity(v_positive, x_t, time):
+            negative_suffix_tokens, negative_suffix_mask, negative_suffix_ar_mask, negative_adarms_cond = (
+                self.embed_suffix(negative_observation, x_t, jnp.broadcast_to(time, batch_size))
+            )
+            negative_suffix_attn_mask = make_attn_mask(negative_suffix_mask, negative_suffix_ar_mask)
+            negative_cross_mask = einops.repeat(
+                negative_prefix_mask, "b p -> b s p", s=negative_suffix_tokens.shape[1],
+            )
+            negative_full_mask = jnp.concatenate([negative_cross_mask, negative_suffix_attn_mask], axis=-1)
+            negative_pos = (
+                jnp.sum(negative_prefix_mask, axis=-1)[:, None]
+                + jnp.cumsum(negative_suffix_mask, axis=-1) - 1
+            )
+            (_, negative_suffix_out), _ = self.PaliGemma.llm(
+                [None, negative_suffix_tokens],
+                mask=negative_full_mask,
+                positions=negative_pos,
+                kv_cache=negative_kv_cache,
+                adarms_cond=[None, negative_adarms_cond],
+            )
+            v_negative = self.action_out_proj(negative_suffix_out[:, -self.action_horizon :])
+            return self._combine_cpg_velocity(v_positive, v_negative, guidance_scale)
+
+        return self._denoise_actions(
+            observation, positive_prefix_mask, positive_kv_cache,
+            num_steps=num_steps, noise=noise,
+            velocity_fn=cpg_velocity,
+        )

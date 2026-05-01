@@ -87,6 +87,44 @@ def _load_weights_and_validate(loader: _weight_loaders.WeightLoader, params_shap
     )
 
 
+def create_visual_drift_reference(params: nnx.State, config: _config.TrainConfig) -> nnx.State | None:
+    """Snapshot the visual encoder weights that DeLock should preserve.
+
+    The snapshot is taken after the configured weight loader has populated the
+    model, but before any training step updates it. That anchors fine-tuning to
+    the loaded starting weights rather than random init.
+    """
+    if config.visual_drift_regularization_weight <= 0:
+        return None
+    return jax.tree.map(jax.lax.stop_gradient, params.filter(nnx.All(nnx.Param, config.visual_drift_filter)))
+
+
+def compute_visual_drift_loss(
+    model: _model.BaseModel,
+    visual_drift_reference: nnx.State | None,
+    config: _config.TrainConfig,
+) -> at.Array:
+    """Compute DeLock's L2 visual encoder drift penalty."""
+    if config.visual_drift_regularization_weight <= 0 or visual_drift_reference is None:
+        return jnp.array(0.0)
+
+    current = nnx.state(model).filter(nnx.All(nnx.Param, config.visual_drift_filter))
+    sum_squared_error = []
+    num_elements = []
+    for key, current_leaf in current.flat_state().items():
+        # `key` identifies the same visual-encoder parameter in both trees.
+        reference_leaf = visual_drift_reference.flat_state()[key]
+        # Each leaf wraps the actual JAX array in `.value`.
+        squared_error = jnp.square(current_leaf.value - reference_leaf.value)
+        sum_squared_error.append(jnp.sum(squared_error))
+        num_elements.append(squared_error.size)
+
+    if not sum_squared_error:
+        raise ValueError("Visual drift regularization is enabled, but visual_drift_filter matched no parameters.")
+    mean_squared_error = jnp.sum(jnp.stack(sum_squared_error)) / jnp.sum(jnp.array(num_elements))
+    return config.visual_drift_regularization_weight * mean_squared_error
+
+
 @at.typecheck
 def init_train_state(
     config: _config.TrainConfig, init_rng: at.KeyArrayLike, mesh: jax.sharding.Mesh, *, resume: bool
@@ -108,6 +146,7 @@ def init_train_state(
         params = nnx.state(model)
         # Convert frozen params to bfloat16.
         params = nnx_utils.state_map(params, config.freeze_filter, lambda p: p.replace(p.value.astype(jnp.bfloat16)))
+        visual_drift_reference = create_visual_drift_reference(params, config)
 
         return training_utils.TrainState(
             step=0,
@@ -117,6 +156,7 @@ def init_train_state(
             opt_state=tx.init(params.filter(config.trainable_filter)),
             ema_decay=config.ema_decay,
             ema_params=None if config.ema_decay is None else params,
+            visual_drift_reference=visual_drift_reference,
         )
 
     train_state_shape = jax.eval_shape(init, init_rng)
@@ -154,14 +194,22 @@ def train_step(
         model: _model.BaseModel, rng: at.KeyArrayLike, observation: _model.Observation, actions: _model.Actions
     ):
         chunked_loss = model.compute_loss(rng, observation, actions, train=True)
-        return jnp.mean(chunked_loss)
+        bc_loss = jnp.mean(chunked_loss)
+        visual_drift_loss = compute_visual_drift_loss(model, state.visual_drift_reference, config)
+        total_loss = bc_loss + visual_drift_loss
+        return total_loss, {
+            "bc_loss": bc_loss,
+            "visual_drift_loss": visual_drift_loss,
+        }
 
     train_rng = jax.random.fold_in(rng, state.step)
     observation, actions = batch
 
     # Filter out frozen params.
     diff_state = nnx.DiffState(0, config.trainable_filter)
-    loss, grads = nnx.value_and_grad(loss_fn, argnums=diff_state)(model, train_rng, observation, actions)
+    (loss, loss_info), grads = nnx.value_and_grad(loss_fn, argnums=diff_state, has_aux=True)(
+        model, train_rng, observation, actions
+    )
 
     params = state.params.filter(config.trainable_filter)
     updates, new_opt_state = state.tx.update(grads, state.opt_state, params)
@@ -191,6 +239,7 @@ def train_step(
     )
     info = {
         "loss": loss,
+        **loss_info,
         "grad_norm": optax.global_norm(grads),
         "param_norm": optax.global_norm(kernel_params),
     }

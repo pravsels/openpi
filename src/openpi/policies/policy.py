@@ -61,12 +61,15 @@ class Policy(BasePolicy):
             self._model.eval()
             self._sample_actions = model.sample_actions
             self._sample_actions_cfg = getattr(model, "sample_actions_cfg", None)
+            self._sample_actions_cpg = getattr(model, "sample_actions_cpg", None)
         else:
             # JAX model setup
             self._sample_actions = nnx_utils.module_jit(model.sample_actions)
             # self._sample_actions_rtc = nnx_utils.module_jit(model.sample_actions_rtc)
             _cfg_fn = getattr(model, "sample_actions_cfg", None)
             self._sample_actions_cfg = nnx_utils.module_jit(_cfg_fn) if _cfg_fn is not None else None
+            _cpg_fn = getattr(model, "sample_actions_cpg", None)
+            self._sample_actions_cpg = nnx_utils.module_jit(_cpg_fn) if _cpg_fn is not None else None
             self._rng = rng or jax.random.key(0)
 
     def _prepare_inputs(self, obs: dict):
@@ -79,6 +82,29 @@ class Policy(BasePolicy):
             inputs = jax.tree.map(lambda x: torch.from_numpy(np.array(x)).to(self._pytorch_device)[None, ...], inputs)
         return inputs
 
+    def _validate_cpg_observations(
+        self,
+        observation: _model.Observation,
+        negative_observation: _model.Observation,
+    ) -> None:
+        if observation.tokenized_prompt is None or negative_observation.tokenized_prompt is None:
+            raise ValueError("CPG requires tokenized_prompt on both positive and negative observations.")
+        if observation.tokenized_prompt_mask is None or negative_observation.tokenized_prompt_mask is None:
+            raise ValueError("CPG requires tokenized_prompt_mask on both positive and negative observations.")
+
+        if self._is_pytorch_model:
+            same_prompt = torch.equal(observation.tokenized_prompt, negative_observation.tokenized_prompt)
+            same_mask = torch.equal(observation.tokenized_prompt_mask, negative_observation.tokenized_prompt_mask)
+        else:
+            same_prompt = np.array_equal(
+                np.asarray(observation.tokenized_prompt), np.asarray(negative_observation.tokenized_prompt)
+            )
+            same_mask = np.array_equal(
+                np.asarray(observation.tokenized_prompt_mask), np.asarray(negative_observation.tokenized_prompt_mask)
+            )
+        if same_prompt and same_mask:
+            raise ValueError("CPG requires distinct positive and negative prompts.")
+
     @override
     def infer(
         self,
@@ -87,6 +113,8 @@ class Policy(BasePolicy):
         noise: np.ndarray | None = None,
         uncond_obs: dict | None = None,
         guidance_scale: float | None = None,
+        negative_obs: dict | None = None,
+        cpg_guidance_scale: float | None = None,
     ) -> dict:  # type: ignore[misc]
         inputs = self._prepare_inputs(obs)
 
@@ -106,7 +134,29 @@ class Policy(BasePolicy):
         start_time = time.monotonic()
 
         use_cfg = uncond_obs is not None and guidance_scale is not None
-        if use_cfg:
+        use_cpg = negative_obs is not None and cpg_guidance_scale is not None
+        if (uncond_obs is None) != (guidance_scale is None):
+            raise ValueError("CFG requires both uncond_obs and guidance_scale.")
+        if (negative_obs is None) != (cpg_guidance_scale is None):
+            raise ValueError("CPG requires both negative_obs and cpg_guidance_scale.")
+        if use_cfg and use_cpg:
+            raise ValueError(
+                "Use either CFG (uncond_obs/guidance_scale) or CPG (negative_obs/cpg_guidance_scale), not both."
+            )
+        if use_cpg:
+            if self._sample_actions_cpg is None:
+                raise ValueError("Model does not support sample_actions_cpg")
+            negative_inputs = self._prepare_inputs(negative_obs)
+            negative_observation = _model.Observation.from_dict(negative_inputs)
+            self._validate_cpg_observations(observation, negative_observation)
+            action_output = self._sample_actions_cpg(
+                sample_rng_or_pytorch_device,
+                observation,
+                negative_observation,
+                guidance_scale=cpg_guidance_scale,
+                **sample_kwargs,
+            )
+        elif use_cfg:
             if self._sample_actions_cfg is None:
                 raise ValueError("Model does not support sample_actions_cfg")
             uncond_inputs = self._prepare_inputs(uncond_obs)

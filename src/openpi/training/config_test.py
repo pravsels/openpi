@@ -285,6 +285,25 @@ def test_build_block_tower_recap_uses_base_and_dagger_datasets():
         assert repo_id in recap.data.repo_id
 
 
+def test_build_block_tower_delock_joints_only_matches_plain_policy_run():
+    plain = _config.get_config("pi05_build_block_tower_baseline_6mix_joints_only")
+    delock = _config.get_config("pi05_build_block_tower_delock_6mix_joints_only")
+
+    assert delock.model == plain.model
+    assert delock.data.repo_id == plain.data.repo_id
+    assert delock.data.joints_only is True
+    assert delock.data.use_control_mode_advantage_prompt is False
+    assert delock.batch_size == plain.batch_size
+    assert delock.lr_schedule == plain.lr_schedule
+    assert delock.optimizer == plain.optimizer
+    assert delock.ema_decay == plain.ema_decay
+    assert delock.freeze_filter == plain.freeze_filter
+    assert isinstance(delock.weight_loader, _config.weight_loaders.CheckpointWeightLoader)
+    assert delock.weight_loader.params_path == plain.weight_loader.params_path
+    assert delock.visual_drift_regularization_weight == 1e-4
+    assert delock.num_train_steps == plain.num_train_steps
+
+
 def test_build_block_tower_recap_uses_17d_outputs(tmp_path, monkeypatch):
     class _DummyTokenizer:
         def __init__(self, *args, **kwargs):
@@ -361,6 +380,15 @@ def test_build_block_tower_rlt_joints_only_config_and_script():
     assert 'EXP_NAME="rlt_6mix_joints_only_v1"' in rlt_script
     assert 'BASELINE_HF_REPO="pravsels/build_block_tower_baseline_6mix_joints_only"' in rlt_script
     assert 'BASELINE_STEP="49999"' in rlt_script
+
+    delock = _config.get_config("pi05_build_block_tower_delock_6mix_joints_only")
+    assert delock.data.joints_only is True
+    assert delock.data.use_control_mode_advantage_prompt is False
+    assert delock.visual_drift_regularization_weight == 1e-4
+
+    delock_script = pathlib.Path("slurm/train_build_block_tower_delock_slurm.sh").read_text()
+    assert 'CONFIG_NAME="pi05_build_block_tower_delock_6mix_joints_only"' in delock_script
+    assert 'branch_name="feat/delock"' in delock_script
 
 
 def test_build_block_tower_recap_slurm_script_references_existing_configs():

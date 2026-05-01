@@ -987,6 +987,12 @@ class TrainConfig:
     # Specifies which weights should be frozen.
     freeze_filter: tyro.conf.Suppress[Filter] = dataclasses.field(default_factory=nnx.Nothing)
 
+    # Softly anchors the visual encoder to its initialized pre-trained values during training.
+    visual_drift_regularization_weight: float = 0.0
+    visual_drift_filter: tyro.conf.Suppress[Filter] = dataclasses.field(
+        default_factory=lambda: nnx_utils.PathRegex(".*PaliGemma/img/.*")
+    )
+
     # Determines the data to be trained on.
     data: DataConfigFactory = dataclasses.field(default_factory=FakeDataConfig)
 
@@ -1761,6 +1767,33 @@ _CONFIGS = [
         ),
         optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
         ema_decay=0.999,
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
+        num_train_steps=50_000,
+    ),
+    TrainConfig(
+        name="pi05_build_block_tower_delock_6mix_joints_only",
+        model=pi0_config.Pi0Config(pi05=True, action_horizon=50),
+        data=LeRobotBlockTowerDataConfig(
+            repo_id=_BLOCK_TOWER_6MIX_REPO_ID,
+            base_config=DataConfig(prompt_from_task=True),
+            use_delta_actions=True,
+            output_delta_actions=True,
+            joints_only=True,
+        ),
+        batch_size=36,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=10_000,
+            peak_lr=5e-5,
+            decay_steps=1_000_000,
+            decay_lr=5e-5,
+        ),
+        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
+        ema_decay=0.999,
+        # Direct DeLock variant of the plain joints-only policy run above: the
+        # dataset, model, schedule, and weight loader stay identical; only the
+        # SigLIP visual encoder drift penalty is added during supervised
+        # fine-tuning.
+        visual_drift_regularization_weight=1e-4,
         weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
         num_train_steps=50_000,
     ),

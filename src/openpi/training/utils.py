@@ -21,6 +21,7 @@ class TrainState:
 
     ema_decay: float | None = struct.field(pytree_node=False)
     ema_params: nnx.State | None = None
+    visual_drift_reference: nnx.State | None = None
 
 
 @at.typecheck
