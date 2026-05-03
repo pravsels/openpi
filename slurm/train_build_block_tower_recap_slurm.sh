@@ -48,7 +48,7 @@ module load brics/apptainer-multi-node
 # Paths
 home_dir="/home/u6cr/pravsels.u6cr"
 scratch_dir="/scratch/u6cr/pravsels.u6cr"
-repo_dir="${home_dir}/openpi"
+repo_dir="${home_dir}/openpi_reward_recap"
 data_dir="${scratch_dir}/openpi"
 container="${data_dir}/container/openpi_arm64.sif"
 HF_CACHE="${scratch_dir}/huggingface_cache"
