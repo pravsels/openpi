@@ -665,17 +665,17 @@ class LeRobotBlockTowerSubtaskDataConfig(LeRobotBlockTowerDataConfig):
 
     @override
     def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
+        _RAW_DIM = block_tower_policy._RAW_DIM
+        _CANONICAL_DIM = block_tower_policy._CANONICAL_DIM
         _ROT6D_SLICE = slice(10, 16)
 
-        if self.joints_only:
-            raise NotImplementedError(
-                "joints_only=True is not yet wired through LeRobotBlockTowerSubtaskDataConfig. "
-                "Use LeRobotBlockTowerDataConfig (flat) for the joints-only ablation, or "
-                "extend this subtask create() to mirror the joints-only path."
-            )
-
         input_transforms: list[_transforms.DataTransformFn] = []
-        input_transforms.append(block_tower_policy.BlockTowerSubtaskInputs(default_prompt=self.default_prompt or ""))
+        input_transforms.append(
+            block_tower_policy.BlockTowerSubtaskInputs(
+                default_prompt=self.default_prompt or "",
+                joints_only=self.joints_only,
+            )
+        )
         if self.use_control_mode_advantage_prompt:
             input_transforms.append(
                 _transforms.SetAdvantageLabelFromControlMode(
@@ -684,9 +684,10 @@ class LeRobotBlockTowerSubtaskDataConfig(LeRobotBlockTowerDataConfig):
                 )
             )
 
+        output_action_dim = _RAW_DIM if self.joints_only else _CANONICAL_DIM
         data_transforms = _transforms.Group(
             inputs=input_transforms,
-            outputs=[block_tower_policy.BlockTowerOutputs(action_dim=17)],
+            outputs=[block_tower_policy.BlockTowerOutputs(action_dim=output_action_dim)],
         )
         if self.use_delta_actions:
             delta_action_mask = self.delta_action_mask
@@ -703,36 +704,41 @@ class LeRobotBlockTowerSubtaskDataConfig(LeRobotBlockTowerDataConfig):
         model_transforms = SubtaskModelTransformFactory()(model_config)
         base_config = self.create_base_config(assets_dirs, model_config)
 
-        def _set_rot6d_identity(stats: _transforms.NormStats) -> _transforms.NormStats:
+        # Mirror the flat config: pin the entire EE slice to identity when joints_only
+        # (constant zeros would cause divide-by-~0 in learned norm); otherwise only
+        # pin rot6d which must stay identity-normalized.
+        identity_slice = slice(_RAW_DIM, _CANONICAL_DIM) if self.joints_only else _ROT6D_SLICE
+
+        def _set_identity(stats: _transforms.NormStats) -> _transforms.NormStats:
             mean = np.array(stats.mean, copy=True)
             std = np.array(stats.std, copy=True)
-            if mean.shape[-1] < _ROT6D_SLICE.stop or std.shape[-1] < _ROT6D_SLICE.stop:
+            if mean.shape[-1] < identity_slice.stop or std.shape[-1] < identity_slice.stop:
                 raise ValueError(
-                    "Block-tower rot6d identity normalization expects at least 17D stats "
+                    f"Block-tower subtask identity normalization expects at least {identity_slice.stop}D stats "
                     f"(got mean {mean.shape}, std {std.shape}). "
-                    "Regenerate norm stats after enabling rot6d encoding."
+                    "Regenerate norm stats with the correct data config."
                 )
-            mean[..., _ROT6D_SLICE] = 0.0
-            std[..., _ROT6D_SLICE] = 1.0
+            mean[..., identity_slice] = 0.0
+            std[..., identity_slice] = 1.0
             q01 = None if stats.q01 is None else np.array(stats.q01, copy=True)
             q99 = None if stats.q99 is None else np.array(stats.q99, copy=True)
             if q01 is not None:
-                q01[..., _ROT6D_SLICE] = -1.0
+                q01[..., identity_slice] = -1.0
             if q99 is not None:
-                q99[..., _ROT6D_SLICE] = 1.0
+                q99[..., identity_slice] = 1.0
             return _normalize.NormStats(mean=mean, std=std, q01=q01, q99=q99)
 
         patched_norm_stats = base_config.norm_stats
         if patched_norm_stats is not None:
             patched_norm_stats = dict(patched_norm_stats)
             if "state" in patched_norm_stats:
-                patched_norm_stats["state"] = _set_rot6d_identity(patched_norm_stats["state"])
+                patched_norm_stats["state"] = _set_identity(patched_norm_stats["state"])
             if "actions" in patched_norm_stats:
-                patched_norm_stats["actions"] = _set_rot6d_identity(patched_norm_stats["actions"])
+                patched_norm_stats["actions"] = _set_identity(patched_norm_stats["actions"])
 
         patched_per_ts = base_config.per_timestep_action_norm_stats
         if patched_per_ts is not None:
-            patched_per_ts = _set_rot6d_identity(patched_per_ts)
+            patched_per_ts = _set_identity(patched_per_ts)
 
         use_per_timestep_action_norm = base_config.use_per_timestep_action_norm
         if self.use_delta_actions and use_per_timestep_action_norm is None:
@@ -1735,12 +1741,11 @@ _CONFIGS = [
         wandb_enabled=True,
     ),
     #
-    # Build-block-tower joints-only ablation: train only the first 7 (joint)
-    # dims of the 17D canonical action vector. EE channels of state/action are
-    # zeroed in the input pipeline and the action_dim_mask forces the
-    # flow-matching loss to ignore EE dims. At inference, BlockTowerOutputs
-    # slices the policy output to 7D. Mirrors the historical
-    # pi05_build_block_tower_baseline schedule on the 6-dataset mix.
+    # Build-block-tower configs (joints-only). All experiments use joints-only
+    # action space: only the first 7 (joint) dims of the 17D canonical action
+    # vector are trained. EE channels of state/action are zeroed in the input
+    # pipeline and the action_dim_mask forces the flow-matching loss to ignore
+    # EE dims. At inference, BlockTowerOutputs slices the policy output to 7D.
     #
     TrainConfig(
         name="pi05_build_block_tower_baseline_6mix_joints_only",
@@ -1778,6 +1783,7 @@ _CONFIGS = [
             advantage_dropout_rate=0.3,
             use_delta_actions=True,
             output_delta_actions=True,
+            joints_only=True,
         ),
         batch_size=36,
         lr_schedule=_optimizer.CosineDecaySchedule(
@@ -1802,6 +1808,7 @@ _CONFIGS = [
             advantage_dropout_rate=0.3,
             use_delta_actions=True,
             output_delta_actions=True,
+            joints_only=True,
         ),
         batch_size=36,
         lr_schedule=_optimizer.CosineDecaySchedule(
@@ -1831,6 +1838,7 @@ _CONFIGS = [
             advantage_dropout_rate=0.3,
             use_delta_actions=True,
             output_delta_actions=True,
+            joints_only=True,
         ),
         batch_size=36,
         lr_schedule=_optimizer.CosineDecaySchedule(
@@ -1860,6 +1868,7 @@ _CONFIGS = [
             advantage_dropout_rate=0.3,
             use_delta_actions=True,
             output_delta_actions=True,
+            joints_only=True,
         ),
         batch_size=36,
         lr_schedule=_optimizer.CosineDecaySchedule(
@@ -1876,37 +1885,6 @@ _CONFIGS = [
     #
     # RL Token (RLT Stage 1) configs.
     #
-    TrainConfig(
-        name="pi05_rlt_build_block_tower_6mix",
-        model=pi0_rl_config.Pi0RLConfig(pi05=True, action_horizon=50, rl_vla_loss_weight=0.0),
-        data=LeRobotBlockTowerDataConfig(
-            repo_id=_BLOCK_TOWER_6MIX_REPO_ID,
-            base_config=DataConfig(
-                prompt_from_task=True,
-                episode_split=EpisodeSplitConfig(val_ratio=0.1, seed=42),
-            ),
-            use_delta_actions=True,
-            output_delta_actions=True,
-        ),
-        batch_size=36,
-        lr_schedule=_optimizer.CosineDecaySchedule(
-            warmup_steps=1_000,
-            peak_lr=5e-5,
-            decay_steps=10_000,
-            decay_lr=5e-5,
-        ),
-        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
-        ema_decay=0.999,
-        freeze_filter=pi0_rl_config.Pi0RLConfig(
-            pi05=True, action_horizon=50, rl_vla_loss_weight=0.0
-        ).get_rl_freeze_filter(),
-        weight_loader=weight_loaders.RLTokenCheckpointWeightLoader(
-            "checkpoints/pi05_build_block_tower_baseline_6mix/retain/step_49999/alpha_0.5/params"
-        ),
-        num_train_steps=50_000,
-        val_interval=1000,
-        val_num_batches=10,
-    ),
     TrainConfig(
         name="pi05_rlt_build_block_tower_6mix_joints_only",
         model=pi0_rl_config.Pi0RLConfig(pi05=True, action_horizon=50, rl_vla_loss_weight=0.0),
