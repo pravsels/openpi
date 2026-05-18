@@ -294,11 +294,26 @@ class Pi0RL(_pi0.Pi0):
         observation: _model.Observation,
         *,
         num_steps: int | at.Int[at.Array, ""] = 10,
+        noise: at.Float[at.Array, "b ah ad"] | None = None,
     ) -> tuple[_model.Actions, at.Float[at.Array, "b emb"]]:
         """Sample actions AND extract the RL token in a single VLA forward pass.
 
         Used during online RL (Stages 4+) where we need both the reference
         action chunk and the RL token for the actor-critic.
+
+        Args:
+            noise: Optional fixed initial noise of shape ``(b, action_horizon,
+                action_dim)``. When provided it is used as the starting point
+                of the Euler decoder instead of fresh Gaussian noise drawn from
+                ``rng``. This hook is used by:
+
+                - Golden Ticket evaluation (a single fixed noise vector reused
+                  across rollouts);
+                - the UniSteer actor (the SAC noise actor's sampled ``z`` is
+                  injected here so the frozen decoder produces an RL-aware
+                  action chunk).
+
+                Mirrors ``Pi0.sample_actions(noise=...)``.
         """
         observation = _model.preprocess_observation(None, observation, train=False)
         dt = -1.0 / num_steps
@@ -315,8 +330,11 @@ class Pi0RL(_pi0.Pi0):
         prefix_out = jax.lax.stop_gradient(outputs[0])
         rl_token = self.rl_encoder(prefix_out, mask=prefix_mask)
 
-        # Denoise actions using the cached prefix (same as Pi0.sample_actions)
-        noise = jax.random.normal(rng, (batch_size, self.action_horizon, self.action_dim))
+        # Denoise actions using the cached prefix (same as Pi0.sample_actions).
+        # When ``noise`` is provided we inject it directly; otherwise we draw
+        # a fresh Gaussian from ``rng`` to match the un-conditioned default.
+        if noise is None:
+            noise = jax.random.normal(rng, (batch_size, self.action_horizon, self.action_dim))
 
         def step(carry):
             x_t, time = carry
@@ -346,6 +364,157 @@ class Pi0RL(_pi0.Pi0):
 
         x_0, _ = jax.lax.while_loop(cond, step, (noise, 1.0))
         return x_0, rl_token
+
+    @at.typecheck
+    def invert_actions(
+        self,
+        rng: at.KeyArrayLike,
+        observation: _model.Observation,
+        action_chunk: at.Float[at.Array, "b ah ad"],
+        *,
+        num_steps: int | at.Int[at.Array, ""] = 10,
+        fixed_point_iters: int | at.Int[at.Array, ""] = 16,
+    ) -> at.Float[at.Array, "b ah ad"]:
+        """Invert the frozen flow decoder: action chunk -> initial noise.
+
+        Implements UniSteer Section 4.1 (Lu et al. 2026): walks the K-step
+        Euler decoder backwards by replacing the explicit forward update
+
+            z_{k+1} = z_k + dt * v_theta(z_k, t_k, s)              (forward)
+
+        with the implicit inverse
+
+            z_k = z_{k+1} - dt * v_theta(z_k, t_k, s)              (inverse)
+
+        which is solved by Picard (fixed-point) iteration with
+        ``fixed_point_iters`` updates per Euler step. Proposition 2 of the
+        paper shows the iteration is contractive when ``|dt| * L < 1``,
+        where ``L`` is the local Lipschitz constant of the velocity field;
+        in practice ``|dt| = 0.1`` (num_steps=10) comfortably satisfies
+        the bound for trained pi0 / pi0.5 flow heads.
+
+        Time convention
+        ---------------
+        Forward decoding in :pymeth:`sample_actions_with_rl_token` starts
+        at ``time = 1.0`` with Gaussian noise and ends at ``time = 0.0``
+        with the action chunk (``dt = -1 / num_steps``).  We therefore walk
+        backward over ``i = 0, 1, ..., num_steps - 1`` with the from-time
+        of inverse step ``i`` equal to ``(i + 1) / num_steps``: the first
+        inverse step (``i = 0``) inverts the forward step that *ended* at
+        the action chunk and *started* at ``t = 1 / num_steps``; the last
+        inverse step (``i = num_steps - 1``) inverts the forward step that
+        produced ``x_1`` from ``x_0 = noise`` at ``t = 1.0``.
+
+        Args
+        ----
+        rng:
+            JAX PRNGKey. Inversion is deterministic in expectation, but we
+            split the rng like the other entry points so the trace stays
+            pure under JIT and so future stochastic regularisations (e.g.
+            small additive noise on the initial guess for robustness) can
+            be added without changing the API.
+        observation:
+            Same observation that produced ``action_chunk`` under the
+            frozen decoder (image, language, proprioception). Reused
+            across all Picard iterations and all Euler steps.
+        action_chunk:
+            Target action chunk in **model space** of shape
+            ``(b, action_horizon, action_dim)``. Padding to ``action_dim``
+            and any normalisation must be applied identically to the
+            forward inference path.
+        num_steps:
+            Number of Euler steps in the frozen decoder. Must equal the
+            ``num_steps`` used for the forward sample so the inverse time
+            grid aligns with the forward one. UniSteer paper default: 10.
+        fixed_point_iters:
+            Picard iterations per Euler step. UniSteer paper Table 3:
+            16 is the practical sweet spot (mean MSE ~2e-3 reconstruction
+            error with bounded latency).
+
+        Returns
+        -------
+        noise:
+            Inferred initial-noise tensor of the same shape as
+            ``action_chunk``. Feeding this back to
+            ``sample_actions_with_rl_token(noise=...)`` reconstructs an
+            action chunk close to the input (subject to the residual
+            inversion error bounded in paper Proposition A.3).
+        """
+        del rng  # accepted for API parity with the sampling entry points;
+        # the inversion routine is deterministic given (obs, action_chunk).
+
+        observation = _model.preprocess_observation(None, observation, train=False)
+        dt = -1.0 / num_steps  # negative; same sign as the forward step.
+        batch_size = observation.state.shape[0]
+
+        # Reuse the forward prefix forward pass + KV cache so every Picard
+        # call shares the same per-observation state. This is the dominant
+        # cost in the inverter (M * K decoder forwards through the cached
+        # prefix, vs only a single prefix-forward).
+        prefix_tokens, prefix_mask, prefix_ar_mask = self.embed_prefix(observation)
+        prefix_attn_mask = _pi0.make_attn_mask(prefix_mask, prefix_ar_mask)
+        positions = jnp.cumsum(prefix_mask, axis=1) - 1
+
+        _, kv_cache = self.PaliGemma.llm(
+            [prefix_tokens, None], mask=prefix_attn_mask, positions=positions
+        )
+
+        def velocity_at(x_t: jax.Array, time: jax.Array) -> jax.Array:
+            """One pass of the suffix decoder evaluated at (x_t, time).
+
+            Mirrors the body of the forward ``step`` so the inverse uses
+            *exactly* the same velocity field the forward decoder did,
+            including suffix masking, AdaLN-style adarms_cond, and KV
+            cache reuse.
+            """
+            suffix_tokens, suffix_mask, suffix_ar_mask, adarms_cond = self.embed_suffix(
+                observation, x_t, jnp.broadcast_to(time, batch_size)
+            )
+            suffix_attn_mask = _pi0.make_attn_mask(suffix_mask, suffix_ar_mask)
+            prefix_cross_mask = jnp.broadcast_to(
+                prefix_mask[:, None, :],
+                (batch_size, suffix_tokens.shape[1], prefix_tokens.shape[1]),
+            )
+            full_attn_mask = jnp.concatenate([prefix_cross_mask, suffix_attn_mask], axis=-1)
+            pos = jnp.sum(prefix_mask, axis=-1)[:, None] + jnp.cumsum(suffix_mask, axis=-1) - 1
+
+            (_, suffix_out), _ = self.PaliGemma.llm(
+                [None, suffix_tokens],
+                mask=full_attn_mask,
+                positions=pos,
+                kv_cache=kv_cache,
+                adarms_cond=[None, adarms_cond],
+            )
+            return self.action_out_proj(suffix_out[:, -self.action_horizon :])
+
+        def inverse_euler_step(carry):
+            """One backward Euler step: x_next (at time + dt) -> x (at time)."""
+            x_next, i = carry
+            # ``time`` is the from-time of the forward step we are inverting,
+            # i.e. (i + 1) / num_steps. We compute it via -dt rather than
+            # 1/num_steps to keep the same precision used by the forward path.
+            time = (-dt) * (i.astype(jnp.float32) + 1.0)
+
+            def picard_body(_, x):
+                v_t = velocity_at(x, time)
+                # Forward: x_next = x + dt * v(x, time)
+                # Inverse: x = x_next - dt * v(x, time)  -- solved by Picard.
+                return x_next - dt * v_t
+
+            # Initial guess x^(0) = x_next exploits the small-dt regime:
+            # for |dt| << 1 the velocity contribution is small, so x_next
+            # is already close to the fixed point.
+            x = jax.lax.fori_loop(0, fixed_point_iters, picard_body, x_next)
+            return x, i + 1
+
+        def cond(carry):
+            _, i = carry
+            return i < num_steps
+
+        noise, _ = jax.lax.while_loop(
+            cond, inverse_euler_step, (action_chunk, jnp.int32(0)),
+        )
+        return noise
 
     # ------------------------------------------------------------------
     # Training
