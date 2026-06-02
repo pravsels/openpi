@@ -116,7 +116,7 @@ fi
 
 if [ ! -f "${VALID_INDICES_PATH}" ]; then
     echo "Generating valid_indices.txt (all frames valid for this dataset)..."
-    PRECOMPUTE_CMD="${PRECOMPUTE_CMD}python -c \"
+    PRECOMPUTE_CMD="${PRECOMPUTE_CMD}uv run python -c \"
 from openpi.training import config as _config
 from openpi.training.data_loader import create_torch_dataset
 cfg = _config.get_config('${CONFIG_NAME}')
