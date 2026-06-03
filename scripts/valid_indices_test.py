@@ -1053,58 +1053,57 @@ class TestPluginIntegratedIndices:
 
 
 # ===================================================================
-# 4.  File I/O tests for valid_indices.txt
+# 4.  File I/O tests for valid_indices.json
 # ===================================================================
 
 class TestValidIndicesFileIO:
-    """Test the load/save of valid_indices.txt."""
+    """Test the load/save of valid_indices.json (range-based format)."""
 
     @pytest.fixture(autouse=True)
     def _skip_if_no_loader(self):
-        pytest.importorskip("openpi.training.data_loader")
+        pytest.importorskip("openpi.training.valid_indices")
 
-    def test_load_empty_file(self):
-        from openpi.training.data_loader import _load_valid_indices
+    def test_load_empty_ranges(self):
+        from openpi.training.valid_indices import load_valid_indices
 
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
-            f.write("")
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            f.write("[]")
             f.flush()
-            result = _load_valid_indices(f.name)
+            result = load_valid_indices(f.name)
         os.unlink(f.name)
         assert result == []
 
-    def test_load_single_index(self):
-        from openpi.training.data_loader import _load_valid_indices
+    def test_load_single_range(self):
+        from openpi.training.valid_indices import load_valid_indices
 
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
-            f.write("42")
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            f.write("[[42, 42]]")
             f.flush()
-            result = _load_valid_indices(f.name)
+            result = load_valid_indices(f.name)
         os.unlink(f.name)
         assert result == [42]
 
-    def test_load_multiple_indices(self):
-        from openpi.training.data_loader import _load_valid_indices
+    def test_load_multiple_ranges(self):
+        from openpi.training.valid_indices import load_valid_indices
 
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
-            f.write("0,5,12,23,45")
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            f.write("[[0, 2], [5, 5], [12, 12], [23, 23], [45, 45]]")
             f.flush()
-            result = _load_valid_indices(f.name)
+            result = load_valid_indices(f.name)
         os.unlink(f.name)
-        assert result == [0, 5, 12, 23, 45]
+        assert result == [0, 1, 2, 5, 12, 23, 45]
 
     def test_roundtrip_matches_compute_script_format(self):
-        """Verify the write format from compute_valid_indices matches the loader."""
-        from openpi.training.data_loader import _load_valid_indices
+        """Verify the write format from save_valid_indices matches the loader."""
+        from openpi.training.valid_indices import save_valid_indices, load_valid_indices
 
         indices = [0, 100, 200, 47864]
 
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
-            # This is how compute_valid_indices.py writes:
-            f.write(",".join(str(i) for i in indices))
-            f.flush()
-            result = _load_valid_indices(f.name)
-        os.unlink(f.name)
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            path = f.name
+        save_valid_indices(indices, path)
+        result = load_valid_indices(path)
+        os.unlink(path)
         assert result == indices
 
 

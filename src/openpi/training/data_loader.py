@@ -545,7 +545,7 @@ def create_torch_data_loader(
         num_workers: The number of worker processes to use. If zero, the data loader will
             execute in the main process.
         seed: The seed to use for shuffling the data.
-        valid_indices_path: Path to a text file of comma-separated valid indices (from
+        valid_indices_path: Path to a JSON file of [start, end] index ranges (from
             scripts/compute_valid_indices.py). If provided, only these indices are sampled.
     """
     dataset = create_torch_dataset(data_config, action_horizon, model_config)
@@ -568,7 +568,7 @@ def create_torch_data_loader(
 
     sampler = None
     if valid_indices_path is not None:
-        valid_indices = _load_valid_indices(valid_indices_path)
+        valid_indices = _valid_indices.load_valid_indices(valid_indices_path)
         if split_indices is not None:
             valid_index_set = set(valid_indices)
             valid_indices = [idx for idx in split_indices if idx in valid_index_set]
@@ -1007,13 +1007,4 @@ class FilteredDistributedSampler(torch.utils.data.Sampler[int]):
         return self.num_samples
 
 
-VALID_INDICES_FILENAME = "valid_indices.txt"
-
-
-def _load_valid_indices(path: pathlib.Path | str) -> list[int]:
-    """Load comma-separated valid indices from a text file."""
-    path = pathlib.Path(path)
-    text = path.read_text().strip()
-    if not text:
-        return []
-    return [int(x) for x in text.split(",")]
+VALID_INDICES_FILENAME = "valid_indices.json"
