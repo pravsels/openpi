@@ -32,13 +32,14 @@
 ## Status
 - 2026-06-04 11:50 UTC — submitted job 5038584; running on nid010896 (first run, no prior checkpoints)
 - 2026-06-04 ~13:38 UTC — running ~1h47m wall; **~10.9k / 50k steps** (~22%), ~1.9 it/s, ~5h50m remaining; loss ~0.017 @ step 10800 (from 0.41 @ step 0); checkpoints saved at 5k, 10k
+- 2026-06-04 — HF published **step_15000** (loss 0.0151) to https://huggingface.co/pravsels/pi05-so101-stacking-magnetic-cubes-isambard (`step_15000/params/` + per-step passport/signoff)
 
 ## Results
 
 ## W&B
 - local: `/scratch/u6kr/pravsels.u6kr/openpi/wandb/offline-run-20260604_115930-7h1jiwva` (run id `7h1jiwva`)
 - project: `so101_stacking_magnetic_cubes`
-- synced: https://wandb.ai/pravsels/so101_stacking_magnetic_cubes/runs/7h1jiwva (2026-06-04, partial — training still running; re-sync after 50k for full curves)
+- synced: https://wandb.ai/pravsels/so101_stacking_magnetic_cubes/runs/7h1jiwva (2026-06-04 initial ~11k; re-synced 2026-06-04 ~19k+ while training continues; final sync after 50k)
 
 ## Next
 - after complete: W&B sync (`autohpc-wandb-sync`), then `checkpoint-passport` on chosen step before eval/HF

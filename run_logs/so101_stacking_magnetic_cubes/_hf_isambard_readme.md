@@ -10,15 +10,16 @@ tags:
 
 # pi0.5 SO101 Stacking Magnetic Cubes (Isambard)
 
-Fine-tuned [pi0.5](https://github.com/Physical-Intelligence/openpi) checkpoint for SO101 magnetic-cube stacking. Trained on Isambard GH200 (4× GPU node). **Training is in progress** — this repo publishes an interim **10,000-step** checkpoint; later steps (e.g. 50k) may be added under separate `step_<N>/` directories.
+Fine-tuned [pi0.5](https://github.com/Physical-Intelligence/openpi) checkpoint for SO101 magnetic-cube stacking. Trained on Isambard GH200 (4× GPU node). **Training is in progress** — this repo publishes interim checkpoints under `step_<N>/params/`; final 50k may be added as `step_49999/params/`.
 
 ## Published checkpoints
 
 | Directory | Step | Loss (approx) | Notes |
 |-----------|------|---------------|--------|
-| `step_10000/params/` | 10,000 | 0.0179 | Interim publish while full 50k run continues |
+| `step_10000/params/` | 10,000 | 0.0179 | Interim; root `MODEL_PASSPORT.json` / `SIGNOFF.json` |
+| `step_15000/params/` | 15,000 | 0.0151 | Interim; passport/signoff under `step_15000/` |
 
-Future checkpoints will use the same layout, e.g. `step_49999/params/`.
+Each step directory may include its own `MODEL_PASSPORT.json` and `SIGNOFF.json` when published separately from the root (10k) package.
 
 ## Experiment
 
@@ -51,6 +52,9 @@ MODEL_PASSPORT.json          # signed for step_10000 package layout
 SIGNOFF.json
 assets/                      # norm stats, valid_indices, reference_test_vector
 step_10000/params/           # interim checkpoint (params only)
+step_15000/params/           # interim checkpoint (params only)
+step_15000/MODEL_PASSPORT.json
+step_15000/SIGNOFF.json
 ```
 
 ## Usage

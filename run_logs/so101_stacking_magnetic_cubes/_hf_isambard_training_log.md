@@ -24,13 +24,14 @@
 | 0 | 0.4056 |
 | 5,000 | 0.0248 |
 | 10,000 | 0.0179 |
+| 15,000 | 0.0151 |
 
 ## W&B
 - synced: https://wandb.ai/pravsels/so101_stacking_magnetic_cubes/runs/7h1jiwva (2026-06-04, partial while training continues)
 
 ## HF publish (interim)
 - repo: https://huggingface.co/pravsels/pi05-so101-stacking-magnetic-cubes-isambard
-- published step: **10000** under `step_10000/params/` (params-only)
+- published steps: **10000**, **15000** under `step_<N>/params/` (params-only; 15k has per-step passport/signoff)
 - also includes: `assets/`, `MODEL_PASSPORT.json`, `SIGNOFF.json`, `README.md`, `TRAINING_LOG.md`
 
 ## Next
