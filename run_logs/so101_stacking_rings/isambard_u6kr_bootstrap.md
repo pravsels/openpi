@@ -12,7 +12,8 @@
 | HF token | `/scratch/u6kr/pravsels.u6kr/.secrets/.hf_token` |
 | W&B token | `/scratch/u6kr/pravsels.u6kr/.secrets/.wandb_token` |
 | Main clone | `/home/u6kr/pravsels.u6kr/openpi` |
-| SO101 worktree | `/home/u6kr/pravsels.u6kr/openpi_so101_stacking_rings` (`task/stack_rings`) |
+| SO101 rings worktree | `/home/u6kr/pravsels.u6kr/openpi_so101_stacking_rings` (`task/stack_rings`) |
+| SO101 magnetic cubes worktree | `/home/u6kr/pravsels.u6kr/openpi_so101_stacking_magnetic_cubes` (`task/stack_magnetic_cube`) |
 | SIF (target) | `/scratch/u6kr/pravsels.u6kr/openpi/container/openpi_arm64.sif` |
 | Scratch data | `/scratch/u6kr/pravsels.u6kr/openpi/` (checkpoints, weights, wandb) |
 | HF cache | `/scratch/u6kr/pravsels.u6kr/huggingface_cache` |

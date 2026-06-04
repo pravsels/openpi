@@ -17,7 +17,7 @@
 #   cd /home/u6kr/pravsels.u6kr/openpi_so101_stacking_magnetic_cubes
 #   sbatch slurm/train_so101_stacking_magnetic_cubes_slurm.sh
 #
-# Branch: task/stack_magnetic_cubes
+# Branch: task/stack_magnetic_cube
 #
 # Before first sbatch:
 #   - openpi_arm64.sif at ${data_dir}/container/
