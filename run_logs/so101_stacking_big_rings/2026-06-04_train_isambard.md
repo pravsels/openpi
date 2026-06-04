@@ -23,12 +23,13 @@
 - wandb: offline, entity `pravsels`, project `so101_stacking_big_rings` (config default; exp_name disambiguates on scratch)
 
 ## Job
-- execution_id: pending
-- submitted: pending
+- execution_id: 5042576
+- submitted: pending (poll sacct for start time)
 - start_human: Thursday, Jun 4th, 2026
+- slurm logs: `openpi_so101_stacking_big_rings_pravsels/slurm-5042576.{out,err}`
 
 ## Status
-- pending submit
+- 2026-06-04 — submitted job 5042576 (queued); first run, no prior checkpoints
 
 ## Results
 
