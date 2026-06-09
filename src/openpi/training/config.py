@@ -1779,6 +1779,56 @@ _CONFIGS = [
         wandb_enabled=True,
     ),
     #
+    # SO101 eye drops top shelf (place) config.
+    #
+    TrainConfig(
+        name="pi05_so101_eye_drops_top_shelf",
+        project_name="so101_eye_drops_top_shelf",
+        model=pi0_config.Pi0Config(pi05=True, action_horizon=30),
+        data=LeRobotSO101DataConfig(
+            repo_id="lorenzouttini/so101_eye_drops_top_shelf2_20260609_160053",
+            default_prompt="place the eye drops on the top shelf",
+            use_delta_actions=True,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=2.5e-5,
+            decay_steps=100_000,
+            decay_lr=2.5e-6,
+        ),
+        num_train_steps=50_000,
+        save_interval=5000,
+        batch_size=32,
+        ema_decay=0.999,
+        wandb_enabled=True,
+    ),
+    #
+    # SO101 eye drops top shelf reset config.
+    #
+    TrainConfig(
+        name="pi05_so101_eye_drops_top_shelf_reset",
+        project_name="so101_eye_drops_top_shelf_reset",
+        model=pi0_config.Pi0Config(pi05=True, action_horizon=30),
+        data=LeRobotSO101DataConfig(
+            repo_id="lorenzouttini/so101_eye_drops_top_shelf_reset_20260609_164949",
+            default_prompt="reset the eye drops from the top shelf",
+            use_delta_actions=True,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=2.5e-5,
+            decay_steps=100_000,
+            decay_lr=2.5e-6,
+        ),
+        num_train_steps=50_000,
+        save_interval=5000,
+        batch_size=32,
+        ema_decay=0.999,
+        wandb_enabled=True,
+    ),
+    #
     # ARX5 multi-task foundation model configs.
     #
     TrainConfig(
