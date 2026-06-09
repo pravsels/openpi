@@ -1,4 +1,5 @@
 import dataclasses
+import json
 import logging
 import pathlib
 
@@ -18,6 +19,48 @@ def _unwrap_dataset(dataset):
     while hasattr(dataset, "_dataset"):
         dataset = dataset._dataset
     return dataset
+
+
+def indices_to_ranges(indices: list[int]) -> list[list[int]]:
+    """Collapse a sorted list of ints into [start, end] inclusive ranges."""
+    if not indices:
+        return []
+    ranges: list[list[int]] = []
+    start = indices[0]
+    end = start
+    for idx in indices[1:]:
+        if idx == end + 1:
+            end = idx
+        else:
+            ranges.append([start, end])
+            start = idx
+            end = idx
+    ranges.append([start, end])
+    return ranges
+
+
+def ranges_to_indices(ranges: list[list[int]]) -> list[int]:
+    """Expand [start, end] inclusive ranges into a flat sorted list."""
+    indices: list[int] = []
+    for start, end in ranges:
+        indices.extend(range(start, end + 1))
+    return indices
+
+
+def save_valid_indices(indices: list[int], path: pathlib.Path | str) -> None:
+    """Save valid indices as JSON ranges."""
+    path = pathlib.Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    ranges = indices_to_ranges(sorted(indices))
+    path.write_text(json.dumps(ranges))
+    logger.info("Wrote %d valid indices (%d ranges) to %s", len(indices), len(ranges), path)
+
+
+def load_valid_indices(path: pathlib.Path | str) -> list[int]:
+    """Load valid indices from a JSON ranges file."""
+    path = pathlib.Path(path)
+    ranges = json.loads(path.read_text())
+    return ranges_to_indices(ranges)
 
 
 def policy_from_train_config(config: _config.TrainConfig) -> ValidIndicesPolicy:
@@ -146,7 +189,14 @@ def ensure_valid_indices_file(
         return output_path
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    valid = compute_valid_indices(dataset, policy)
-    output_path.write_text(",".join(str(i) for i in valid))
-    logger.info("Wrote %d valid indices to %s", len(valid), output_path)
+    try:
+        valid = compute_valid_indices(dataset, policy)
+        save_valid_indices(valid, output_path)
+    except ValueError:
+        n = len(dataset)
+        logger.info("No outcome metadata found; treating all %d indices as valid", n)
+        ranges = [[0, n - 1]]
+        output_path.write_text(json.dumps(ranges))
+        logger.info("Wrote %d valid indices (1 range) to %s", n, output_path)
+
     return output_path

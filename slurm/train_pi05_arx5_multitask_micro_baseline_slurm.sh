@@ -16,7 +16,7 @@
 # Before sbatch, copy precomputed assets into ASSETS_DIR (must end with /assets):
 #   training_mix_micro.json
 #   norm_stats.json
-#   valid_indices.txt           (recommended; omit only if you want full index scan)
+#   valid_indices.json          (recommended; omit only if you want full index scan)
 #
 # Example from your laptop (adjust user, host, paths):
 #   rsync -av ~/Downloads/pi05_arx5_multitask_micro_baseline/ \
@@ -65,7 +65,7 @@ echo "Started (UTC): ${start_time}"
 echo "===================================="
 
 MIX_JSON="${ASSETS_DIR}/training_mix_micro.json"
-VALID_INDICES_PATH="${ASSETS_DIR}/valid_indices.txt"
+VALID_INDICES_PATH="${ASSETS_DIR}/valid_indices.json"
 NORM_STATS_PATH="${ASSETS_DIR}/norm_stats.json"
 
 if [ ! -f "${MIX_JSON}" ]; then
@@ -81,7 +81,7 @@ if [ ! -f "${NORM_STATS_PATH}" ]; then
 fi
 
 if [ ! -f "${VALID_INDICES_PATH}" ]; then
-    echo "WARNING: valid_indices.txt not found at ${VALID_INDICES_PATH}"
+    echo "WARNING: valid_indices.json not found at ${VALID_INDICES_PATH}"
     echo "Training will use the full dataset (no index filtering)."
 fi
 

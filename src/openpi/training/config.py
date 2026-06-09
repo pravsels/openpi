@@ -1731,7 +1731,12 @@ _CONFIGS = [
         project_name="so101_stacking_rings",
         model=pi0_config.Pi0Config(pi05=True, action_horizon=30),
         data=LeRobotSO101DataConfig(
-            repo_id="lorenzouttini/so101_stacking_rings",
+            repo_id=(
+                "["
+                "lorenzouttini/so101_stacking_rings, "
+                "lorenzouttini/rollout_so101_stacking_rings_20260603_154953"
+                "]"
+            ),
             default_prompt="stack the rings",
             use_delta_actions=True,
         ),

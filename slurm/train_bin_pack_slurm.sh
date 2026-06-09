@@ -57,7 +57,7 @@ echo "===================================="
 # Training commands
 COMPUTE_VALID_INDICES_CMD="uv run scripts/compute_valid_indices.py --config-name=${CONFIG_NAME} --assets-dir=${ASSETS_DIR}"
 COMPUTE_NORM_STATS_CMD="uv run scripts/compute_norm_stats_per_timestep.py --config-name=${CONFIG_NAME} --assets-dir=${ASSETS_DIR}"
-VALID_INDICES_PATH="${ASSETS_DIR}/valid_indices.txt"
+VALID_INDICES_PATH="${ASSETS_DIR}/valid_indices.json"
 NORM_STATS_PATH="${ASSETS_DIR}/norm_stats.json"
 PER_TIMESTEP_STATS_PATH="${ASSETS_DIR}/norm_stats_actions_per_timestep.json"
 TRAIN_CMD="uv run scripts/train.py ${CONFIG_NAME} --exp-name=${EXP_NAME} --assets-dir=${ASSETS_DIR} --resume"

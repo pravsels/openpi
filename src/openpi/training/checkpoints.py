@@ -74,7 +74,7 @@ def save_state(
     def save_assets(directory: epath.Path):
         # Copy everything from the experiment-level assets dir into this
         # checkpoint's assets dir so each checkpoint is self-contained for
-        # inference (e.g. valid_indices.txt, norm_stats.json, etc.).
+        # inference (e.g. valid_indices.json, norm_stats.json, etc.).
         if assets_dir is not None:
             src_dir = epath.Path(assets_dir)
             if src_dir.exists():

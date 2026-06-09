@@ -1,4 +1,5 @@
 import dataclasses
+import json
 
 import jax
 import numpy as np
@@ -361,7 +362,7 @@ def test_create_data_loader_writes_valid_indices_when_missing(tmp_path, monkeypa
 
     _data_loader.create_data_loader(config, num_batches=1, skip_norm_stats=True)
 
-    assert (tmp_path / _data_loader.VALID_INDICES_FILENAME).read_text() == "0"
+    assert json.loads((tmp_path / _data_loader.VALID_INDICES_FILENAME).read_text()) == [[0, 0]]
 
 
 def test_create_data_loader_writes_valid_indices_when_dataset_is_wrapped(tmp_path, monkeypatch):
@@ -390,7 +391,7 @@ def test_create_data_loader_writes_valid_indices_when_dataset_is_wrapped(tmp_pat
 
     _data_loader.create_data_loader(config, num_batches=1, skip_norm_stats=True)
 
-    assert (tmp_path / _data_loader.VALID_INDICES_FILENAME).read_text() == "0"
+    assert json.loads((tmp_path / _data_loader.VALID_INDICES_FILENAME).read_text()) == [[0, 0]]
 
 
 def test_create_data_loader_writes_valid_indices_when_episode_bounds_come_from_hf_dataset(tmp_path, monkeypatch):
@@ -419,10 +420,10 @@ def test_create_data_loader_writes_valid_indices_when_episode_bounds_come_from_h
 
     _data_loader.create_data_loader(config, num_batches=1, skip_norm_stats=True)
 
-    assert (tmp_path / _data_loader.VALID_INDICES_FILENAME).read_text() == "0"
+    assert json.loads((tmp_path / _data_loader.VALID_INDICES_FILENAME).read_text()) == [[0, 0]]
 
 
-def test_create_data_loader_fails_when_auto_valid_indices_missing_outcomes(tmp_path, monkeypatch):
+def test_create_data_loader_falls_back_to_all_valid_when_missing_outcomes(tmp_path, monkeypatch):
     model_config = pi0_config.Pi0Config(action_dim=2, action_horizon=2, max_token_len=4)
     config = _config.TrainConfig(
         name="test_valid_indices",
@@ -451,8 +452,9 @@ def test_create_data_loader_fails_when_auto_valid_indices_missing_outcomes(tmp_p
 
     monkeypatch.setattr(_data_loader, "TorchDataLoader", _DummyTorchDataLoader)
 
-    with pytest.raises(ValueError, match="Missing outcome metadata"):
-        _data_loader.create_data_loader(config, num_batches=1, skip_norm_stats=True)
+    _data_loader.create_data_loader(config, num_batches=1, skip_norm_stats=True)
+
+    assert json.loads((tmp_path / _data_loader.VALID_INDICES_FILENAME).read_text()) == [[0, 5]]
 
 
 def test_create_torch_data_loader_computes_missing_per_timestep_action_stats(tmp_path, monkeypatch):

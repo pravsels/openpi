@@ -54,9 +54,9 @@ echo "Node: ${SLURM_NODELIST}"
 echo "Started (UTC): ${start_time}"
 echo "===================================="
 
-# Precomputed assets (norm_stats.json, valid_indices.txt, training_mix_v1.json)
+# Precomputed assets (norm_stats.json, valid_indices.json, training_mix_v1.json)
 # should already be rsynced to ASSETS_DIR before submission.
-VALID_INDICES_PATH="${ASSETS_DIR}/valid_indices.txt"
+VALID_INDICES_PATH="${ASSETS_DIR}/valid_indices.json"
 NORM_STATS_PATH="${ASSETS_DIR}/norm_stats.json"
 
 if [ ! -f "${NORM_STATS_PATH}" ]; then
@@ -66,7 +66,7 @@ if [ ! -f "${NORM_STATS_PATH}" ]; then
 fi
 
 if [ ! -f "${VALID_INDICES_PATH}" ]; then
-    echo "WARNING: valid_indices.txt not found at ${VALID_INDICES_PATH}"
+    echo "WARNING: valid_indices.json not found at ${VALID_INDICES_PATH}"
     echo "Training will use the full dataset (no index filtering)."
 fi
 
