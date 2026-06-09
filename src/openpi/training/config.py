@@ -1754,15 +1754,15 @@ _CONFIGS = [
         wandb_enabled=True,
     ),
     #
-    # SO101 stacking magnetic cubes config.
+    # SO101 stacking big rings config.
     #
     TrainConfig(
-        name="pi05_so101_stacking_magnetic_cubes",
-        project_name="so101_stacking_magnetic_cubes",
+        name="pi05_so101_stacking_big_rings",
+        project_name="so101_stacking_big_rings",
         model=pi0_config.Pi0Config(pi05=True, action_horizon=30),
         data=LeRobotSO101DataConfig(
-            repo_id="lorenzouttini/so101_stacking_magnetic_cubes",
-            default_prompt="stack the magnetic cubes",
+            repo_id="lorenzouttini/so101_stacking_big_rings",
+            default_prompt="stack the big rings",
             use_delta_actions=True,
         ),
         weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
