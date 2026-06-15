@@ -598,6 +598,91 @@ class Pi05(_model.BaseModel):
         x_0, _ = jax.lax.while_loop(cond, step, (noise, 1.0))
         return x_0
 
+    def _sample_actions_rtc_with_prefix_cache(
+        self,
+        observation: _model.Observation,
+        kv_cache: object,
+        prefix_mask: jax.Array,
+        prefix_actions: jax.Array,
+        prefix_weights: jax.Array,
+        max_guidance_weight: jax.Array,
+        *,
+        num_steps: int | jax.Array,
+        noise: jax.Array,
+    ) -> _model.Actions:
+        """Flow-matching denoising with Real-Time Chunking (RTC) prefix guidance.
+
+        Identical to `_sample_actions_with_prefix_cache` except that, at each
+        denoising step, the velocity is nudged so the predicted clean action chunk
+        stays close to `prefix_actions` (the unexecuted tail of the previous chunk)
+        over a soft overlap region defined by `prefix_weights`.
+
+        The guidance is a direct port of the Physical Intelligence RTC algorithm as
+        implemented in LeRobot's `RTCProcessor.denoise_step`. In that reference the
+        autograd correction collapses to an identity Jacobian (because `x_t` only
+        starts tracking gradients *after* the velocity is computed), so the
+        correction equals `err` and the whole guidance is plain array math:
+
+            x1_t = x_t - time * v_t                  # predicted clean actions (x_0)
+            err  = (prefix_actions - x1_t) * weights # weighted overlap error
+            v_t' = v_t - guidance_weight * err
+
+        with `x_t = time * noise + (1 - time) * x_0` (openpi convention, time 1->0),
+        for which `x1_t = x_t - time * v_t` recovers x_0 exactly.
+        """
+        dt = -1.0 / num_steps
+        batch_size = observation.state.shape[0]
+        # (action_horizon,) -> (1, action_horizon, 1) for broadcasting over batch/dim.
+        weights = prefix_weights[None, :, None]
+
+        def step(carry):
+            x_t, time = carry
+            suffix_tokens, suffix_mask, suffix_ar_mask, adarms_cond = self.embed_suffix(
+                observation, x_t, jnp.broadcast_to(time, batch_size)
+            )
+            suffix_attn_mask = make_attn_mask(suffix_mask, suffix_ar_mask)
+            prefix_attn_mask = einops.repeat(prefix_mask, "b p -> b s p", s=suffix_tokens.shape[1])
+            full_attn_mask = jnp.concatenate([prefix_attn_mask, suffix_attn_mask], axis=-1)
+            query_attn_mask = full_attn_mask[:, -suffix_tokens.shape[1] :, :]
+            positions = jnp.sum(prefix_mask, axis=-1)[:, None] + jnp.cumsum(suffix_mask, axis=-1) - 1
+
+            (prefix_out, suffix_out), _ = self.PaliGemma.llm(
+                [None, suffix_tokens],
+                mask=query_attn_mask,
+                positions=positions,
+                kv_cache=kv_cache,
+                adarms_cond=[None, adarms_cond],
+            )
+            assert prefix_out is None
+            v_t = self.action_out_proj(suffix_out[:, -self.action_horizon :])
+
+            # ---- RTC guidance -------------------------------------------------
+            x1_t = x_t - time * v_t  # predicted clean action chunk (x_0)
+            err = (prefix_actions - x1_t) * weights
+
+            # Variance-ratio guidance weight from the RTC paper (time goes 1 -> 0,
+            # tau = 1 - time is the paper's 0 -> 1 convention).
+            tau = 1.0 - time
+            sq = time * time  # = (1 - tau) ** 2
+            inv_r2 = (sq + tau * tau) / sq
+            c = (1.0 - tau) / tau
+            guidance_weight = c * inv_r2
+            # c*inv_r2 -> +inf (or 0*inf -> nan) at the time endpoints; clamp to max.
+            guidance_weight = jnp.where(
+                jnp.isfinite(guidance_weight), guidance_weight, max_guidance_weight
+            )
+            guidance_weight = jnp.minimum(guidance_weight, max_guidance_weight)
+
+            v_guided = v_t - guidance_weight * err
+            return x_t + dt * v_guided, time + dt
+
+        def cond(carry):
+            _x_t, time = carry
+            return time >= -dt / 2
+
+        x_0, _ = jax.lax.while_loop(cond, step, (noise, 1.0))
+        return x_0
+
     def _sample_actions_cfg_with_prefix_caches(
         self,
         observation: _model.Observation,
@@ -758,5 +843,51 @@ class Pi05(_model.BaseModel):
         )
         x_0 = self._sample_actions_with_prefix_cache(
             observation, kv_cache, prefix_mask, num_steps=num_steps, noise=noise
+        )
+        return (x_0, generated_subtask_tokens)
+
+    def sample_actions_rtc(
+        self,
+        rng: at.KeyArrayLike,
+        observation: _model.Observation,
+        prefix_actions: at.Float[at.Array, "b ah ad"],
+        prefix_weights: at.Float[at.Array, " ah"],
+        max_guidance_weight: at.Float[at.Array, ""],
+        *,
+        num_steps: int | at.Int[at.Array, ""] = 10,
+        noise: at.Float[at.Array, "b ah ad"] | None = None,
+    ) -> _model.Actions:
+        """Sample an action chunk with Real-Time Chunking (RTC) prefix guidance.
+
+        Mirrors `sample_actions` (subtask decode -> prefix cache -> denoise) but
+        runs the RTC-guided denoiser so the start of the new chunk blends into
+        `prefix_actions` (the previous chunk's unexecuted tail, already in this
+        model's normalized action space). `prefix_weights` is the precomputed soft
+        overlap mask (length == action_horizon); it is computed host-side so the
+        jitted graph does not depend on the integer inference_delay / horizon.
+        """
+        observation = _model.preprocess_observation(
+            None, observation, train=False, image_keys=list(observation.images.keys())
+        )
+        batch_size = observation.state.shape[0]
+        assert batch_size == 1, "Batch size must be 1 for sample_actions_rtc"
+        if noise is None:
+            noise = jax.random.normal(rng, (batch_size, self.action_horizon, self.action_dim))
+
+        generated_subtask_tokens, _kv_cache, _prefix_mask, _prefix_ar_mask = self.sample_low_level_task(
+            rng, observation, max_decoding_steps=20, paligemma_eos_token=1, temperature=0.0
+        )
+        kv_cache, prefix_mask = self.build_prefix_cache_with_generated_subtask(
+            observation, generated_subtask_tokens
+        )
+        x_0 = self._sample_actions_rtc_with_prefix_cache(
+            observation,
+            kv_cache,
+            prefix_mask,
+            prefix_actions,
+            prefix_weights,
+            max_guidance_weight,
+            num_steps=num_steps,
+            noise=noise,
         )
         return (x_0, generated_subtask_tokens)
