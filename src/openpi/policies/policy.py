@@ -240,10 +240,13 @@ class Policy(BasePolicy):
                 inference_delay, horizon, action_horizon, prefix_attention_schedule
             )
             # Pad/truncate the prefix to the full action horizon (zeros are masked
-            # out by the weights beyond the overlap region).
+            # out by the weights beyond the overlap region). The prefix may be
+            # narrower than action_dim (e.g. 6 robot dims vs 32 padded model
+            # dims); padded dims stay 0, matching the training-time zero padding.
             padded = np.zeros((action_horizon, action_dim), dtype=np.float32)
             usable = min(t_left, action_horizon)
-            padded[:usable] = prefix[:usable, :action_dim]
+            prefix_dim = min(prefix.shape[1], action_dim)
+            padded[:usable, :prefix_dim] = prefix[:usable, :prefix_dim]
             action_output = self._sample_actions_rtc(
                 sample_rng,
                 observation,

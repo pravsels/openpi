@@ -345,6 +345,63 @@ class Pi0(_model.BaseModel):
             num_steps=num_steps, noise=noise,
         )
 
+    def sample_actions_rtc(
+        self,
+        rng: at.KeyArrayLike,
+        observation: _model.Observation,
+        prefix_actions: at.Float[at.Array, "b ah ad"],
+        prefix_weights: at.Float[at.Array, " ah"],
+        max_guidance_weight: at.Float[at.Array, ""],
+        *,
+        num_steps: int | at.Int[at.Array, ""] = 10,
+        noise: at.Float[at.Array, "b ah ad"] | None = None,
+    ) -> _model.Actions:
+        """Sample an action chunk with Real-Time Chunking (RTC) prefix guidance.
+
+        Same as `sample_actions` but, at each denoising step, the velocity is
+        nudged so the predicted clean chunk stays close to `prefix_actions` (the
+        previous chunk's unexecuted tail, already in this model's normalized action
+        space) over the soft overlap region given by `prefix_weights`.
+
+        Ported from LeRobot's `RTCProcessor.denoise_step`; the autograd correction
+        there reduces to an identity Jacobian, so the guidance is plain array math:
+
+            x1_t = x_t - time * v_t                  # predicted clean actions (x_0)
+            err  = (prefix_actions - x1_t) * weights # weighted overlap error
+            v_t' = v_t - guidance_weight * err
+        """
+        observation = _model.preprocess_observation(None, observation, train=False)
+        batch_size = observation.state.shape[0]
+        if noise is None:
+            noise = jax.random.normal(rng, (batch_size, self.action_horizon, self.action_dim))
+
+        kv_cache, prefix_mask = self.build_prefix_cache(observation)
+        # (action_horizon,) -> (1, action_horizon, 1) for broadcasting over batch/dim.
+        weights = prefix_weights[None, :, None]
+
+        def rtc_velocity(v_t, x_t, time):
+            x1_t = x_t - time * v_t  # predicted clean action chunk (x_0)
+            err = (prefix_actions - x1_t) * weights
+
+            # Variance-ratio guidance weight from the RTC paper (time goes 1 -> 0,
+            # tau = 1 - time is the paper's 0 -> 1 convention).
+            tau = 1.0 - time
+            sq = time * time  # = (1 - tau) ** 2
+            inv_r2 = (sq + tau * tau) / sq
+            c = (1.0 - tau) / tau
+            guidance_weight = c * inv_r2
+            # c*inv_r2 -> +inf (or 0*inf -> nan) at the time endpoints; clamp to max.
+            guidance_weight = jnp.where(
+                jnp.isfinite(guidance_weight), guidance_weight, max_guidance_weight
+            )
+            guidance_weight = jnp.minimum(guidance_weight, max_guidance_weight)
+            return v_t - guidance_weight * err
+
+        return self._denoise_actions(
+            observation, prefix_mask, kv_cache,
+            num_steps=num_steps, noise=noise, velocity_fn=rtc_velocity,
+        )
+
     def sample_actions_cfg(
         self,
         rng: at.KeyArrayLike,
