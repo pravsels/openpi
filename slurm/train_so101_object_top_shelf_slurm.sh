@@ -19,7 +19,7 @@
 # HF token works regardless of which account owns the data.
 #
 # Cluster: Isambard u6kr. Submit from the worktree so slurm logs stay isolated:
-#   cd /home/u6kr/lorenzo.u6kr/openpi_so101_object_top_shelf
+#   cd /home/u6kr/lorenzo.u6kr/openpi_so101_object_top_shelf_remote
 #   sbatch slurm/train_so101_object_top_shelf_slurm.sh
 #
 # Before first sbatch:
@@ -35,7 +35,7 @@ module load brics/apptainer-multi-node
 # --- Infrastructure (u6kr) ---
 home_dir="/home/u6kr/lorenzo.u6kr"
 scratch_dir="/scratch/u6kr/lorenzo.u6kr"
-repo_dir="${home_dir}/openpi_so101_object_top_shelf"
+repo_dir="${home_dir}/openpi_so101_object_top_shelf_remote"
 data_dir="${scratch_dir}/openpi"
 container="${data_dir}/container/openpi_arm64.sif"
 HF_CACHE="${scratch_dir}/huggingface_cache"

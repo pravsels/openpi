@@ -21,7 +21,7 @@
 # namespace; it has nothing to do with who owns the dataset.
 #
 # Cluster: Isambard u6kr. Submit from the worktree:
-#   cd /home/u6kr/lorenzo.u6kr/openpi_so101_object_top_shelf_reset
+#   cd /home/u6kr/lorenzo.u6kr/openpi_so101_object_top_shelf_remote
 #   sbatch slurm/publish_so101_object_top_shelf_reset_slurm.sh
 #
 # Auto-run after training (uploads once training succeeds):
@@ -40,7 +40,7 @@ module load brics/apptainer-multi-node
 # --- Infrastructure (u6kr) ---
 home_dir="/home/u6kr/lorenzo.u6kr"
 scratch_dir="/scratch/u6kr/lorenzo.u6kr"
-repo_dir="${home_dir}/openpi_so101_object_top_shelf_reset"
+repo_dir="${home_dir}/openpi_so101_object_top_shelf_remote"
 data_dir="${scratch_dir}/openpi"
 container="${data_dir}/container/openpi_arm64.sif"
 HF_CACHE="${scratch_dir}/huggingface_cache"
