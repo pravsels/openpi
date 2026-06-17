@@ -1933,6 +1933,34 @@ _CONFIGS = [
         wandb_enabled=True,
     ),
     #
+    # SO101 cable clip config — remote-teleop dataset.
+    # Dataset collected on the `villekuosmanen` HF account (public, apache-2.0).
+    # Wrist camera already at 720x1280 — no re-encoding needed.
+    # Checkpoints publish to the `lorenzouttini` account.
+    #
+    TrainConfig(
+        name="pi05_so101_cable_clip",
+        project_name="so101_cable_clip",
+        model=pi0_config.Pi0Config(pi05=True, action_horizon=30),
+        data=LeRobotSO101DataConfig(
+            repo_id="villekuosmanen/cable_clip_remote_v2",
+            default_prompt="clip the cable into the holder",
+            use_delta_actions=True,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=2.5e-5,
+            decay_steps=100_000,
+            decay_lr=2.5e-6,
+        ),
+        num_train_steps=50_000,
+        save_interval=5000,
+        batch_size=32,
+        ema_decay=0.999,
+        wandb_enabled=True,
+    ),
+    #
     # ARX5 multi-task foundation model configs.
     #
     TrainConfig(
