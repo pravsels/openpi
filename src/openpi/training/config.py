@@ -1880,7 +1880,7 @@ _CONFIGS = [
     ),
     #
     # SO101 object top shelf (place) config — remote-teleop dataset.
-    # Dataset collected on the `villekuosmanen` HF account (public, apache-2.0);
+    # Dataset collected on the `lorenzouttini` HF account (public, apache-2.0);
     # checkpoints publish to the `lorenzouttini` account. The two are decoupled.
     #
     TrainConfig(
@@ -1888,7 +1888,7 @@ _CONFIGS = [
         project_name="so101_object_top_shelf",
         model=pi0_config.Pi0Config(pi05=True, action_horizon=30),
         data=LeRobotSO101DataConfig(
-            repo_id="villekuosmanen/object_top_shelf_remote",
+            repo_id="lorenzouttini/object_top_shelf_remote",
             default_prompt="Put the object on the top shelf",
             use_delta_actions=True,
         ),
@@ -1907,7 +1907,7 @@ _CONFIGS = [
     ),
     #
     # SO101 object top shelf reset config — remote-teleop dataset.
-    # Dataset collected on the `villekuosmanen` HF account (public, apache-2.0);
+    # Dataset collected on the `lorenzouttini` HF account (public, apache-2.0);
     # checkpoints publish to the `lorenzouttini` account. The two are decoupled.
     #
     TrainConfig(
@@ -1915,7 +1915,7 @@ _CONFIGS = [
         project_name="so101_object_top_shelf_reset",
         model=pi0_config.Pi0Config(pi05=True, action_horizon=30),
         data=LeRobotSO101DataConfig(
-            repo_id="villekuosmanen/object_top_shelf_reset_remote",
+            repo_id="lorenzouttini/object_top_shelf_reset_remote",
             default_prompt="Put the object from the top shelf in the basket",
             use_delta_actions=True,
         ),
