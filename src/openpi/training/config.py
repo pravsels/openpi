@@ -1934,7 +1934,7 @@ _CONFIGS = [
     ),
     #
     # SO101 cable clip config — remote-teleop dataset.
-    # Dataset collected on the `villekuosmanen` HF account (public, apache-2.0).
+    # Dataset mirrored to the `lorenzouttini` HF account (41 episodes, last 9 dropped).
     # Wrist camera already at 720x1280 — no re-encoding needed.
     # Checkpoints publish to the `lorenzouttini` account.
     #
@@ -1943,7 +1943,7 @@ _CONFIGS = [
         project_name="so101_cable_clip",
         model=pi0_config.Pi0Config(pi05=True, action_horizon=30),
         data=LeRobotSO101DataConfig(
-            repo_id="villekuosmanen/cable_clip_remote_v2",
+            repo_id="lorenzouttini/cable_clip_remote_v2",
             default_prompt="clip the cable into the holder",
             use_delta_actions=True,
         ),
