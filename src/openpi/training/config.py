@@ -1779,6 +1779,31 @@ _CONFIGS = [
         wandb_enabled=True,
     ),
     #
+    # SO101 stacking magnetic cubes config.
+    #
+    TrainConfig(
+        name="pi05_so101_magnetic_cubes",
+        project_name="so101_magnetic_cubes",
+        model=pi0_config.Pi0Config(pi05=True, action_horizon=30),
+        data=LeRobotSO101DataConfig(
+            repo_id="lorenzouttini/so101_magnetic_cubes",
+            default_prompt="stack the magnetic cubes",
+            use_delta_actions=True,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=2.5e-5,
+            decay_steps=100_000,
+            decay_lr=2.5e-6,
+        ),
+        num_train_steps=50_000,
+        save_interval=5000,
+        batch_size=32,
+        ema_decay=0.999,
+        wandb_enabled=True,
+    ),
+    #
     # SO101 eye drops top shelf (place) config.
     #
     TrainConfig(
@@ -1838,6 +1863,88 @@ _CONFIGS = [
         data=LeRobotSO101DataConfig(
             repo_id="lorenzouttini/so101_eye_drops_top_shelf_reset_20260609_164949",
             default_prompt="reset the eye drops from the top shelf",
+            use_delta_actions=True,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=2.5e-5,
+            decay_steps=100_000,
+            decay_lr=2.5e-6,
+        ),
+        num_train_steps=50_000,
+        save_interval=5000,
+        batch_size=32,
+        ema_decay=0.999,
+        wandb_enabled=True,
+    ),
+    #
+    # SO101 object top shelf (place) config — remote-teleop dataset.
+    # Dataset collected on the `lorenzouttini` HF account (public, apache-2.0);
+    # checkpoints publish to the `lorenzouttini` account. The two are decoupled.
+    #
+    TrainConfig(
+        name="pi05_so101_object_top_shelf",
+        project_name="so101_object_top_shelf",
+        model=pi0_config.Pi0Config(pi05=True, action_horizon=30),
+        data=LeRobotSO101DataConfig(
+            repo_id="lorenzouttini/object_top_shelf_remote",
+            default_prompt="Put the object on the top shelf",
+            use_delta_actions=True,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=2.5e-5,
+            decay_steps=100_000,
+            decay_lr=2.5e-6,
+        ),
+        num_train_steps=50_000,
+        save_interval=5000,
+        batch_size=32,
+        ema_decay=0.999,
+        wandb_enabled=True,
+    ),
+    #
+    # SO101 object top shelf reset config — remote-teleop dataset.
+    # Dataset collected on the `lorenzouttini` HF account (public, apache-2.0);
+    # checkpoints publish to the `lorenzouttini` account. The two are decoupled.
+    #
+    TrainConfig(
+        name="pi05_so101_object_top_shelf_reset",
+        project_name="so101_object_top_shelf_reset",
+        model=pi0_config.Pi0Config(pi05=True, action_horizon=30),
+        data=LeRobotSO101DataConfig(
+            repo_id="lorenzouttini/object_top_shelf_reset_remote",
+            default_prompt="Put the object from the top shelf in the basket",
+            use_delta_actions=True,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=2.5e-5,
+            decay_steps=100_000,
+            decay_lr=2.5e-6,
+        ),
+        num_train_steps=50_000,
+        save_interval=5000,
+        batch_size=32,
+        ema_decay=0.999,
+        wandb_enabled=True,
+    ),
+    #
+    # SO101 cable clip config — remote-teleop dataset.
+    # Dataset mirrored to the `lorenzouttini` HF account (41 episodes, last 9 dropped).
+    # Wrist camera already at 720x1280 — no re-encoding needed.
+    # Checkpoints publish to the `lorenzouttini` account.
+    #
+    TrainConfig(
+        name="pi05_so101_cable_clip",
+        project_name="so101_cable_clip",
+        model=pi0_config.Pi0Config(pi05=True, action_horizon=30),
+        data=LeRobotSO101DataConfig(
+            repo_id="lorenzouttini/cable_clip_remote_v2",
+            default_prompt="clip the cable into the holder",
             use_delta_actions=True,
         ),
         weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
