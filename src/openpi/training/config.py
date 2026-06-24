@@ -28,6 +28,7 @@ import openpi.policies.block_tower_policy as block_tower_policy
 import openpi.policies.arx_policy as arx_policy
 import openpi.policies.droid_policy as droid_policy
 import openpi.policies.so101_policy as so101_policy
+import openpi.policies.so101_bimanual_policy as so101_bimanual_policy
 import openpi.policies.libero_policy as libero_policy
 import openpi.policies.libero_subtask_policy as libero_subtask_policy
 import openpi.shared.download as _download
@@ -950,6 +951,69 @@ class LeRobotSO101DataConfig(DataConfigFactory):
         if self.use_delta_actions:
             # 5 joints as delta, gripper (dim 5) stays absolute.
             delta_action_mask = _transforms.make_bool_mask(5, -1)
+            data_transforms = data_transforms.push(
+                inputs=[_transforms.DeltaActions(delta_action_mask)],
+                outputs=[_transforms.AbsoluteActions(delta_action_mask)],
+            )
+
+        model_transforms = ModelTransformFactory(default_prompt=self.default_prompt)(model_config)
+        base_config = self.create_base_config(assets_dirs, model_config)
+
+        use_per_timestep_action_norm = base_config.use_per_timestep_action_norm
+        if self.use_delta_actions and use_per_timestep_action_norm is None:
+            use_per_timestep_action_norm = True
+
+        return dataclasses.replace(
+            base_config,
+            repack_transforms=self.repack_transforms,
+            data_transforms=data_transforms,
+            model_transforms=model_transforms,
+            action_sequence_keys=self.action_sequence_keys,
+            use_per_timestep_action_norm=use_per_timestep_action_norm,
+        )
+
+
+@dataclasses.dataclass(frozen=True)
+class LeRobotSO101BimanualDataConfig(DataConfigFactory):
+    """Data config for bimanual SO101 (dual-arm, 12D joint-space).
+
+    Two 5-DOF arms + grippers; cameras top / left_wrist / right_wrist map to
+    base_0_rgb / left_wrist_0_rgb / right_wrist_0_rgb. Supports optional delta
+    action conversion (per arm: 5 joints delta, gripper absolute).
+    """
+
+    default_prompt: str | None = "complete the task"
+    use_delta_actions: bool = False
+
+    # Repack transforms: map LeRobot v3 keys to canonical internal keys.
+    repack_transforms: tyro.conf.Suppress[_transforms.Group] = dataclasses.field(
+        default=_transforms.Group(
+            inputs=[
+                _transforms.RepackTransform(
+                    {
+                        "observation.images.top": "observation.images.top",
+                        "observation.images.left_wrist": "observation.images.left_wrist",
+                        "observation.images.right_wrist": "observation.images.right_wrist",
+                        "observation.state": "observation.state",
+                        "actions": "action",
+                    }
+                )
+            ]
+        )
+    )
+    action_sequence_keys: Sequence[str] = ("action",)
+
+    @override
+    def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
+        data_transforms = _transforms.Group(
+            inputs=[so101_bimanual_policy.SO101BimanualInputs(default_prompt=self.default_prompt or "complete the task")],
+            outputs=[so101_bimanual_policy.SO101BimanualOutputs()],
+        )
+
+        if self.use_delta_actions:
+            # Per arm: 5 joints as delta, gripper stays absolute. Layout is
+            # [left 5 joints, left gripper, right 5 joints, right gripper].
+            delta_action_mask = _transforms.make_bool_mask(5, -1, 5, -1)
             data_transforms = data_transforms.push(
                 inputs=[_transforms.DeltaActions(delta_action_mask)],
                 outputs=[_transforms.AbsoluteActions(delta_action_mask)],
@@ -2170,6 +2234,105 @@ _CONFIGS = [
         data=LeRobotSO101DataConfig(
             repo_id="villekuosmanen/armnetbench_tool_removal",
             default_prompt="remove the tool from the holder",
+            use_delta_actions=True,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi0_base/params"),
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=2.5e-5,
+            decay_steps=10_000,
+            decay_lr=2.5e-6,
+        ),
+        num_train_steps=10_000,
+        save_interval=10_000,
+        batch_size=16,
+        ema_decay=0.999,
+        wandb_enabled=True,
+    ),
+    #
+    # ---------------------------------------------------------------------------
+    # pi0 (NOT pi0.5) BIMANUAL ArmNetBench SO101 configs — villekuosmanen forks.
+    # These are dual-arm (12-D action/state: left+right 5-DOF arms + grippers)
+    # with cameras top / left_wrist / right_wrist (av1, 50 episodes, v3.0-tagged).
+    # Use LeRobotSO101BimanualDataConfig: top->base_0_rgb, left_wrist->left_wrist_0_rgb,
+    # right_wrist->right_wrist_0_rgb. Read directly from the public repos — no mirror,
+    # tag, or re-encode needed. Short single-GPU runs: 10k steps, batch 16, one
+    # checkpoint at the end. Requires `weights/pi0_base/params` staged on the cluster.
+    # Checkpoints publish to the `lorenzouttini` account.
+    # ---------------------------------------------------------------------------
+    TrainConfig(
+        name="pi0_armnetbench_insert_candle",
+        project_name="armnetbench_insert_candle_pi0",
+        model=pi0_config.Pi0Config(action_horizon=30),
+        data=LeRobotSO101BimanualDataConfig(
+            repo_id="villekuosmanen/armnetbench_insert_candle",
+            default_prompt="insert the candle into the holder",
+            use_delta_actions=True,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi0_base/params"),
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=2.5e-5,
+            decay_steps=10_000,
+            decay_lr=2.5e-6,
+        ),
+        num_train_steps=10_000,
+        save_interval=10_000,
+        batch_size=16,
+        ema_decay=0.999,
+        wandb_enabled=True,
+    ),
+    TrainConfig(
+        name="pi0_armnetbench_transfer_cube",
+        project_name="armnetbench_transfer_cube_pi0",
+        model=pi0_config.Pi0Config(action_horizon=30),
+        data=LeRobotSO101BimanualDataConfig(
+            repo_id="villekuosmanen/armnetbench_transfer_cube",
+            default_prompt="transfer the cube from one arm to the other",
+            use_delta_actions=True,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi0_base/params"),
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=2.5e-5,
+            decay_steps=10_000,
+            decay_lr=2.5e-6,
+        ),
+        num_train_steps=10_000,
+        save_interval=10_000,
+        batch_size=16,
+        ema_decay=0.999,
+        wandb_enabled=True,
+    ),
+    TrainConfig(
+        name="pi0_armnetbench_fold_tea_towel",
+        project_name="armnetbench_fold_tea_towel_pi0",
+        model=pi0_config.Pi0Config(action_horizon=30),
+        data=LeRobotSO101BimanualDataConfig(
+            repo_id="villekuosmanen/armnetbench_fold_tea_towel",
+            default_prompt="fold the tea towel",
+            use_delta_actions=True,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi0_base/params"),
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=2.5e-5,
+            decay_steps=10_000,
+            decay_lr=2.5e-6,
+        ),
+        num_train_steps=10_000,
+        save_interval=10_000,
+        batch_size=16,
+        ema_decay=0.999,
+        wandb_enabled=True,
+    ),
+    TrainConfig(
+        name="pi0_armnetbench_open_lamp_door",
+        project_name="armnetbench_open_lamp_door_pi0",
+        model=pi0_config.Pi0Config(action_horizon=30),
+        data=LeRobotSO101BimanualDataConfig(
+            repo_id="villekuosmanen/armnetbench_open_lamp_door",
+            default_prompt="open the lamp door",
             use_delta_actions=True,
         ),
         weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi0_base/params"),

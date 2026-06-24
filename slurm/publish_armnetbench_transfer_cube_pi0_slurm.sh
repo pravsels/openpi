@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=pi0_publish_armnetbench_ring_insert
+#SBATCH --job-name=pi0_publish_armnetbench_transfer_cube
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:1
 #SBATCH --ntasks-per-node=1
@@ -8,7 +8,7 @@
 #SBATCH --output=slurm-%j.out
 #SBATCH --error=slurm-%j.err
 
-# pi0_armnetbench_ring_insert — raw checkpoint publish to Hugging Face.
+# pi0_armnetbench_transfer_cube — raw checkpoint publish to Hugging Face.
 #
 # Uploads selected checkpoints (params/ + assets/, no train_state/) straight to
 # HF without the checkpoint-passport pipeline. This is a lightweight publish for
@@ -22,11 +22,11 @@
 #
 # Cluster: Isambard u6kr. Submit from the worktree:
 #   cd /home/u6kr/lorenzo.u6kr/openpi_so101_pi0_cable_shelf
-#   sbatch slurm/publish_armnetbench_ring_insert_pi0_slurm.sh
+#   sbatch slurm/publish_armnetbench_transfer_cube_pi0_slurm.sh
 #
 # Auto-run after training (uploads once training succeeds):
-#   TRAIN_JOB=$(sbatch --parsable slurm/train_armnetbench_ring_insert_pi0_slurm.sh)
-#   sbatch --dependency=afterok:${TRAIN_JOB} slurm/publish_armnetbench_ring_insert_pi0_slurm.sh
+#   TRAIN_JOB=$(sbatch --parsable slurm/train_armnetbench_transfer_cube_pi0_slurm.sh)
+#   sbatch --dependency=afterok:${TRAIN_JOB} slurm/publish_armnetbench_transfer_cube_pi0_slurm.sh
 #
 # Before sbatch:
 #   - openpi_arm64.sif at ${data_dir}/container/
@@ -47,9 +47,9 @@ HF_CACHE="${scratch_dir}/huggingface_cache"
 HF_WRITE_TOKEN_FILE="${scratch_dir}/.secrets/.hf_token_write"
 
 # --- Experiment / publish settings ---
-CONFIG_NAME="pi0_armnetbench_ring_insert"
-EXP_NAME="armnetbench_ring_insert_pi0"
-HF_REPO_ID="lorenzouttini/pi0-so101-armnetbench-ring-insert-isambard"
+CONFIG_NAME="pi0_armnetbench_transfer_cube"
+EXP_NAME="armnetbench_transfer_cube_pi0"
+HF_REPO_ID="lorenzouttini/pi0-so101-armnetbench-transfer-cube-isambard"
 # Space-separated checkpoint steps to publish. Short 10k-step run = single final
 # checkpoint; the final step is num_train_steps-1 (9999), but list 10000 too so the
 # upload picks up whichever the trainer wrote (missing ones are skipped).
@@ -140,7 +140,11 @@ apptainer exec \
 EXIT_CODE=$?
 set -e
 
-exit 0
+end_time="$(date -Is --utc)"
+
+echo ""
+echo "===================================="
+echo "Started (UTC):  ${start_time}"
 echo "Finished (UTC): ${end_time}"
 echo "Exit Code: ${EXIT_CODE}"
 echo "HF repo: https://huggingface.co/${HF_REPO_ID}"
