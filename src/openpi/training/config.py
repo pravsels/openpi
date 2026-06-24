@@ -2088,6 +2088,104 @@ _CONFIGS = [
         wandb_enabled=True,
     ),
     #
+    # ---------------------------------------------------------------------------
+    # pi0 (NOT pi0.5) ArmNetBench SO101 configs — villekuosmanen forks.
+    # Read directly from villekuosmanen's public repos (av1, uniform res:
+    # front/top 1024x576, wrist 1280x720, 50 episodes, v3.0-tagged) — no mirror,
+    # tag, or re-encode needed. Same SO101 6-D joint-space schema as the others.
+    # Short single-GPU runs: 10k steps, batch 16, one checkpoint at the end.
+    # Requires `weights/pi0_base/params` staged on the cluster.
+    # Checkpoints publish to the `lorenzouttini` account.
+    # ---------------------------------------------------------------------------
+    TrainConfig(
+        name="pi0_armnetbench_ring_insert",
+        project_name="armnetbench_ring_insert_pi0",
+        model=pi0_config.Pi0Config(action_horizon=30),
+        data=LeRobotSO101DataConfig(
+            repo_id="villekuosmanen/armnetbench_ring_insert",
+            default_prompt="insert the ring onto the peg",
+            use_delta_actions=True,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi0_base/params"),
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=2.5e-5,
+            decay_steps=10_000,
+            decay_lr=2.5e-6,
+        ),
+        num_train_steps=10_000,
+        save_interval=10_000,
+        batch_size=16,
+        ema_decay=0.999,
+        wandb_enabled=True,
+    ),
+    TrainConfig(
+        name="pi0_armnetbench_block_stack",
+        project_name="armnetbench_block_stack_pi0",
+        model=pi0_config.Pi0Config(action_horizon=30),
+        data=LeRobotSO101DataConfig(
+            repo_id="villekuosmanen/armnetbench_block_stack",
+            default_prompt="stack the blocks",
+            use_delta_actions=True,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi0_base/params"),
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=2.5e-5,
+            decay_steps=10_000,
+            decay_lr=2.5e-6,
+        ),
+        num_train_steps=10_000,
+        save_interval=10_000,
+        batch_size=16,
+        ema_decay=0.999,
+        wandb_enabled=True,
+    ),
+    TrainConfig(
+        name="pi0_armnetbench_tool_insert",
+        project_name="armnetbench_tool_insert_pi0",
+        model=pi0_config.Pi0Config(action_horizon=30),
+        data=LeRobotSO101DataConfig(
+            repo_id="villekuosmanen/armnetbench_tool_insert",
+            default_prompt="insert the tool into the holder",
+            use_delta_actions=True,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi0_base/params"),
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=2.5e-5,
+            decay_steps=10_000,
+            decay_lr=2.5e-6,
+        ),
+        num_train_steps=10_000,
+        save_interval=10_000,
+        batch_size=16,
+        ema_decay=0.999,
+        wandb_enabled=True,
+    ),
+    TrainConfig(
+        name="pi0_armnetbench_tool_removal",
+        project_name="armnetbench_tool_removal_pi0",
+        model=pi0_config.Pi0Config(action_horizon=30),
+        data=LeRobotSO101DataConfig(
+            repo_id="villekuosmanen/armnetbench_tool_removal",
+            default_prompt="remove the tool from the holder",
+            use_delta_actions=True,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi0_base/params"),
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=2.5e-5,
+            decay_steps=10_000,
+            decay_lr=2.5e-6,
+        ),
+        num_train_steps=10_000,
+        save_interval=10_000,
+        batch_size=16,
+        ema_decay=0.999,
+        wandb_enabled=True,
+    ),
+    #
     # ARX5 multi-task foundation model configs.
     #
     TrainConfig(
