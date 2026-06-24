@@ -1,22 +1,27 @@
 #!/bin/bash
 #SBATCH --job-name=pi05_so101_object_top_shelf_reset
 #SBATCH --nodes=1
-#SBATCH --gres=gpu:4
+#SBATCH --gres=gpu:1
 #SBATCH --ntasks-per-node=1
-#SBATCH --time=1-00:00:00
-#SBATCH --cpus-per-task=24
-#SBATCH --mem=0G
-#SBATCH --exclusive
+#SBATCH --time=06:00:00
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=120G
 #SBATCH --output=slurm-%j.out
 #SBATCH --error=slurm-%j.err
 #SBATCH --requeue
 #SBATCH --exclude=nid010755
 
 # pi05_so101_object_top_shelf_reset — SO101 resetting object from top shelf (6D joint-space, delta actions).
-# Remote-teleop dataset villekuosmanen/object_top_shelf_reset_remote (public, apache-2.0).
-# Dataset lives on the villekuosmanen HF account; checkpoints publish to lorenzouttini.
+# Dataset: pravsels/object_top_shelf_reset_remote (fork of lorenzouttini's, av1 + uniform
+# resolution, 50 episodes, public apache-2.0). Checkpoints publish to lorenzouttini.
 # The read token below only needs read access to a *public* dataset, so any valid
 # HF token works regardless of which account owns the data.
+#
+# Short run: single GPU, 6h walltime, 10k steps, one checkpoint at the end.
+# A 1-GPU request backfills faster than a 4-GPU exclusive node. Watch the rate in
+# the first minutes: 10k steps must fit in ~5.5h after norm-stats precompute, so the
+# training rate needs to stay under ~1.8 s/it. If it's slower, bump --time or drop
+# batch_size further (config: batch_size=16).
 #
 # Cluster: Isambard u6kr. Submit from the worktree so slurm logs stay isolated:
 #   cd /home/u6kr/lorenzo.u6kr/openpi_so101_object_top_shelf_remote
@@ -137,7 +142,7 @@ echo "Command: ${TRAIN_CMD}"
 echo ""
 
 set +e
-srun --ntasks=1 --gpus-per-task=4 --cpu-bind=cores \
+srun --ntasks=1 --gpus-per-task=1 --cpu-bind=cores \
 apptainer exec --nv \
     --pwd "${repo_dir}" \
     --bind "${scratch_dir}:${scratch_dir}" \
