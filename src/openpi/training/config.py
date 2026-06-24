@@ -1991,6 +1991,103 @@ _CONFIGS = [
         wandb_enabled=True,
     ),
     #
+    # ---------------------------------------------------------------------------
+    # pi0 (NOT pi0.5) SO101 configs on the `pravsels` dataset forks.
+    # All four forks are av1 + uniform resolution (front/top 1024x576,
+    # wrist 1280x720, 50 episodes), v3.0-tagged — no dataset prep needed.
+    # Short single-GPU runs: 10k steps, batch 16, one checkpoint at the end.
+    # Requires `weights/pi0_base/params` staged on the cluster (NOT pi05_base).
+    # Checkpoints publish to the `lorenzouttini` account.
+    # ---------------------------------------------------------------------------
+    TrainConfig(
+        name="pi0_so101_object_top_shelf",
+        project_name="so101_object_top_shelf_pi0",
+        model=pi0_config.Pi0Config(action_horizon=30),
+        data=LeRobotSO101DataConfig(
+            repo_id="pravsels/object_top_shelf_remote",
+            default_prompt="Put the object on the top shelf",
+            use_delta_actions=True,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi0_base/params"),
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=2.5e-5,
+            decay_steps=10_000,
+            decay_lr=2.5e-6,
+        ),
+        num_train_steps=10_000,
+        save_interval=10_000,
+        batch_size=16,
+        ema_decay=0.999,
+        wandb_enabled=True,
+    ),
+    TrainConfig(
+        name="pi0_so101_object_top_shelf_reset",
+        project_name="so101_object_top_shelf_reset_pi0",
+        model=pi0_config.Pi0Config(action_horizon=30),
+        data=LeRobotSO101DataConfig(
+            repo_id="pravsels/object_top_shelf_reset_remote",
+            default_prompt="Put the object from the top shelf in the basket",
+            use_delta_actions=True,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi0_base/params"),
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=2.5e-5,
+            decay_steps=10_000,
+            decay_lr=2.5e-6,
+        ),
+        num_train_steps=10_000,
+        save_interval=10_000,
+        batch_size=16,
+        ema_decay=0.999,
+        wandb_enabled=True,
+    ),
+    TrainConfig(
+        name="pi0_so101_cable_clip",
+        project_name="so101_cable_clip_pi0",
+        model=pi0_config.Pi0Config(action_horizon=30),
+        data=LeRobotSO101DataConfig(
+            repo_id="pravsels/cable_clip_remote_v2",
+            default_prompt="clip the cable into the holder",
+            use_delta_actions=True,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi0_base/params"),
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=2.5e-5,
+            decay_steps=10_000,
+            decay_lr=2.5e-6,
+        ),
+        num_train_steps=10_000,
+        save_interval=10_000,
+        batch_size=16,
+        ema_decay=0.999,
+        wandb_enabled=True,
+    ),
+    TrainConfig(
+        name="pi0_so101_cable_unclip",
+        project_name="so101_cable_unclip_pi0",
+        model=pi0_config.Pi0Config(action_horizon=30),
+        data=LeRobotSO101DataConfig(
+            repo_id="pravsels/cable_unclip_remote",
+            default_prompt="unclip the cable from the holder",
+            use_delta_actions=True,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi0_base/params"),
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=2.5e-5,
+            decay_steps=10_000,
+            decay_lr=2.5e-6,
+        ),
+        num_train_steps=10_000,
+        save_interval=10_000,
+        batch_size=16,
+        ema_decay=0.999,
+        wandb_enabled=True,
+    ),
+    #
     # ARX5 multi-task foundation model configs.
     #
     TrainConfig(
