@@ -50,8 +50,10 @@ HF_WRITE_TOKEN_FILE="${scratch_dir}/.secrets/.hf_token_write"
 CONFIG_NAME="pi05_so101_object_top_shelf_reset"
 EXP_NAME="so101_object_top_shelf_reset"
 HF_REPO_ID="lorenzouttini/pi05-so101-object-top-shelf-reset-isambard"
-# Space-separated checkpoint steps to publish (halfway + final by default).
-PUBLISH_STEPS="25000 49999"
+# Space-separated checkpoint steps to publish. Short 10k-step run = single final
+# checkpoint; the final step is num_train_steps-1 (9999), but list 10000 too so the
+# upload picks up whichever the trainer wrote (missing ones are skipped).
+PUBLISH_STEPS="9999 10000"
 
 CHECKPOINT_DIR="${data_dir}/checkpoints/${CONFIG_NAME}/${EXP_NAME}"
 

@@ -1907,15 +1907,17 @@ _CONFIGS = [
     ),
     #
     # SO101 object top shelf reset config — remote-teleop dataset.
-    # Dataset collected on the `lorenzouttini` HF account (public, apache-2.0);
-    # checkpoints publish to the `lorenzouttini` account. The two are decoupled.
+    # Uses the `pravsels/object_top_shelf_reset_remote` fork (av1, uniform res:
+    # front/top 1024x576, wrist 1280x720, 50 episodes) — no re-encoding needed.
+    # Short single-GPU run: 10k steps, one checkpoint at the end.
+    # Checkpoints publish to the `lorenzouttini` account.
     #
     TrainConfig(
         name="pi05_so101_object_top_shelf_reset",
         project_name="so101_object_top_shelf_reset",
         model=pi0_config.Pi0Config(pi05=True, action_horizon=30),
         data=LeRobotSO101DataConfig(
-            repo_id="lorenzouttini/object_top_shelf_reset_remote",
+            repo_id="pravsels/object_top_shelf_reset_remote",
             default_prompt="Put the object from the top shelf in the basket",
             use_delta_actions=True,
         ),
@@ -1923,12 +1925,12 @@ _CONFIGS = [
         lr_schedule=_optimizer.CosineDecaySchedule(
             warmup_steps=1_000,
             peak_lr=2.5e-5,
-            decay_steps=100_000,
+            decay_steps=10_000,
             decay_lr=2.5e-6,
         ),
-        num_train_steps=50_000,
-        save_interval=5000,
-        batch_size=32,
+        num_train_steps=10_000,
+        save_interval=10_000,
+        batch_size=16,
         ema_decay=0.999,
         wandb_enabled=True,
     ),
