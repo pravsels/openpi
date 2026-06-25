@@ -2153,6 +2153,81 @@ _CONFIGS = [
     ),
     #
     # ---------------------------------------------------------------------------
+    # pi0.5 SO101 "v2" configs — exact match of the pi0_so101 10k policies above
+    # (same pravsels dataset forks, 6-D joint-space, delta actions, 10k steps,
+    # batch 16, 1-GPU profile, decay_steps=10_000) but with pi05=True and the
+    # pi05_base init weights. These exist so pi0 vs pi0.5 can be compared fairly
+    # at identical settings. Requires `weights/pi05_base/params` on the cluster.
+    # Checkpoints publish to the `lorenzouttini` account.
+    # ---------------------------------------------------------------------------
+    TrainConfig(
+        name="pi05_so101_object_top_shelf_v2",
+        project_name="so101_object_top_shelf_pi05_v2",
+        model=pi0_config.Pi0Config(pi05=True, action_horizon=30),
+        data=LeRobotSO101DataConfig(
+            repo_id="pravsels/object_top_shelf_remote",
+            default_prompt="Put the object on the top shelf",
+            use_delta_actions=True,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=2.5e-5,
+            decay_steps=10_000,
+            decay_lr=2.5e-6,
+        ),
+        num_train_steps=10_000,
+        save_interval=10_000,
+        batch_size=16,
+        ema_decay=0.999,
+        wandb_enabled=True,
+    ),
+    TrainConfig(
+        name="pi05_so101_cable_clip_v2",
+        project_name="so101_cable_clip_pi05_v2",
+        model=pi0_config.Pi0Config(pi05=True, action_horizon=30),
+        data=LeRobotSO101DataConfig(
+            repo_id="pravsels/cable_clip_remote_v2",
+            default_prompt="clip the cable into the holder",
+            use_delta_actions=True,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=2.5e-5,
+            decay_steps=10_000,
+            decay_lr=2.5e-6,
+        ),
+        num_train_steps=10_000,
+        save_interval=10_000,
+        batch_size=16,
+        ema_decay=0.999,
+        wandb_enabled=True,
+    ),
+    TrainConfig(
+        name="pi05_so101_cable_unclip_v2",
+        project_name="so101_cable_unclip_pi05_v2",
+        model=pi0_config.Pi0Config(pi05=True, action_horizon=30),
+        data=LeRobotSO101DataConfig(
+            repo_id="pravsels/cable_unclip_remote",
+            default_prompt="unclip the cable from the holder",
+            use_delta_actions=True,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=2.5e-5,
+            decay_steps=10_000,
+            decay_lr=2.5e-6,
+        ),
+        num_train_steps=10_000,
+        save_interval=10_000,
+        batch_size=16,
+        ema_decay=0.999,
+        wandb_enabled=True,
+    ),
+    #
+    # ---------------------------------------------------------------------------
     # pi0 (NOT pi0.5) ArmNetBench SO101 configs — villekuosmanen forks.
     # Read directly from villekuosmanen's public repos (av1, uniform res:
     # front/top 1024x576, wrist 1280x720, 50 episodes, v3.0-tagged) — no mirror,
