@@ -2424,6 +2424,204 @@ _CONFIGS = [
         wandb_enabled=True,
     ),
     #
+    # ---------------------------------------------------------------------------
+    # pi0.5 ArmNetBench SO101 configs — villekuosmanen forks (single-arm).
+    # Same datasets/schema as the pi0 single-arm armnetbench configs above
+    # (6-D joint-space, front/top/wrist, av1, 50 episodes, v3.0-tagged) — read
+    # directly from the public repos, no mirror/tag/re-encode needed. The only
+    # difference vs the pi0 variants is pi05=True and the pi05_base init weights.
+    # Short single-GPU runs: 10k steps, batch 16, one checkpoint at the end.
+    # Requires `weights/pi05_base/params` staged on the cluster.
+    # Checkpoints publish to the `lorenzouttini` account.
+    # ---------------------------------------------------------------------------
+    TrainConfig(
+        name="pi05_armnetbench_ring_insert",
+        project_name="armnetbench_ring_insert_pi05",
+        model=pi0_config.Pi0Config(pi05=True, action_horizon=30),
+        data=LeRobotSO101DataConfig(
+            repo_id="villekuosmanen/armnetbench_ring_insert",
+            default_prompt="insert the ring onto the peg",
+            use_delta_actions=True,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=2.5e-5,
+            decay_steps=10_000,
+            decay_lr=2.5e-6,
+        ),
+        num_train_steps=10_000,
+        save_interval=10_000,
+        batch_size=16,
+        ema_decay=0.999,
+        wandb_enabled=True,
+    ),
+    TrainConfig(
+        name="pi05_armnetbench_block_stack",
+        project_name="armnetbench_block_stack_pi05",
+        model=pi0_config.Pi0Config(pi05=True, action_horizon=30),
+        data=LeRobotSO101DataConfig(
+            repo_id="villekuosmanen/armnetbench_block_stack",
+            default_prompt="stack the blocks",
+            use_delta_actions=True,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=2.5e-5,
+            decay_steps=10_000,
+            decay_lr=2.5e-6,
+        ),
+        num_train_steps=10_000,
+        save_interval=10_000,
+        batch_size=16,
+        ema_decay=0.999,
+        wandb_enabled=True,
+    ),
+    TrainConfig(
+        name="pi05_armnetbench_tool_insert",
+        project_name="armnetbench_tool_insert_pi05",
+        model=pi0_config.Pi0Config(pi05=True, action_horizon=30),
+        data=LeRobotSO101DataConfig(
+            repo_id="villekuosmanen/armnetbench_tool_insert",
+            default_prompt="insert the tool into the holder",
+            use_delta_actions=True,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=2.5e-5,
+            decay_steps=10_000,
+            decay_lr=2.5e-6,
+        ),
+        num_train_steps=10_000,
+        save_interval=10_000,
+        batch_size=16,
+        ema_decay=0.999,
+        wandb_enabled=True,
+    ),
+    TrainConfig(
+        name="pi05_armnetbench_tool_removal",
+        project_name="armnetbench_tool_removal_pi05",
+        model=pi0_config.Pi0Config(pi05=True, action_horizon=30),
+        data=LeRobotSO101DataConfig(
+            repo_id="villekuosmanen/armnetbench_tool_removal",
+            default_prompt="remove the tool from the holder",
+            use_delta_actions=True,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=2.5e-5,
+            decay_steps=10_000,
+            decay_lr=2.5e-6,
+        ),
+        num_train_steps=10_000,
+        save_interval=10_000,
+        batch_size=16,
+        ema_decay=0.999,
+        wandb_enabled=True,
+    ),
+    #
+    # ---------------------------------------------------------------------------
+    # pi0.5 BIMANUAL ArmNetBench SO101 configs — villekuosmanen forks (dual-arm).
+    # Same datasets/schema as the pi0 bimanual armnetbench configs above (12-D
+    # action/state, top/left_wrist/right_wrist, av1, 50 episodes, v3.0-tagged)
+    # via LeRobotSO101BimanualDataConfig. The only difference vs the pi0 variants
+    # is pi05=True and the pi05_base init weights. Short single-GPU runs: 10k
+    # steps, batch 16, one checkpoint at the end.
+    # Requires `weights/pi05_base/params` staged on the cluster.
+    # Checkpoints publish to the `lorenzouttini` account.
+    # ---------------------------------------------------------------------------
+    TrainConfig(
+        name="pi05_armnetbench_insert_candle",
+        project_name="armnetbench_insert_candle_pi05",
+        model=pi0_config.Pi0Config(pi05=True, action_horizon=30),
+        data=LeRobotSO101BimanualDataConfig(
+            repo_id="villekuosmanen/armnetbench_insert_candle",
+            default_prompt="insert the candle into the holder",
+            use_delta_actions=True,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=2.5e-5,
+            decay_steps=10_000,
+            decay_lr=2.5e-6,
+        ),
+        num_train_steps=10_000,
+        save_interval=10_000,
+        batch_size=16,
+        ema_decay=0.999,
+        wandb_enabled=True,
+    ),
+    TrainConfig(
+        name="pi05_armnetbench_transfer_cube",
+        project_name="armnetbench_transfer_cube_pi05",
+        model=pi0_config.Pi0Config(pi05=True, action_horizon=30),
+        data=LeRobotSO101BimanualDataConfig(
+            repo_id="villekuosmanen/armnetbench_transfer_cube",
+            default_prompt="transfer the cube from one arm to the other",
+            use_delta_actions=True,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=2.5e-5,
+            decay_steps=10_000,
+            decay_lr=2.5e-6,
+        ),
+        num_train_steps=10_000,
+        save_interval=10_000,
+        batch_size=16,
+        ema_decay=0.999,
+        wandb_enabled=True,
+    ),
+    TrainConfig(
+        name="pi05_armnetbench_fold_tea_towel",
+        project_name="armnetbench_fold_tea_towel_pi05",
+        model=pi0_config.Pi0Config(pi05=True, action_horizon=30),
+        data=LeRobotSO101BimanualDataConfig(
+            repo_id="villekuosmanen/armnetbench_fold_tea_towel",
+            default_prompt="fold the tea towel",
+            use_delta_actions=True,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=2.5e-5,
+            decay_steps=10_000,
+            decay_lr=2.5e-6,
+        ),
+        num_train_steps=10_000,
+        save_interval=10_000,
+        batch_size=16,
+        ema_decay=0.999,
+        wandb_enabled=True,
+    ),
+    TrainConfig(
+        name="pi05_armnetbench_open_lamp_door",
+        project_name="armnetbench_open_lamp_door_pi05",
+        model=pi0_config.Pi0Config(pi05=True, action_horizon=30),
+        data=LeRobotSO101BimanualDataConfig(
+            repo_id="villekuosmanen/armnetbench_open_lamp_door",
+            default_prompt="open the lamp door",
+            use_delta_actions=True,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=2.5e-5,
+            decay_steps=10_000,
+            decay_lr=2.5e-6,
+        ),
+        num_train_steps=10_000,
+        save_interval=10_000,
+        batch_size=16,
+        ema_decay=0.999,
+        wandb_enabled=True,
+    ),
+    #
     # ARX5 multi-task foundation model configs.
     #
     TrainConfig(
