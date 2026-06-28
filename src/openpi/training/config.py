@@ -2947,6 +2947,7 @@ def _make_v50(base: TrainConfig) -> TrainConfig:
         project_name=(f"{base.project_name}_v50" if base.project_name else f"{base.name}_v50"),
         num_train_steps=50_000,
         save_interval=5000,
+        keep_period=25_000,
         batch_size=32,
         lr_schedule=_optimizer.CosineDecaySchedule(
             warmup_steps=1_000,
