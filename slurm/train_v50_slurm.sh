@@ -1,18 +1,20 @@
 #!/bin/bash
 #SBATCH --job-name=v50_train
 #SBATCH --nodes=1
-#SBATCH --gres=gpu:4
+#SBATCH --gres=gpu:2
 #SBATCH --ntasks-per-node=1
 #SBATCH --time=18:00:00
-#SBATCH --cpus-per-task=24
-#SBATCH --mem=0G
-#SBATCH --exclusive
+#SBATCH --cpus-per-task=32
+#SBATCH --mem=240G
 #SBATCH --output=slurm-%j.out
 #SBATCH --error=slurm-%j.err
 #SBATCH --requeue
 #SBATCH --exclude=nid010755
 
-# Generic v50 training launcher (50k steps / batch 32 / 4-GPU profile).
+# Generic v50 training launcher (25k steps / batch 32 / 2-GPU profile).
+# 2 GPUs with fsdp_devices=1 (data parallel) gives 16 samples/GPU, matching
+# the proven 1-GPU/batch-16 memory footprint, and schedules far faster than
+# the old 4-GPU exclusive-node profile.
 # Used for ALL v50 retrains (pi0 and pi0.5) so they share ONE worktree and ONE
 # venv — this avoids the shared-venv editable-install race we hit when launching
 # from multiple worktrees. The config carries everything (dataset, pi05 flag,
@@ -142,7 +144,7 @@ echo "Command: ${TRAIN_CMD}"
 echo ""
 
 set +e
-srun --ntasks=1 --gpus-per-task=4 --cpu-bind=cores \
+srun --ntasks=1 --gpus-per-task=2 --cpu-bind=cores \
 apptainer exec --nv \
     --pwd "${repo_dir}" \
     --bind "${scratch_dir}:${scratch_dir}" \
