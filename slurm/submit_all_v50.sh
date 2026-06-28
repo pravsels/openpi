@@ -17,7 +17,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."   # repo root (the worktree)
 
-PUBLISH_STEPS="${PUBLISH_STEPS:-25000}"
+PUBLISH_STEPS="${PUBLISH_STEPS:-24999}"
 DRY_RUN="${DRY_RUN:-0}"
 
 # config_name (== exp_name) | hf_repo_id

@@ -31,7 +31,7 @@ module load brics/apptainer-multi-node
 CONFIG_NAME="$1"
 EXP_NAME="${2:-$1}"
 HF_REPO_ID="$3"
-PUBLISH_STEPS="${4:-10000 25000 49999}"
+PUBLISH_STEPS="${4:-24999}"
 if [ -z "${CONFIG_NAME}" ] || [ -z "${HF_REPO_ID}" ]; then
     echo "ERROR: CONFIG_NAME (arg 1) and HF_REPO_ID (arg 3) are required."
     echo "Usage: sbatch slurm/publish_v50_slurm.sh <CONFIG_NAME> <EXP_NAME> <HF_REPO_ID> [\"PUBLISH_STEPS\"]"
