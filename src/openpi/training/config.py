@@ -2979,6 +2979,63 @@ _CONFIGS = [
     ),
 ]
 
+
+# ---------------------------------------------------------------------------
+# v50 retrain variants: 50k steps / batch 32 / decay_steps 100k — the recipe of
+# the strong pi05_so101_{object_top_shelf,cable_clip,cable_unclip} policies. Each
+# _v50 is derived from its base config via dataclasses.replace, so it inherits the
+# base's dataset, model (pi05 flag), and init weights (pi0_base or pi05_base) —
+# only the training schedule + name change. Run all from ONE worktree to avoid the
+# shared-venv editable-install race. Requires pi0_base AND pi05_base on the cluster.
+# ---------------------------------------------------------------------------
+_V50_BASE_NAMES = [
+    # pi0 (12)
+    "pi0_so101_object_top_shelf",
+    "pi0_so101_object_top_shelf_reset",
+    "pi0_so101_cable_clip",
+    "pi0_so101_cable_unclip",
+    "pi0_armnetbench_ring_insert",
+    "pi0_armnetbench_block_stack",
+    "pi0_armnetbench_tool_insert",
+    "pi0_armnetbench_tool_removal",
+    "pi0_armnetbench_insert_candle",
+    "pi0_armnetbench_transfer_cube",
+    "pi0_armnetbench_fold_tea_towel",
+    "pi0_armnetbench_open_lamp_door",
+    # pi0.5 (9)
+    "pi05_so101_object_top_shelf_reset",
+    "pi05_armnetbench_ring_insert",
+    "pi05_armnetbench_block_stack",
+    "pi05_armnetbench_tool_insert",
+    "pi05_armnetbench_tool_removal",
+    "pi05_armnetbench_insert_candle",
+    "pi05_armnetbench_transfer_cube",
+    "pi05_armnetbench_fold_tea_towel",
+    "pi05_armnetbench_open_lamp_door",
+]
+
+
+def _make_v50(base: TrainConfig) -> TrainConfig:
+    return dataclasses.replace(
+        base,
+        name=f"{base.name}_v50",
+        project_name=(f"{base.project_name}_v50" if base.project_name else f"{base.name}_v50"),
+        num_train_steps=25_000,
+        save_interval=5000,
+        keep_period=25_000,
+        batch_size=32,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=2.5e-5,
+            decay_steps=100_000,
+            decay_lr=2.5e-6,
+        ),
+    )
+
+
+_v50_by_name = {config.name: config for config in _CONFIGS}
+_CONFIGS += [_make_v50(_v50_by_name[_name]) for _name in _V50_BASE_NAMES]
+
 if len({config.name for config in _CONFIGS}) != len(_CONFIGS):
     raise ValueError("Config names must be unique.")
 _CONFIGS_DICT = {config.name: config for config in _CONFIGS}
