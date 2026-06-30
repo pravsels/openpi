@@ -1086,8 +1086,8 @@ class LeRobotLiberoSubtaskDataConfig(DataConfigFactory):
 class TrainConfig:
     # Name of the config. Must be unique. Will be used to reference this config.
     name: tyro.conf.Suppress[str]
-    # Project name.
-    project_name: str = "openpi"
+    # Project name. Defaults to `name` so W&B runs do not land in a generic shared project.
+    project_name: str = ""
     # Experiment name. Will be used to name the metadata and checkpoint directories.
     exp_name: str = tyro.MISSING
 
@@ -1180,6 +1180,8 @@ class TrainConfig:
         return nnx.All(nnx.Param, nnx.Not(self.freeze_filter))
 
     def __post_init__(self) -> None:
+        if not self.project_name:
+            object.__setattr__(self, "project_name", self.name)
         if self.resume and self.overwrite:
             raise ValueError("Cannot resume and overwrite at the same time.")
 
@@ -2897,6 +2899,32 @@ _CONFIGS = [
         num_train_steps=50_000,
         val_interval=1000,
         val_num_batches=10,
+    ),
+    TrainConfig(
+        name="pi05_rlt_armnetbench_tool_insert",
+        model=pi0_rl_config.Pi0RLConfig(pi05=True, action_horizon=30, rl_vla_loss_weight=0.0),
+        data=LeRobotSO101DataConfig(
+            repo_id="villekuosmanen/armnetbench_tool_insert",
+            default_prompt="insert the tool into the holder",
+            use_delta_actions=True,
+        ),
+        weight_loader=weight_loaders.RLTokenCheckpointWeightLoader(
+            "hf://lorenzouttini/pi05-so101-armnetbench-tool-insert-isambard-v50/step_24999/params"
+        ),
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=2.5e-5,
+            decay_steps=10_000,
+            decay_lr=2.5e-6,
+        ),
+        freeze_filter=pi0_rl_config.Pi0RLConfig(
+            pi05=True, action_horizon=30, rl_vla_loss_weight=0.0
+        ).get_rl_freeze_filter(),
+        num_train_steps=10_000,
+        save_interval=10_000,
+        batch_size=32,
+        ema_decay=0.999,
+        wandb_enabled=True,
     ),
     TrainConfig(
         name="pi05_rl_token_bin_pack_coffee_capsules",

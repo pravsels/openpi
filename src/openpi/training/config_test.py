@@ -171,6 +171,18 @@ def test_binpack_config_passes_advantage_dropout_rate(tmp_path):
     assert transform.dropout_rate == 0.3
 
 
+def test_train_config_defaults_project_name_to_config_name():
+    config = _config.TrainConfig(name="specific_training_config")
+
+    assert config.project_name == config.name
+
+
+def test_train_config_preserves_explicit_project_name():
+    config = _config.TrainConfig(name="specific_training_config", project_name="shared_project")
+
+    assert config.project_name == "shared_project"
+
+
 def test_reward_recap_binpack_configs_exist():
     positive_only = _config.get_config("pi05_bin_pack_coffee_capsules_reward_recap_positive_only")
     mixed = _config.get_config("pi05_bin_pack_coffee_capsules_reward_recap_mixed")
@@ -361,6 +373,24 @@ def test_build_block_tower_rlt_joints_only_config_and_script():
     assert 'EXP_NAME="rlt_6mix_joints_only_v1"' in rlt_script
     assert 'BASELINE_HF_REPO="pravsels/build_block_tower_baseline_6mix_joints_only"' in rlt_script
     assert 'BASELINE_STEP="49999"' in rlt_script
+
+
+def test_armnetbench_tool_insert_rlt_matches_pi05_task_config():
+    base = _config.get_config("pi05_armnetbench_tool_insert")
+    rlt = _config.get_config("pi05_rlt_armnetbench_tool_insert")
+
+    assert rlt.project_name == rlt.name
+    assert rlt.num_train_steps == base.num_train_steps
+    assert rlt.save_interval == base.save_interval
+    assert rlt.data == base.data
+    assert rlt.model.pi05 is True
+    assert rlt.model.action_horizon == base.model.action_horizon
+    assert rlt.model.rl_vla_loss_weight == 0.0
+    assert isinstance(rlt.weight_loader, _config.weight_loaders.RLTokenCheckpointWeightLoader)
+    assert (
+        rlt.weight_loader.params_path
+        == "hf://lorenzouttini/pi05-so101-armnetbench-tool-insert-isambard-v50/step_24999/params"
+    )
 
 
 def test_build_block_tower_recap_slurm_script_references_existing_configs():
