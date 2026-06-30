@@ -17,7 +17,7 @@
 # RL-token encoder/decoder (rl_vla_loss_weight=0.0, VLA frozen).
 #
 # Cluster: Isambard u6kr. Submit from the RLT worktree so slurm logs stay isolated:
-#   cd /home/u6kr/lorenzo.u6kr/openpi_rlt_robometer
+#   cd /home/u6kr/pravsels.u6kr/openpi_rlt_robometer
 #   sbatch slurm/train_armnetbench_tool_insert_rlt_slurm.sh
 #
 # Before first sbatch:
@@ -31,8 +31,8 @@ module purge
 module load brics/apptainer-multi-node
 
 # --- Infrastructure (u6kr) ---
-home_dir="/home/u6kr/lorenzo.u6kr"
-scratch_dir="/scratch/u6kr/lorenzo.u6kr"
+home_dir="/home/u6kr/pravsels.u6kr"
+scratch_dir="/scratch/u6kr/pravsels.u6kr"
 repo_dir="${home_dir}/openpi_rlt_robometer"
 data_dir="${scratch_dir}/openpi"
 container="${data_dir}/container/openpi_arm64.sif"
