@@ -16,7 +16,7 @@
 - dataset: `villekuosmanen/armnetbench_tool_insert`
 - init checkpoint: `checkpoints/pi05-so101-armnetbench-tool-insert-isambard-v50/step_24999/params` (local, bound to scratch)
 - batch_size: 32
-- num_train_steps: 10,000
+- num_train_steps: 20,000
 - save_interval: 10,000
 - W&B: offline, entity `pravsels`, project `pi05_rlt_armnetbench_tool_insert`
 
@@ -36,4 +36,4 @@
 
 ## Status
 
-- Queued pending priority after submission.
+- Job `5453486` cancelled at ~484 steps; resubmitted with 20k steps.

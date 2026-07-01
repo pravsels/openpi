@@ -2914,13 +2914,13 @@ _CONFIGS = [
         lr_schedule=_optimizer.CosineDecaySchedule(
             warmup_steps=1_000,
             peak_lr=2.5e-5,
-            decay_steps=10_000,
+            decay_steps=20_000,
             decay_lr=2.5e-6,
         ),
         freeze_filter=pi0_rl_config.Pi0RLConfig(
             pi05=True, action_horizon=30, rl_vla_loss_weight=0.0
         ).get_rl_freeze_filter(),
-        num_train_steps=10_000,
+        num_train_steps=20_000,
         save_interval=10_000,
         batch_size=32,
         ema_decay=0.999,
