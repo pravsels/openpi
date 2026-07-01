@@ -2909,7 +2909,7 @@ _CONFIGS = [
             use_delta_actions=True,
         ),
         weight_loader=weight_loaders.RLTokenCheckpointWeightLoader(
-            "hf://lorenzouttini/pi05-so101-armnetbench-tool-insert-isambard-v50/step_24999/params"
+            "checkpoints/pi05-so101-armnetbench-tool-insert-isambard-v50/step_24999/params"
         ),
         lr_schedule=_optimizer.CosineDecaySchedule(
             warmup_steps=1_000,

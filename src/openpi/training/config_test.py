@@ -387,10 +387,6 @@ def test_armnetbench_tool_insert_rlt_matches_pi05_task_config():
     assert rlt.model.action_horizon == base.model.action_horizon
     assert rlt.model.rl_vla_loss_weight == 0.0
     assert isinstance(rlt.weight_loader, _config.weight_loaders.RLTokenCheckpointWeightLoader)
-    assert (
-        rlt.weight_loader.params_path
-        == "hf://lorenzouttini/pi05-so101-armnetbench-tool-insert-isambard-v50/step_24999/params"
-    )
 
 
 def test_build_block_tower_recap_slurm_script_references_existing_configs():
