@@ -2933,6 +2933,53 @@ _CONFIGS = [
         num_train_steps=10_000,
     ),
     #
+    # SO-101 RLT (RLT Stage 1) config — object top shelf reset.
+    # Attaches the RL-token encoder-decoder to the frozen pi05 SO-101 baseline
+    # VLA (config `pi05_so101_object_top_shelf_reset`, action_horizon=30) and
+    # trains ONLY the encoder-decoder (rl_vla_loss_weight=0.0 → VLA frozen).
+    # The resulting checkpoint is what `hw_control.pi0_rlt` loads to extract RL
+    # tokens for the demo cache and online RL. Uses the same
+    # `pravsels/object_top_shelf_reset_remote` dataset and delta-action setup as
+    # the baseline so norm stats and action space line up.
+    #
+    TrainConfig(
+        name="pi05_rlt_so101_object_top_shelf_reset",
+        project_name="so101_object_top_shelf_reset_rlt",
+        model=pi0_rl_config.Pi0RLConfig(pi05=True, action_horizon=30, rl_vla_loss_weight=0.0),
+        data=LeRobotSO101DataConfig(
+            repo_id="pravsels/object_top_shelf_reset_remote",
+            default_prompt="Put the object from the top shelf in the basket",
+            use_delta_actions=True,
+        ),
+        batch_size=16,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=5e-5,
+            decay_steps=10_000,
+            decay_lr=5e-5,
+        ),
+        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
+        ema_decay=0.999,
+        freeze_filter=pi0_rl_config.Pi0RLConfig(
+            pi05=True, action_horizon=30, rl_vla_loss_weight=0.0
+        ).get_rl_freeze_filter(),
+        weight_loader=weight_loaders.RLTokenCheckpointWeightLoader(
+            # Baseline pi05 SO-101 VLA params (the fine-tuned policy this RL
+            # token bottleneck attaches to). Path matches the Isambard training
+            # output layout <config>/<exp>/<step>/params (both config and exp
+            # are "pi05_so101_object_top_shelf_reset_v50"; step dir is the bare
+            # number 24999). Stage-1 runs on the cluster, so this must resolve
+            # inside the container's checkpoints bind.
+            #
+            # NB: the published HF repo instead nests weights under step_24999/;
+            # if you point this at a fresh `hf download`, use
+            #   checkpoints/pi05_so101_object_top_shelf_reset_v50/step_24999/params
+            "checkpoints/pi05_so101_object_top_shelf_reset_v50/"
+            "pi05_so101_object_top_shelf_reset_v50/24999/params"
+        ),
+        num_train_steps=10_000,
+    ),
+    #
     # Debugging configs.
     #
     TrainConfig(
