@@ -70,7 +70,10 @@ CHECKPOINT_DIR="${data_dir}/checkpoints/${CONFIG_NAME}/${EXP_NAME}"
 ASSETS_DIR="${data_dir}/assets/${CONFIG_NAME}/${EXP_NAME}/assets"
 
 # --- Baseline VLA that the RL-token head attaches to (must exist, frozen) ---
-BASE_VLA_PARAMS="${data_dir}/checkpoints/pi05_so101_object_top_shelf_reset_v50/step_24999/params"
+# Isambard training-output layout: <config>/<exp>/<step>/params (both config and
+# exp are pi05_so101_object_top_shelf_reset_v50; step dir is the bare number 24999).
+# Must match the RLT TrainConfig's weight_loader path.
+BASE_VLA_PARAMS="${data_dir}/checkpoints/pi05_so101_object_top_shelf_reset_v50/pi05_so101_object_top_shelf_reset_v50/24999/params"
 
 if [ -z "${ASSETS_DIR}" ]; then
     echo "ERROR: ASSETS_DIR is empty; refusing to run."
