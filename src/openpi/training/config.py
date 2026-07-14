@@ -2980,6 +2980,49 @@ _CONFIGS = [
         num_train_steps=10_000,
     ),
     #
+    # SO-101 RLT (RLT Stage 1) config — object top shelf (forward "to shelf" task).
+    # Same structure as pi05_rlt_so101_object_top_shelf_reset, but the RL-token
+    # encoder-decoder attaches to the FORWARD baseline VLA
+    # (`pi05_so101_object_top_shelf`, prompt "Put the object on the top shelf",
+    # dataset lorenzouttini/object_top_shelf_remote). Trains ONLY the
+    # encoder-decoder (rl_vla_loss_weight=0.0 → VLA frozen). Prompt + dataset +
+    # delta-action setup match the baseline so norm stats and the 6D action space
+    # line up. Loaded by `hw_control.pi0_rlt` to build the demo cache + run RL.
+    #
+    TrainConfig(
+        name="pi05_rlt_so101_object_top_shelf",
+        project_name="so101_object_top_shelf_rlt",
+        model=pi0_rl_config.Pi0RLConfig(pi05=True, action_horizon=30, rl_vla_loss_weight=0.0),
+        data=LeRobotSO101DataConfig(
+            repo_id="lorenzouttini/object_top_shelf_remote",
+            default_prompt="Put the object on the top shelf",
+            use_delta_actions=True,
+        ),
+        batch_size=16,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=5e-5,
+            decay_steps=10_000,
+            decay_lr=5e-5,
+        ),
+        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
+        ema_decay=0.999,
+        freeze_filter=pi0_rl_config.Pi0RLConfig(
+            pi05=True, action_horizon=30, rl_vla_loss_weight=0.0
+        ).get_rl_freeze_filter(),
+        weight_loader=weight_loaders.RLTokenCheckpointWeightLoader(
+            # Forward baseline pi05 SO-101 VLA params (the fine-tuned policy this RL
+            # token bottleneck attaches to). The published base repo nests weights
+            # under step_<N>/; we use the 25k-step checkpoint. Download it into the
+            # checkpoints bind so this resolves:
+            #   hf download lorenzouttini/pi05-so101-object-top-shelf-isambard \
+            #     --local-dir checkpoints/pi05_so101_object_top_shelf
+            #   → checkpoints/pi05_so101_object_top_shelf/step_25000/params
+            "checkpoints/pi05_so101_object_top_shelf/step_25000/params"
+        ),
+        num_train_steps=10_000,
+    ),
+    #
     # Debugging configs.
     #
     TrainConfig(
