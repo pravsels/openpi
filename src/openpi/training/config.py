@@ -2547,6 +2547,60 @@ _CONFIGS = [
         wandb_enabled=True,
     ),
     #
+    # ---------------------------------------------------------------------------
+    # Busybox bimanual SO101 configs — pravsels/busybox_buttons_bimanual.
+    # Bimanual SO101 button-press task (12D dual-arm joint-space, delta actions),
+    # cameras top/left_wrist/right_wrist. Same schema as the open_lamp_door
+    # bimanual configs above (it's a fork of that source dataset), read directly
+    # from the public HF repo. 25k-step runs are produced via the v50 variants
+    # (see _V50_BASE_NAMES); these base configs keep the 10k single-GPU profile
+    # for parity with the other armnetbench bimanual bases.
+    # ---------------------------------------------------------------------------
+    TrainConfig(
+        name="pi0_busybox_buttons_bimanual",
+        project_name="busybox_buttons_bimanual_pi0",
+        model=pi0_config.Pi0Config(action_horizon=30),
+        data=LeRobotSO101BimanualDataConfig(
+            repo_id="pravsels/busybox_buttons_bimanual",
+            default_prompt="press the green button with the left arm and then press the yellow button with the right arm",
+            use_delta_actions=True,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi0_base/params"),
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=2.5e-5,
+            decay_steps=10_000,
+            decay_lr=2.5e-6,
+        ),
+        num_train_steps=10_000,
+        save_interval=10_000,
+        batch_size=16,
+        ema_decay=0.999,
+        wandb_enabled=True,
+    ),
+    TrainConfig(
+        name="pi05_busybox_buttons_bimanual",
+        project_name="busybox_buttons_bimanual_pi05",
+        model=pi0_config.Pi0Config(pi05=True, action_horizon=30),
+        data=LeRobotSO101BimanualDataConfig(
+            repo_id="pravsels/busybox_buttons_bimanual",
+            default_prompt="press the green button with the left arm and then press the yellow button with the right arm",
+            use_delta_actions=True,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=2.5e-5,
+            decay_steps=10_000,
+            decay_lr=2.5e-6,
+        ),
+        num_train_steps=10_000,
+        save_interval=10_000,
+        batch_size=16,
+        ema_decay=0.999,
+        wandb_enabled=True,
+    ),
+    #
     # ARX5 multi-task foundation model configs.
     #
     TrainConfig(
@@ -2914,7 +2968,7 @@ _CONFIGS = [
 # shared-venv editable-install race. Requires pi0_base AND pi05_base on the cluster.
 # ---------------------------------------------------------------------------
 _V50_BASE_NAMES = [
-    # pi0 (12)
+    # pi0 (13)
     "pi0_so101_object_top_shelf",
     "pi0_so101_object_top_shelf_reset",
     "pi0_so101_cable_clip",
@@ -2927,7 +2981,8 @@ _V50_BASE_NAMES = [
     "pi0_armnetbench_transfer_cube",
     "pi0_armnetbench_fold_tea_towel",
     "pi0_armnetbench_open_lamp_door",
-    # pi0.5 (9)
+    "pi0_busybox_buttons_bimanual",
+    # pi0.5 (10)
     "pi05_so101_object_top_shelf_reset",
     "pi05_armnetbench_ring_insert",
     "pi05_armnetbench_block_stack",
@@ -2937,6 +2992,7 @@ _V50_BASE_NAMES = [
     "pi05_armnetbench_transfer_cube",
     "pi05_armnetbench_fold_tea_towel",
     "pi05_armnetbench_open_lamp_door",
+    "pi05_busybox_buttons_bimanual",
 ]
 
 
