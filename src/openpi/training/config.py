@@ -3077,6 +3077,53 @@ _CONFIGS = [
         num_train_steps=10_000,
     ),
     #
+    # Bimanual SO-101 RLT (RLT Stage 1) config — busybox buttons (two-arm task).
+    # Same structure as the single-arm object_top_shelf RLT configs, but the
+    # RL-token encoder-decoder attaches to the BIMANUAL baseline VLA
+    # (`pi05_busybox_buttons_bimanual_v50`, 12D dual-arm, cameras
+    # top/left_wrist/right_wrist, dataset pravsels/busybox_buttons_bimanual).
+    # Trains ONLY the encoder-decoder (rl_vla_loss_weight=0.0 → VLA frozen).
+    # Prompt + dataset + delta-action setup match the baseline so norm stats and
+    # the 12D action space line up. Loaded by `hw_control.pi0_rlt` to build the
+    # demo cache + run RL. action_horizon=30 matches the base VLA.
+    #
+    TrainConfig(
+        name="pi05_rlt_so101_busybox_buttons_bimanual",
+        project_name="so101_busybox_buttons_bimanual_rlt",
+        model=pi0_rl_config.Pi0RLConfig(pi05=True, action_horizon=30, rl_vla_loss_weight=0.0),
+        data=LeRobotSO101BimanualDataConfig(
+            repo_id="pravsels/busybox_buttons_bimanual",
+            default_prompt=(
+                "press the green button with the left arm and then press the "
+                "yellow button with the right arm"
+            ),
+            use_delta_actions=True,
+        ),
+        batch_size=16,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=5e-5,
+            decay_steps=10_000,
+            decay_lr=5e-5,
+        ),
+        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
+        ema_decay=0.999,
+        freeze_filter=pi0_rl_config.Pi0RLConfig(
+            pi05=True, action_horizon=30, rl_vla_loss_weight=0.0
+        ).get_rl_freeze_filter(),
+        weight_loader=weight_loaders.RLTokenCheckpointWeightLoader(
+            # Bimanual busybox baseline pi05 VLA params (the fine-tuned policy the
+            # RL-token bottleneck attaches to). The published base repo nests
+            # weights under step_<N>/; we use the 25k-step checkpoint. Download it
+            # into the checkpoints bind so this resolves:
+            #   hf download lorenzouttini/pi05-so101-busybox-buttons-bimanual-isambard-v50 \
+            #     --local-dir checkpoints/pi05_so101_busybox_buttons_bimanual_v50
+            #   → checkpoints/pi05_so101_busybox_buttons_bimanual_v50/step_24999/params
+            "checkpoints/pi05_so101_busybox_buttons_bimanual_v50/step_24999/params"
+        ),
+        num_train_steps=10_000,
+    ),
+    #
     # Debugging configs.
     #
     TrainConfig(
