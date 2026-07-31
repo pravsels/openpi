@@ -2676,6 +2676,64 @@ _CONFIGS = [
         wandb_enabled=True,
     ),
     #
+    # ---------------------------------------------------------------------------
+    # Busybox single-task SO101 configs — villekuosmanen/busybox_*.
+    # Same bimanual schema as the configs above (12D dual-arm joint-space, delta
+    # actions, cameras top/left_wrist/right_wrist, LeRobot v3.0), read directly
+    # from the public HF repos. Small datasets (20 episodes each), so these use a
+    # short 10k-step / batch-32 profile with an intermediate checkpoint at 5k so a
+    # walltime-killed job can resume.
+    # ---------------------------------------------------------------------------
+    TrainConfig(
+        name="pi05_busybox_press_green_yellow_buttons",
+        project_name="busybox_press_green_yellow_buttons_pi05",
+        model=pi0_config.Pi0Config(pi05=True, action_horizon=30),
+        data=LeRobotSO101BimanualDataConfig(
+            repo_id="villekuosmanen/busybox_press_green_yellow_buttons",
+            # Same task as pi05_busybox_buttons_bimanual; the dataset's own task
+            # string has a typo ("with your left and and then"), so reuse the
+            # cleaned prompt for consistency with the sibling config.
+            default_prompt="press the green button with the left arm and then press the yellow button with the right arm",
+            use_delta_actions=True,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=2.5e-5,
+            decay_steps=10_000,
+            decay_lr=2.5e-6,
+        ),
+        num_train_steps=10_000,
+        save_interval=5000,
+        keep_period=10_000,
+        batch_size=32,
+        ema_decay=0.999,
+        wandb_enabled=True,
+    ),
+    TrainConfig(
+        name="pi05_busybox_flip_left_switch_off",
+        project_name="busybox_flip_left_switch_off_pi05",
+        model=pi0_config.Pi0Config(pi05=True, action_horizon=30),
+        data=LeRobotSO101BimanualDataConfig(
+            repo_id="villekuosmanen/busybox_flip_left_switch_off",
+            default_prompt="Flip the left switch to Off position",
+            use_delta_actions=True,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=2.5e-5,
+            decay_steps=10_000,
+            decay_lr=2.5e-6,
+        ),
+        num_train_steps=10_000,
+        save_interval=5000,
+        keep_period=10_000,
+        batch_size=32,
+        ema_decay=0.999,
+        wandb_enabled=True,
+    ),
+    #
     # ARX5 multi-task foundation model configs.
     #
     TrainConfig(
