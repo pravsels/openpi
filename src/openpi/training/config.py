@@ -3182,6 +3182,86 @@ _CONFIGS = [
         num_train_steps=10_000,
     ),
     #
+    # Bimanual SO-101 RLT (RLT Stage 1) configs — the two villekuosmanen busybox
+    # single-task policies. Same structure as
+    # pi05_rlt_so101_busybox_buttons_bimanual: the RL-token encoder-decoder
+    # attaches to the frozen per-task baseline VLA trained above
+    # (rl_vla_loss_weight=0.0 → VLA frozen), and dataset + prompt + delta-action
+    # setup match that baseline so norm stats and the 12D action space line up.
+    # Loaded by `hw_control.pi0_rlt` to build the demo cache + run online RL.
+    #
+    TrainConfig(
+        name="pi05_rlt_busybox_press_green_yellow_buttons",
+        project_name="busybox_press_green_yellow_buttons_rlt",
+        model=pi0_rl_config.Pi0RLConfig(pi05=True, action_horizon=30, rl_vla_loss_weight=0.0),
+        data=LeRobotSO101BimanualDataConfig(
+            repo_id="villekuosmanen/busybox_press_green_yellow_buttons",
+            default_prompt=(
+                "press the green button with the left arm and then press the "
+                "yellow button with the right arm"
+            ),
+            use_delta_actions=True,
+        ),
+        batch_size=16,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=5e-5,
+            decay_steps=10_000,
+            decay_lr=5e-5,
+        ),
+        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
+        ema_decay=0.999,
+        freeze_filter=pi0_rl_config.Pi0RLConfig(
+            pi05=True, action_horizon=30, rl_vla_loss_weight=0.0
+        ).get_rl_freeze_filter(),
+        weight_loader=weight_loaders.RLTokenCheckpointWeightLoader(
+            # Baseline VLA params from pi05_busybox_press_green_yellow_buttons.
+            # Path matches the Isambard training output layout
+            # <config>/<exp>/<step>/params (config and exp are the same string;
+            # step dir is the bare number 9999), so it resolves straight out of
+            # the container's checkpoints bind with no download.
+            #
+            # NB: the published HF repo instead nests weights under step_9999/;
+            # if you point this at a fresh `hf download`, use
+            #   checkpoints/pi05_busybox_press_green_yellow_buttons/step_9999/params
+            "checkpoints/pi05_busybox_press_green_yellow_buttons/"
+            "pi05_busybox_press_green_yellow_buttons/9999/params"
+        ),
+        num_train_steps=10_000,
+    ),
+    TrainConfig(
+        name="pi05_rlt_busybox_flip_left_switch_off",
+        project_name="busybox_flip_left_switch_off_rlt",
+        model=pi0_rl_config.Pi0RLConfig(pi05=True, action_horizon=30, rl_vla_loss_weight=0.0),
+        data=LeRobotSO101BimanualDataConfig(
+            repo_id="villekuosmanen/busybox_flip_left_switch_off",
+            default_prompt="Flip the left switch to Off position",
+            use_delta_actions=True,
+        ),
+        batch_size=16,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=5e-5,
+            decay_steps=10_000,
+            decay_lr=5e-5,
+        ),
+        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
+        ema_decay=0.999,
+        freeze_filter=pi0_rl_config.Pi0RLConfig(
+            pi05=True, action_horizon=30, rl_vla_loss_weight=0.0
+        ).get_rl_freeze_filter(),
+        weight_loader=weight_loaders.RLTokenCheckpointWeightLoader(
+            # Baseline VLA params from pi05_busybox_flip_left_switch_off — same
+            # <config>/<exp>/<step>/params layout as above.
+            #
+            # NB: from a fresh `hf download`, use
+            #   checkpoints/pi05_busybox_flip_left_switch_off/step_9999/params
+            "checkpoints/pi05_busybox_flip_left_switch_off/"
+            "pi05_busybox_flip_left_switch_off/9999/params"
+        ),
+        num_train_steps=10_000,
+    ),
+    #
     # Debugging configs.
     #
     TrainConfig(

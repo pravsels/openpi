@@ -9,8 +9,11 @@
 #SBATCH --error=slurm-%j.err
 
 # Generic checkpoint publish to Hugging Face for the busybox single-task pi0.5
-# policies. Uploads selected checkpoints (params/ + assets/, no train_state/)
-# straight to HF. Config-agnostic: all per-task values come from arguments.
+# policies — serves both the baseline VLA runs (submit_busybox_tasks.sh) and the
+# RLT Stage-1 runs (submit_busybox_tasks_rlt.sh); both are 10k steps and land in
+# the same checkpoints root. Uploads selected checkpoints (params/ + assets/, no
+# train_state/) straight to HF. Config-agnostic: all per-task values come from
+# arguments.
 #
 # This is a lightweight publish for interim checkpoints; it skips integrity
 # signing (no MODEL_PASSPORT.json / SIGNOFF.json). For a signed release, use the
