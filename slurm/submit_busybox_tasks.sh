@@ -17,8 +17,14 @@
 #
 # Usage:
 #   cd ~/openpi_busybox_tasks
-#   bash slurm/submit_busybox_tasks.sh            # submit both pairs
-#   DRY_RUN=1 bash slurm/submit_busybox_tasks.sh  # print what would be submitted
+#   bash slurm/submit_busybox_tasks.sh                  # submit both pairs
+#   bash slurm/submit_busybox_tasks.sh <substring>      # only matching configs
+#   DRY_RUN=1 bash slurm/submit_busybox_tasks.sh        # print what would be submitted
+#
+# The optional substring filter is for re-recorded datasets: when one task's
+# dataset is re-collected under the same HF repo id, retrain just that task.
+# Delete its assets dir (stale norm stats) and checkpoint dir (otherwise the
+# train script resumes the old run) before resubmitting.
 #
 # Requires (staged on scratch): pi05_base weights, container, HF read token
 # (.hf_token) and HF write token (.hf_token_write).
@@ -26,6 +32,8 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."   # repo root (the worktree)
+
+FILTER="${1:-}"
 
 # keep_period=10000 deletes the intermediate checkpoint, so the final step is the
 # only one persisted; 9999 is the 0-indexed last step, 10000 is listed as a
@@ -39,12 +47,18 @@ JOBS=(
     "pi05_busybox_flip_left_switch_off|lorenzouttini/pi05-so101-busybox-flip-left-switch-off-isambard"
 )
 
-echo "Submitting ${#JOBS[@]} train->publish pairs (PUBLISH_STEPS=\"${PUBLISH_STEPS}\")"
+echo "Submitting train->publish pairs (PUBLISH_STEPS=\"${PUBLISH_STEPS}\"${FILTER:+, filter=\"${FILTER}\"})"
 echo ""
 
+submitted=0
 for entry in "${JOBS[@]}"; do
     cfg="${entry%%|*}"
     hf="${entry##*|}"
+
+    if [ -n "${FILTER}" ] && [[ "${cfg}" != *"${FILTER}"* ]]; then
+        continue
+    fi
+    submitted=$((submitted + 1))
 
     if [ "${DRY_RUN}" = "1" ]; then
         echo "[dry-run] train: ${cfg}"
@@ -57,6 +71,11 @@ for entry in "${JOBS[@]}"; do
         slurm/publish_busybox_tasks_slurm.sh "${cfg}" "${cfg}" "${hf}" "${PUBLISH_STEPS}")
     echo "submitted ${cfg}: train=${TRAIN} publish=${PUB}"
 done
+
+if [ "${submitted}" -eq 0 ]; then
+    echo "ERROR: filter \"${FILTER}\" matched no configs." >&2
+    exit 1
+fi
 
 echo ""
 echo "Done. Monitor with: squeue --me"
