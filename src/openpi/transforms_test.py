@@ -363,6 +363,77 @@ def test_quantile_normalize_uses_q01_q99_without_extra_clipping():
     assert np.allclose(data["actions"], np.array([[-3.0], [0.0], [3.0]]), atol=1e-6)
 
 
+def test_quantile_normalize_does_not_explode_a_constant_channel():
+    # A gripper that stays shut for 99% of an episode has q01 == q99, so the spread
+    # is zero. Dividing by `spread + 1e-6` would scale the rare frame where it does
+    # move by 10^6 and hand the model a target in the millions.
+    stats = {
+        "actions": _transforms.NormStats(mean=np.zeros(1), std=np.zeros(1), q01=np.array([0.0]), q99=np.array([0.0]))
+    }
+    transform = _transforms.Normalize(stats, use_quantiles=True)
+
+    data = transform({"actions": np.array([[0.0], [52.87]])})
+
+    # The value that equals the training constant sits at the bottom of the range,
+    # and the outlier stays on the same scale as the data rather than 10^6 times it.
+    assert np.allclose(data["actions"], np.array([[-1.0], [2.0 * 52.87 - 1.0]]), atol=1e-6)
+
+
+def test_quantile_normalize_keeps_a_constant_channel_from_swamping_the_others():
+    # The failure this guards against is not local to the bad channel: because the
+    # loss sums over dimensions, one channel with a 10^6 gain dominates the gradient
+    # for every other joint. Check the healthy channels are untouched by its presence.
+    stats = {
+        "actions": _transforms.NormStats(
+            mean=np.zeros(3),
+            std=np.ones(3),
+            q01=np.array([0.0, -1.0, 0.0]),
+            q99=np.array([10.0, 1.0, 0.0]),
+        )
+    }
+    transform = _transforms.Normalize(stats, use_quantiles=True)
+
+    data = transform({"actions": np.array([[5.0, 0.0, 3.0]])})
+
+    assert np.allclose(data["actions"][0, :2], np.array([0.0, 0.0]), atol=1e-6)
+    assert abs(data["actions"][0, 2]) < 10.0
+
+
+def test_quantile_normalize_is_unchanged_for_well_conditioned_channels():
+    q01, q99 = np.array([-31.994, 0.606]), np.array([76.764, 41.2])
+    stats = {"actions": _transforms.NormStats(mean=np.zeros(2), std=np.ones(2), q01=q01, q99=q99)}
+    x = np.array([[12.5, 3.75], [-20.0, 40.0]])
+
+    data = _transforms.Normalize(stats, use_quantiles=True)({"actions": x.copy()})
+
+    # Byte-for-byte the historical formula, so existing checkpoints are unaffected.
+    assert np.array_equal(data["actions"], (x - q01) / (q99 - q01 + 1e-6) * 2.0 - 1.0)
+
+
+def test_quantile_unnormalize_inverts_normalize_including_a_constant_channel():
+    stats = {
+        "actions": _transforms.NormStats(
+            mean=np.zeros(2), std=np.ones(2), q01=np.array([-5.0, 0.0]), q99=np.array([5.0, 0.0])
+        )
+    }
+    x = np.array([[2.5, 0.0]])
+
+    normalized = _transforms.Normalize(stats, use_quantiles=True)({"actions": x.copy()})
+    restored = _transforms.Unnormalize(stats, use_quantiles=True)({"actions": normalized["actions"]})
+
+    assert np.allclose(restored["actions"], x, atol=1e-5)
+
+
+def test_zscore_normalize_does_not_explode_a_constant_channel():
+    stats = {"actions": _transforms.NormStats(mean=np.array([2.0]), std=np.array([0.0]))}
+
+    normalized = _transforms.Normalize(stats)({"actions": np.array([[3.0]])})
+    restored = _transforms.Unnormalize(stats)({"actions": normalized["actions"]})
+
+    assert np.allclose(normalized["actions"], np.array([[1.0]]), atol=1e-6)
+    assert np.allclose(restored["actions"], np.array([[3.0]]), atol=1e-6)
+
+
 def test_transform_dict():
     # Rename and remove keys.
     input = {"a": {"b": 1, "c": 2}}

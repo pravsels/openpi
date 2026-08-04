@@ -192,6 +192,37 @@ class SetAdvantageLabelFromControlMode(DataTransformFn):
         return str(value)
 
 
+# Scales below this are treated as degenerate. Matches the order of magnitude of
+# float32's machine epsilon (~1.2e-7), as sklearn's scalers do.
+_MIN_SCALE = 1e-6
+
+
+def _safe_scale(scale: np.ndarray) -> np.ndarray:
+    """Normalization divisor that cannot turn a constant channel into a huge gain.
+
+    A channel whose training spread is zero -- a gripper that never opens, a joint
+    held at rest -- carries no information, and the only sensible thing to do with
+    it is to leave it alone. Dividing by ``spread + 1e-6`` instead does the
+    opposite: it applies a gain of 10^6, so a value that differs from the training
+    constant by one unit normalizes to a million. Because the loss is summed over
+    channels, that single dimension then dominates the gradient for every other
+    joint, and the model learns to emit a large constant that ignores its inputs.
+    At inference the same gain turns a millimetre of drift into an action far
+    outside anything the policy saw in training.
+
+    Substituting a unit scale keeps a constant channel constant, which is what
+    ``sklearn``'s scalers do (see ``_handle_zeros_in_scale``). Well-conditioned
+    channels keep the historical ``+ 1e-6`` exactly, so this is a no-op for them.
+
+    Note this only rescues an *exactly* degenerate channel. One that moved a little
+    -- a spread of, say, 1e-5 -- is still amplified 100000x, and no choice of
+    epsilon can distinguish that from a legitimately fine-grained channel. Such a
+    channel is a data problem, and is best caught by checking that normalized
+    targets land in a sane range before training rather than papered over here.
+    """
+    return np.where(np.abs(scale) < _MIN_SCALE, 1.0, scale + _MIN_SCALE)
+
+
 @dataclasses.dataclass(frozen=True)
 class Normalize(DataTransformFn):
     norm_stats: at.PyTree[NormStats] | None
@@ -217,13 +248,13 @@ class Normalize(DataTransformFn):
 
     def _normalize(self, x, stats: NormStats):
         mean, std = stats.mean[..., : x.shape[-1]], stats.std[..., : x.shape[-1]]
-        return (x - mean) / (std + 1e-6)
+        return (x - mean) / _safe_scale(std)
 
     def _normalize_quantile(self, x, stats: NormStats):
         assert stats.q01 is not None
         assert stats.q99 is not None
         q01, q99 = stats.q01[..., : x.shape[-1]], stats.q99[..., : x.shape[-1]]
-        return (x - q01) / (q99 - q01 + 1e-6) * 2.0 - 1.0
+        return (x - q01) / _safe_scale(q99 - q01) * 2.0 - 1.0
 
 
 @dataclasses.dataclass(frozen=True)
@@ -251,15 +282,16 @@ class Unnormalize(DataTransformFn):
     def _unnormalize(self, x, stats: NormStats):
         mean = pad_to_dim(stats.mean, x.shape[-1], axis=-1, value=0.0)
         std = pad_to_dim(stats.std, x.shape[-1], axis=-1, value=1.0)
-        return x * (std + 1e-6) + mean
+        return x * _safe_scale(std) + mean
 
     def _unnormalize_quantile(self, x, stats: NormStats):
         assert stats.q01 is not None
         assert stats.q99 is not None
         q01, q99 = stats.q01, stats.q99
+        scale = _safe_scale(q99 - q01)
         if (dim := q01.shape[-1]) < x.shape[-1]:
-            return np.concatenate([(x[..., :dim] + 1.0) / 2.0 * (q99 - q01 + 1e-6) + q01, x[..., dim:]], axis=-1)
-        return (x + 1.0) / 2.0 * (q99 - q01 + 1e-6) + q01
+            return np.concatenate([(x[..., :dim] + 1.0) / 2.0 * scale + q01, x[..., dim:]], axis=-1)
+        return (x + 1.0) / 2.0 * scale + q01
 
 
 @dataclasses.dataclass(frozen=True)
