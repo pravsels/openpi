@@ -165,6 +165,73 @@ def load_actions_per_timestep(directory: pathlib.Path | str) -> NormStats:
     return deserialize_json(path.read_text())["actions"]
 
 
+# A per-timestep spread below this is treated as collapsed. Same order as
+# float32's machine epsilon (~1.2e-7), so nothing narrower carries information.
+_MIN_SPREAD = 1e-6
+
+
+def _spread(stats: NormStats) -> np.ndarray:
+    """The width of the range each normalization mode divides by."""
+    if stats.q01 is not None and stats.q99 is not None:
+        return np.asarray(stats.q99) - np.asarray(stats.q01)
+    return np.asarray(stats.std)
+
+
+def backfill_collapsed_timesteps(per_timestep: NormStats, global_stats: NormStats) -> NormStats:
+    """Give a channel its global stats when its per-timestep stats collapse.
+
+    Per-timestep stats let each step of the horizon use its own scale, which suits a
+    channel whose delta grows with the prediction distance. It behaves badly for a
+    *sparse* channel -- a gripper that only opens at the end of an episode. Such a
+    channel barely moves in the early steps, so their percentiles collapse onto a
+    single value and the resulting scale is far narrower than the channel's true
+    range. Normalizing with it maps the values the channel really does take to
+    enormous targets, and the loss, summed over channels, ends up tracking that one
+    dimension instead of the arm.
+
+    The channel's own global stats, pooled over the whole horizon, do see the motion,
+    so falling back to them is enough to bring the targets back into range. The
+    verdict is taken per channel rather than per step: once a channel collapses
+    anywhere it is normalized globally throughout, because the steps either side of a
+    collapse are near-collapsed too and patching only the exact zeros leaves the
+    channel almost as badly scaled as before.
+
+    Channels that never collapse keep their per-timestep stats untouched, and so does
+    a channel with no spread at all even globally -- one that is genuinely constant
+    has no better scale to offer, and the degenerate-scale guard in ``transforms``
+    keeps it harmless.
+    """
+    collapsed = np.abs(_spread(per_timestep)).min(axis=0) < _MIN_SPREAD
+    recoverable = collapsed & (np.abs(_spread(global_stats)) >= _MIN_SPREAD)
+    if not recoverable.any():
+        return per_timestep
+
+    logging.info(
+        "Per-timestep action stats collapse for channel(s) %s; using their global stats instead.",
+        np.flatnonzero(recoverable).tolist(),
+    )
+    if (constant := collapsed & ~recoverable).any():
+        logging.info(
+            "Channel(s) %s have no spread even globally; leaving them to the degenerate-scale guard.",
+            np.flatnonzero(constant).tolist(),
+        )
+
+    def pick(per_step: np.ndarray | None, overall: np.ndarray | None) -> np.ndarray | None:
+        if per_step is None or overall is None:
+            return per_step
+        per_step = np.asarray(per_step)
+        return np.where(recoverable, np.broadcast_to(np.asarray(overall), per_step.shape), per_step).astype(
+            per_step.dtype
+        )
+
+    return NormStats(
+        mean=pick(per_timestep.mean, global_stats.mean),
+        std=pick(per_timestep.std, global_stats.std),
+        q01=pick(per_timestep.q01, global_stats.q01),
+        q99=pick(per_timestep.q99, global_stats.q99),
+    )
+
+
 def merge_action_norm_stats(
     norm_stats: dict[str, NormStats],
     *,

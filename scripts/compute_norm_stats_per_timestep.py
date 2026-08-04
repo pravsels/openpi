@@ -154,6 +154,7 @@ def main(
 
     norm_stats = {key: stats.get_statistics() for key, stats in stats.items()}
     per_timestep_action_stats = _stack_norm_stats([stats.get_statistics() for stats in per_timestep_stats])
+    per_timestep_action_stats = normalize.backfill_collapsed_timesteps(per_timestep_action_stats, norm_stats["actions"])
 
     output_path = config.assets_dirs
     print(f"Writing global stats to: {output_path}")
