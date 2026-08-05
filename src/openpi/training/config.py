@@ -1022,13 +1022,28 @@ class LeRobotSO101BimanualDataConfig(DataConfigFactory):
         model_transforms = ModelTransformFactory(default_prompt=self.default_prompt)(model_config)
         base_config = self.create_base_config(assets_dirs, model_config)
 
+        repack_transforms = self.repack_transforms
+        if base_config.prompt_from_task:
+            # RepackTransform rebuilds each sample from its structure alone, so the
+            # per-task prompt set upstream by PromptFromLeRobotTask is dropped
+            # unless "prompt" is carried through explicitly.
+            repack_transforms = _transforms.Group(
+                inputs=[
+                    _transforms.RepackTransform({**tf.structure, "prompt": "prompt"})
+                    if isinstance(tf, _transforms.RepackTransform)
+                    else tf
+                    for tf in repack_transforms.inputs
+                ],
+                outputs=repack_transforms.outputs,
+            )
+
         use_per_timestep_action_norm = base_config.use_per_timestep_action_norm
         if self.use_delta_actions and use_per_timestep_action_norm is None:
             use_per_timestep_action_norm = True
 
         return dataclasses.replace(
             base_config,
-            repack_transforms=self.repack_transforms,
+            repack_transforms=repack_transforms,
             data_transforms=data_transforms,
             model_transforms=model_transforms,
             action_sequence_keys=self.action_sequence_keys,
@@ -2733,6 +2748,40 @@ _CONFIGS = [
         ema_decay=0.999,
         wandb_enabled=True,
     ),
+    # ---------------------------------------------------------------------------
+    # Busybox multi-task SO101 config — villekuosmanen/busybox_multitask.
+    # Identical bimanual schema to the single-task busybox configs above, but one
+    # dataset covering all 24 busybox tasks (both switches on/off, four buttons,
+    # both sliders to positions 1-5, knob to positions 1-6) over 56 episodes /
+    # 13k frames. The task is therefore selected by the prompt at inference time,
+    # so the prompt must come from each frame's own task string instead of a
+    # single default_prompt — hence prompt_from_task.
+    # Same 10k-step / batch-32 profile as the single-task runs; with ~2.8x the
+    # frames that is ~24 epochs rather than ~60.
+    # ---------------------------------------------------------------------------
+    TrainConfig(
+        name="pi05_busybox_multitask",
+        project_name="busybox_multitask_pi05",
+        model=pi0_config.Pi0Config(pi05=True, action_horizon=30),
+        data=LeRobotSO101BimanualDataConfig(
+            repo_id="villekuosmanen/busybox_multitask",
+            base_config=DataConfig(prompt_from_task=True),
+            use_delta_actions=True,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=2.5e-5,
+            decay_steps=10_000,
+            decay_lr=2.5e-6,
+        ),
+        num_train_steps=10_000,
+        save_interval=5000,
+        keep_period=10_000,
+        batch_size=32,
+        ema_decay=0.999,
+        wandb_enabled=True,
+    ),
     #
     # ARX5 multi-task foundation model configs.
     #
@@ -3258,6 +3307,39 @@ _CONFIGS = [
             #   checkpoints/pi05_busybox_flip_left_switch_off/step_9999/params
             "checkpoints/pi05_busybox_flip_left_switch_off/"
             "pi05_busybox_flip_left_switch_off/9999/params"
+        ),
+        num_train_steps=10_000,
+    ),
+    TrainConfig(
+        name="pi05_rlt_busybox_multitask",
+        project_name="busybox_multitask_rlt",
+        model=pi0_rl_config.Pi0RLConfig(pi05=True, action_horizon=30, rl_vla_loss_weight=0.0),
+        data=LeRobotSO101BimanualDataConfig(
+            repo_id="villekuosmanen/busybox_multitask",
+            # Must match the baseline: the RL-token layer sees the same prompts the
+            # frozen VLA was trained on, one per busybox task.
+            base_config=DataConfig(prompt_from_task=True),
+            use_delta_actions=True,
+        ),
+        batch_size=16,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=5e-5,
+            decay_steps=10_000,
+            decay_lr=5e-5,
+        ),
+        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
+        ema_decay=0.999,
+        freeze_filter=pi0_rl_config.Pi0RLConfig(
+            pi05=True, action_horizon=30, rl_vla_loss_weight=0.0
+        ).get_rl_freeze_filter(),
+        weight_loader=weight_loaders.RLTokenCheckpointWeightLoader(
+            # Baseline VLA params from pi05_busybox_multitask — same
+            # <config>/<exp>/<step>/params layout as above.
+            #
+            # NB: from a fresh `hf download`, use
+            #   checkpoints/pi05_busybox_multitask/step_9999/params
+            "checkpoints/pi05_busybox_multitask/pi05_busybox_multitask/9999/params"
         ),
         num_train_steps=10_000,
     ),

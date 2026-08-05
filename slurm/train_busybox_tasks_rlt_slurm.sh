@@ -14,19 +14,19 @@
 # Generic RLT Stage-1 launcher for the villekuosmanen busybox pi0.5 policies:
 #   pi05_rlt_busybox_press_green_yellow_buttons
 #   pi05_rlt_busybox_flip_left_switch_off
+#   pi05_rlt_busybox_multitask
 #
 # This does NOT train a VLA. It attaches a learned RL-token encoder-decoder to
-# the *frozen* per-task baseline VLA (rl_vla_loss_weight=0.0,
-# get_rl_freeze_filter), so only the ~small RL-token bottleneck is optimised.
+# the *frozen* baseline VLA (rl_vla_loss_weight=0.0, get_rl_freeze_filter), so
+# only the ~small RL-token bottleneck is optimised.
 # The resulting checkpoint is what `hw_control.pi0_rlt` loads (needs
 # `sample_actions_with_rl_token`) to build the demo cache and run online RL.
 # Same dataset + delta-action setup as the baseline so norm stats and the 12D
 # action space line up.
 #
-# Both datasets are bimanual SO101 (12D dual-arm joint-space, cameras
-# top/left_wrist/right_wrist, LeRobot v3.0, 20 episodes each). The config carries
-# everything (dataset, prompt, base VLA path, schedule); this script is
-# config-agnostic.
+# Every dataset is bimanual SO101 (12D dual-arm joint-space, cameras
+# top/left_wrist/right_wrist, LeRobot v3.0). The config carries everything
+# (dataset, prompt, base VLA path, schedule); this script is config-agnostic.
 #
 # Short run: single GPU, 6h walltime, 10k steps, one checkpoint at the end.
 #

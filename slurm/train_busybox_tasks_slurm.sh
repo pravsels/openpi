@@ -11,17 +11,18 @@
 #SBATCH --requeue
 #SBATCH --exclude=nid010755
 
-# Generic launcher for the villekuosmanen busybox single-task pi0.5 policies
-# (10k steps / batch 32 / 2-GPU profile). Both datasets are bimanual SO101
-# (12D dual-arm joint-space, delta actions, cameras top/left_wrist/right_wrist,
-# LeRobot v3.0, 20 episodes each), so the same launcher covers:
+# Generic launcher for the villekuosmanen busybox pi0.5 policies (10k steps /
+# batch 32 / 2-GPU profile). Every dataset is bimanual SO101 (12D dual-arm
+# joint-space, delta actions, cameras top/left_wrist/right_wrist, LeRobot v3.0),
+# so the same launcher covers:
 #   pi05_busybox_press_green_yellow_buttons
 #   pi05_busybox_flip_left_switch_off
+#   pi05_busybox_multitask
 # 2 GPUs with fsdp_devices=1 (data parallel) gives 16 samples/GPU, matching the
 # proven 1-GPU/batch-16 memory footprint. The config carries everything (dataset,
 # prompt, pi05_base weights, schedule); this script is config-agnostic.
 #
-# Both configs run from ONE worktree so they share ONE venv — this avoids the
+# All configs run from ONE worktree so they share ONE venv — this avoids the
 # cross-worktree editable-install race.
 #
 # Usage:

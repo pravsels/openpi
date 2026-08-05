@@ -1,23 +1,27 @@
 #!/bin/bash
-# Submit the two villekuosmanen busybox pi0.5 policies as INDEPENDENT
+# Submit the villekuosmanen busybox pi0.5 policies as INDEPENDENT
 # train->publish job pairs. Each pair is its own Slurm job: if a training fails,
-# only its own publish is skipped (DependencyNeverSatisfied) — the other job is
+# only its own publish is skipped (DependencyNeverSatisfied) — the other jobs are
 # unaffected. On successful training, the paired publish job (afterok dependency)
 # uploads the final checkpoint straight to Hugging Face.
 #
-# Datasets (both bimanual SO101, 12D dual-arm joint-space, cameras
-# top/left_wrist/right_wrist, 20 episodes, LeRobot v3.0):
+# Datasets (all bimanual SO101, 12D dual-arm joint-space, cameras
+# top/left_wrist/right_wrist, LeRobot v3.0):
 #   villekuosmanen/busybox_press_green_yellow_buttons — press green (left arm)
-#     then yellow (right arm).
+#     then yellow (right arm). 20 episodes, single task.
 #   villekuosmanen/busybox_flip_left_switch_off — flip the left switch off.
+#     20 episodes, single task.
+#   villekuosmanen/busybox_multitask — all 24 busybox tasks (switches, buttons,
+#     sliders, knob) in one dataset, 56 episodes / 13k frames. Its config uses
+#     prompt_from_task, so the task is chosen by the prompt at inference time.
 #
 # Profile: 10k steps, batch 32, 2 GPUs, 8h walltime, save every 5k.
-# Both pairs run from the single shared worktree (~/openpi_busybox_tasks) and
+# All pairs run from the single shared worktree (~/openpi_busybox_tasks) and
 # share ONE venv — this avoids the cross-worktree editable-install race.
 #
 # Usage:
 #   cd ~/openpi_busybox_tasks
-#   bash slurm/submit_busybox_tasks.sh                  # submit both pairs
+#   bash slurm/submit_busybox_tasks.sh                  # submit every pair
 #   bash slurm/submit_busybox_tasks.sh <substring>      # only matching configs
 #   DRY_RUN=1 bash slurm/submit_busybox_tasks.sh        # print what would be submitted
 #
@@ -45,6 +49,7 @@ DRY_RUN="${DRY_RUN:-0}"
 JOBS=(
     "pi05_busybox_press_green_yellow_buttons|lorenzouttini/pi05-so101-busybox-press-green-yellow-buttons-isambard"
     "pi05_busybox_flip_left_switch_off|lorenzouttini/pi05-so101-busybox-flip-left-switch-off-isambard"
+    "pi05_busybox_multitask|lorenzouttini/pi05-so101-busybox-multitask-isambard"
 )
 
 echo "Submitting train->publish pairs (PUBLISH_STEPS=\"${PUBLISH_STEPS}\"${FILTER:+, filter=\"${FILTER}\"})"
