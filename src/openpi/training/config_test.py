@@ -385,3 +385,26 @@ def test_reward_recap_slurm_script_references_existing_configs():
     ):
         assert config_name in script
         _config.get_config(config_name)
+
+
+def test_busybox_push_green_button_pi0_and_pi05_configs():
+    three_cam = ("base_0_rgb", "left_wrist_0_rgb", "base_1_rgb")
+    for name, pi05, weight in (
+        ("pi0_busybox_push_green_button", False, "weights/pi0_base/params"),
+        ("pi05_busybox_push_green_button", True, "weights/pi05_base/params"),
+    ):
+        cfg = _config.get_config(name)
+        assert cfg.project_name == f"busybox_push_green_button_{'pi05' if pi05 else 'pi0'}"
+        assert cfg.model.pi05 is pi05
+        assert cfg.model.action_horizon == 30
+        assert tuple(cfg.model.image_keys) == three_cam
+        assert cfg.data.repo_id == "villekuosmanen/busybox_push_green_button"
+        assert cfg.data.default_prompt == "push the green button"
+        assert cfg.data.use_delta_actions is True
+        assert cfg.num_train_steps == 30_000
+        assert cfg.save_interval == 5_000
+        assert cfg.keep_period == 5_000
+        assert cfg.batch_size == 32
+        assert cfg.fsdp_devices == 1
+        assert cfg.weight_loader.params_path == weight
+        assert cfg.lr_schedule.decay_steps == 30_000

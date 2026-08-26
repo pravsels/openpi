@@ -974,6 +974,65 @@ class LeRobotSO101DataConfig(DataConfigFactory):
 
 
 @dataclasses.dataclass(frozen=True)
+class LeRobotSO101ThreeCamDataConfig(DataConfigFactory):
+    """Single-arm SO101 with top / wrist / front cameras.
+
+    Maps top -> base_0_rgb, wrist -> left_wrist_0_rgb, front -> base_1_rgb so the
+    third view is treated as a scene camera (crop/rotate) rather than a wrist.
+    """
+
+    default_prompt: str | None = "push the green button"
+    use_delta_actions: bool = False
+
+    repack_transforms: tyro.conf.Suppress[_transforms.Group] = dataclasses.field(
+        default=_transforms.Group(
+            inputs=[
+                _transforms.RepackTransform(
+                    {
+                        "observation.images.top": "observation.images.top",
+                        "observation.images.wrist": "observation.images.wrist",
+                        "observation.images.front": "observation.images.front",
+                        "observation.state": "observation.state",
+                        "actions": "action",
+                    }
+                )
+            ]
+        )
+    )
+    action_sequence_keys: Sequence[str] = ("action",)
+
+    @override
+    def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
+        data_transforms = _transforms.Group(
+            inputs=[so101_policy.SO101ThreeCamInputs(default_prompt=self.default_prompt or "push the green button")],
+            outputs=[so101_policy.SO101Outputs()],
+        )
+
+        if self.use_delta_actions:
+            delta_action_mask = _transforms.make_bool_mask(5, -1)
+            data_transforms = data_transforms.push(
+                inputs=[_transforms.DeltaActions(delta_action_mask)],
+                outputs=[_transforms.AbsoluteActions(delta_action_mask)],
+            )
+
+        model_transforms = ModelTransformFactory(default_prompt=self.default_prompt)(model_config)
+        base_config = self.create_base_config(assets_dirs, model_config)
+
+        use_per_timestep_action_norm = base_config.use_per_timestep_action_norm
+        if self.use_delta_actions and use_per_timestep_action_norm is None:
+            use_per_timestep_action_norm = True
+
+        return dataclasses.replace(
+            base_config,
+            repack_transforms=self.repack_transforms,
+            data_transforms=data_transforms,
+            model_transforms=model_transforms,
+            action_sequence_keys=self.action_sequence_keys,
+            use_per_timestep_action_norm=use_per_timestep_action_norm,
+        )
+
+
+@dataclasses.dataclass(frozen=True)
 class LeRobotSO101BimanualDataConfig(DataConfigFactory):
     """Data config for bimanual SO101 (dual-arm, 12D joint-space).
 
@@ -2687,6 +2746,66 @@ _CONFIGS = [
         num_train_steps=10_000,
         save_interval=10_000,
         batch_size=16,
+        ema_decay=0.999,
+        wandb_enabled=True,
+    ),
+    #
+    # ---------------------------------------------------------------------------
+    # Busybox single-arm three-cam comparison — villekuosmanen/busybox_push_green_button.
+    # 6D SO101, cameras top/wrist/front at 720x1280. Matches ACT / SmolVLA /
+    # MolmoAct2 at 30k steps, global batch 32 (8-GPU data parallel → 4/GPU).
+    # front maps to base_1_rgb so it gets scene-camera augmentation.
+    # ---------------------------------------------------------------------------
+    TrainConfig(
+        name="pi0_busybox_push_green_button",
+        project_name="busybox_push_green_button_pi0",
+        model=pi0_config.Pi0Config(
+            action_horizon=30,
+            image_keys=so101_policy.SO101_THREE_CAM_IMAGE_KEYS,
+        ),
+        data=LeRobotSO101ThreeCamDataConfig(
+            repo_id="villekuosmanen/busybox_push_green_button",
+            default_prompt="push the green button",
+            use_delta_actions=True,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi0_base/params"),
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=2.5e-5,
+            decay_steps=30_000,
+            decay_lr=2.5e-6,
+        ),
+        num_train_steps=30_000,
+        save_interval=5_000,
+        keep_period=5_000,
+        batch_size=32,
+        ema_decay=0.999,
+        wandb_enabled=True,
+    ),
+    TrainConfig(
+        name="pi05_busybox_push_green_button",
+        project_name="busybox_push_green_button_pi05",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=30,
+            image_keys=so101_policy.SO101_THREE_CAM_IMAGE_KEYS,
+        ),
+        data=LeRobotSO101ThreeCamDataConfig(
+            repo_id="villekuosmanen/busybox_push_green_button",
+            default_prompt="push the green button",
+            use_delta_actions=True,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=2.5e-5,
+            decay_steps=30_000,
+            decay_lr=2.5e-6,
+        ),
+        num_train_steps=30_000,
+        save_interval=5_000,
+        keep_period=5_000,
+        batch_size=32,
         ema_decay=0.999,
         wandb_enabled=True,
     ),

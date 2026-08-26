@@ -171,6 +171,18 @@ class Observation(Generic[ArrayT]):
 Actions = at.Float[ArrayT, "*b ah ad"]
 
 
+def configured_image_keys(observation: Observation, image_keys: Sequence[str]) -> list[str]:
+    """Return config slot order, not `observation.images` iteration order.
+
+    JAX pytrees sort dict keys, so `base_1_rgb` would otherwise land before
+    `left_wrist_0_rgb` and the wrist view would occupy the wrong prefix block.
+    """
+    keys = list(image_keys)
+    if not set(keys).issubset(observation.images):
+        raise ValueError(f"images dict missing keys: expected {keys}, got {list(observation.images)}")
+    return keys
+
+
 def preprocess_observation(
     rng: at.KeyArrayLike | None,
     observation: Observation,

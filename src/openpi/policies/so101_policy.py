@@ -3,7 +3,8 @@
 SO101 is a 5-DOF arm + gripper = 6D joint-space:
   - observation.state: [shoulder_pan, shoulder_lift, elbow_flex, wrist_flex, wrist_roll, gripper] (6D)
   - action: same 6D joint positions
-  - observation.images.front, observation.images.wrist
+  - two-cam: observation.images.front, observation.images.wrist
+  - three-cam: observation.images.top, observation.images.wrist, observation.images.front
 """
 
 import dataclasses
@@ -14,6 +15,7 @@ from openpi import transforms
 
 
 _SO101_ACTION_DIM = 6
+SO101_THREE_CAM_IMAGE_KEYS = ("base_0_rgb", "left_wrist_0_rgb", "base_1_rgb")
 
 
 def _parse_image(image) -> np.ndarray:
@@ -71,6 +73,61 @@ class SO101Inputs(transforms.DataTransformFn):
                 "base_0_rgb": np.True_,
                 "left_wrist_0_rgb": np.True_,
                 "right_wrist_0_rgb": np.False_,
+            },
+        }
+
+        if "actions" in data:
+            inputs["actions"] = np.asarray(data["actions"], dtype=np.float32)
+
+        if "prompt" in data:
+            prompt = data["prompt"]
+            inputs["prompt"] = prompt.decode("utf-8") if isinstance(prompt, bytes) else prompt
+        elif "task" in data:
+            task = data["task"]
+            inputs["prompt"] = task.decode("utf-8") if isinstance(task, bytes) else str(task)
+        else:
+            inputs["prompt"] = self.default_prompt
+
+        return inputs
+
+
+@dataclasses.dataclass(frozen=True)
+class SO101ThreeCamInputs(transforms.DataTransformFn):
+    """Single-arm SO101 with overhead, wrist, and scene cameras.
+
+    Mapping (π0 / π0.5 slots):
+      top -> base_0_rgb, wrist -> left_wrist_0_rgb, front -> base_1_rgb
+
+    ``base_1_rgb`` is a second scene view so it gets the same crop/rotate
+    augmentation as ``base_0_rgb`` (keys without ``wrist``).
+    """
+
+    default_prompt: str = "complete the task"
+
+    def __call__(self, data: dict) -> dict:
+        top = _parse_image(_get_key(data, "observation.images.top", "observation/images/top", "images.top"))
+        wrist = _parse_image(
+            _get_key(data, "observation.images.wrist", "observation/images/wrist", "wrist_image", "images.wrist")
+        )
+        front = _parse_image(
+            _get_key(data, "observation.images.front", "observation/images/front", "image", "images.front")
+        )
+        state = np.asarray(
+            _get_key(data, "observation.state", "observation/state", "state"),
+            dtype=np.float32,
+        )
+
+        inputs = {
+            "state": state,
+            "image": {
+                "base_0_rgb": top,
+                "left_wrist_0_rgb": wrist,
+                "base_1_rgb": front,
+            },
+            "image_mask": {
+                "base_0_rgb": np.True_,
+                "left_wrist_0_rgb": np.True_,
+                "base_1_rgb": np.True_,
             },
         }
 

@@ -98,9 +98,20 @@ class Pi0(_model.BaseModel):
             self.action_time_mlp_in = nnx.Linear(2 * action_expert_config.width, action_expert_config.width, rngs=rngs)
             self.action_time_mlp_out = nnx.Linear(action_expert_config.width, action_expert_config.width, rngs=rngs)
         self.action_out_proj = nnx.Linear(action_expert_config.width, config.action_dim, rngs=rngs)
+        self.image_keys = tuple(config.image_keys)
 
         # This attribute gets automatically set by model.train() and model.eval().
         self.deterministic = True
+
+    def _preprocess_observation(
+        self, rng: at.KeyArrayLike | None, observation: _model.Observation, *, train: bool
+    ) -> _model.Observation:
+        return _model.preprocess_observation(
+            rng,
+            observation,
+            train=train,
+            image_keys=_model.configured_image_keys(observation, self.image_keys),
+        )
 
     @at.typecheck
     def embed_prefix(
@@ -109,8 +120,8 @@ class Pi0(_model.BaseModel):
         input_mask = []
         ar_mask = []
         tokens = []
-        # embed images
-        for name in obs.images:
+        # embed images in config slot order (not JAX-sorted dict keys)
+        for name in self.image_keys:
             image_tokens, _ = self.PaliGemma.img(obs.images[name], train=False)
 
             tokens.append(image_tokens)
@@ -190,7 +201,7 @@ class Pi0(_model.BaseModel):
         self, rng: at.KeyArrayLike, observation: _model.Observation, actions: _model.Actions, *, train: bool = False
     ) -> at.Float[at.Array, "*b ah"]:
         preprocess_rng, noise_rng, time_rng = jax.random.split(rng, 3)
-        observation = _model.preprocess_observation(preprocess_rng, observation, train=train)
+        observation = self._preprocess_observation(preprocess_rng, observation, train=train)
 
         batch_shape = actions.shape[:-2]
         # Sample epsilon ~ N(0, I).
@@ -334,7 +345,7 @@ class Pi0(_model.BaseModel):
         num_steps: int | at.Int[at.Array, ""] = 10,
         noise: at.Float[at.Array, "b ah ad"] | None = None,
     ) -> _model.Actions:
-        observation = _model.preprocess_observation(None, observation, train=False)
+        observation = self._preprocess_observation(None, observation, train=False)
         batch_size = observation.state.shape[0]
         if noise is None:
             noise = jax.random.normal(rng, (batch_size, self.action_horizon, self.action_dim))
@@ -370,7 +381,7 @@ class Pi0(_model.BaseModel):
             err  = (prefix_actions - x1_t) * weights # weighted overlap error
             v_t' = v_t - guidance_weight * err
         """
-        observation = _model.preprocess_observation(None, observation, train=False)
+        observation = self._preprocess_observation(None, observation, train=False)
         batch_size = observation.state.shape[0]
         if noise is None:
             noise = jax.random.normal(rng, (batch_size, self.action_horizon, self.action_dim))
@@ -419,8 +430,8 @@ class Pi0(_model.BaseModel):
         when scale=1.0 anyway.  The adapter-level code avoids calling this path
         entirely when advantage_mode is unconditional.
         """
-        observation = _model.preprocess_observation(None, observation, train=False)
-        uncond_observation = _model.preprocess_observation(None, uncond_observation, train=False)
+        observation = self._preprocess_observation(None, observation, train=False)
+        uncond_observation = self._preprocess_observation(None, uncond_observation, train=False)
 
         batch_size = observation.state.shape[0]
         if noise is None:

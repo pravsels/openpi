@@ -217,9 +217,20 @@ def main(config: _config.TrainConfig):
     init_logging()
     logging.info(f"Running on: {platform.node()}")
 
-    if config.batch_size % jax.device_count() != 0:
+    device_count = jax.device_count()
+    logging.info("JAX device_count=%s devices=%s", device_count, jax.devices())
+    required_devices = os.environ.get("REQUIRE_JAX_DEVICES")
+    if required_devices:
+        try:
+            from gman_payload import require_jax_device_count
+        except ImportError:
+            from scripts.gman_payload import require_jax_device_count
+
+        require_jax_device_count(device_count, int(required_devices))
+
+    if config.batch_size % device_count != 0:
         raise ValueError(
-            f"Batch size {config.batch_size} must be divisible by the number of devices {jax.device_count()}."
+            f"Batch size {config.batch_size} must be divisible by the number of devices {device_count}."
         )
 
     jax.config.update("jax_compilation_cache_dir", str(epath.Path("~/.cache/jax").expanduser()))

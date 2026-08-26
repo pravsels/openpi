@@ -1,6 +1,8 @@
 import flax.nnx as nnx
 import jax
+import jax.numpy as jnp
 
+from openpi.models import model as _model
 import openpi.models.pi0_config as _pi0_config
 
 
@@ -44,3 +46,33 @@ def test_pi0_all_lora():
     assert len(state) == 17
     assert all("lora" not in p for p in state)
     assert all("llm" in p for p in state)
+
+
+def test_pi0_inputs_spec_uses_custom_image_keys():
+    keys = ("base_0_rgb", "left_wrist_0_rgb", "base_1_rgb")
+    observation_spec, _ = _pi0_config.Pi0Config(image_keys=keys).inputs_spec()
+    assert tuple(observation_spec.images) == keys
+    assert tuple(observation_spec.image_masks) == keys
+
+
+def test_configured_image_keys_survive_jax_pytree_sort():
+    keys = ("base_0_rgb", "left_wrist_0_rgb", "base_1_rgb")
+    height, width = _model.IMAGE_RESOLUTION
+    observation = _model.Observation(
+        images={key: jnp.zeros((1, height, width, 3), dtype=jnp.float32) for key in keys},
+        image_masks={key: jnp.ones((1,), dtype=jnp.bool_) for key in keys},
+        state=jnp.zeros((1, 32), dtype=jnp.float32),
+    )
+    sorted_observation = jax.tree.map(lambda value: value, observation)
+    assert tuple(sorted_observation.images) == ("base_0_rgb", "base_1_rgb", "left_wrist_0_rgb")
+    assert _model.configured_image_keys(sorted_observation, keys) == list(keys)
+    processed = _model.preprocess_observation(
+        None, sorted_observation, train=False, image_keys=_model.configured_image_keys(sorted_observation, keys)
+    )
+    assert tuple(processed.images) == keys
+
+
+def test_pi0_stores_config_image_keys():
+    keys = ("base_0_rgb", "left_wrist_0_rgb", "base_1_rgb")
+    model = nnx.eval_shape(_pi0_config.Pi0Config(image_keys=keys).create, jax.random.key(0))
+    assert tuple(model.image_keys) == keys
