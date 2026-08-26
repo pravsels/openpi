@@ -2753,7 +2753,9 @@ _CONFIGS = [
     # ---------------------------------------------------------------------------
     # Busybox single-arm three-cam comparison — villekuosmanen/busybox_push_green_button.
     # 6D SO101, cameras top/wrist/front at 720x1280. Matches ACT / SmolVLA /
-    # MolmoAct2 at 30k steps, global batch 32 (8-GPU data parallel → 4/GPU).
+    # MolmoAct2 at 30k steps, global batch 32. Full-replica data parallel
+    # (fsdp_devices=1) OOMs π0 (~62 GiB peak on H100 80GB); shard like the
+    # official 8-GPU OpenPI configs.
     # front maps to base_1_rgb so it gets scene-camera augmentation.
     # ---------------------------------------------------------------------------
     TrainConfig(
@@ -2779,6 +2781,7 @@ _CONFIGS = [
         save_interval=5_000,
         keep_period=5_000,
         batch_size=32,
+        fsdp_devices=8,
         ema_decay=0.999,
         wandb_enabled=True,
     ),
@@ -2806,6 +2809,7 @@ _CONFIGS = [
         save_interval=5_000,
         keep_period=5_000,
         batch_size=32,
+        fsdp_devices=8,
         ema_decay=0.999,
         wandb_enabled=True,
     ),

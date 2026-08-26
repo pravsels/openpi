@@ -405,6 +405,6 @@ def test_busybox_push_green_button_pi0_and_pi05_configs():
         assert cfg.save_interval == 5_000
         assert cfg.keep_period == 5_000
         assert cfg.batch_size == 32
-        assert cfg.fsdp_devices == 1
+        assert cfg.fsdp_devices == 8
         assert cfg.weight_loader.params_path == weight
         assert cfg.lr_schedule.decay_steps == 30_000
