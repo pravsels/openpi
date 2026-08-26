@@ -399,12 +399,13 @@ def test_busybox_push_green_button_pi0_and_pi05_configs():
         assert cfg.model.action_horizon == 30
         assert tuple(cfg.model.image_keys) == three_cam
         assert cfg.data.repo_id == "villekuosmanen/busybox_push_green_button"
+        assert cfg.data.video_backend == "torchcodec"
         assert cfg.data.default_prompt == "push the green button"
         assert cfg.data.use_delta_actions is True
         assert cfg.num_train_steps == 30_000
         assert cfg.save_interval == 5_000
         assert cfg.keep_period == 5_000
         assert cfg.batch_size == 32
-        assert cfg.fsdp_devices == 8
+        assert cfg.fsdp_devices == 1
         assert cfg.weight_loader.params_path == weight
         assert cfg.lr_schedule.decay_steps == 30_000

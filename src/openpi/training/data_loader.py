@@ -253,6 +253,7 @@ def create_torch_dataset(
         },
         pad_to_max_dim=True,
         fill_missing_images="disable",
+        video_backend=data_config.video_backend,
     )
     dataset_meta = dataset.meta
 

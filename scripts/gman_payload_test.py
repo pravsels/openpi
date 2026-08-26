@@ -70,6 +70,11 @@ def test_train_shell_command_cds_after_clone():
     assert "CONFIG_NAME=pi0_busybox_push_green_button" in command
 
 
+def test_gman_train_uses_proven_xla_memory_fraction():
+    script = (Path(__file__).resolve().parents[1] / "gman/train.sh").read_text()
+    assert 'XLA_PYTHON_CLIENT_MEM_FRACTION="${XLA_PYTHON_CLIENT_MEM_FRACTION:-0.95}"' in script
+
+
 def test_experiment_name_separates_smoke_from_production():
     assert experiment_name("pi0_busybox_push_green_button", smoke=True) == "pi0_busybox_push_green_button_smoke"
     assert experiment_name("pi0_busybox_push_green_button", smoke=False) == "pi0_busybox_push_green_button"

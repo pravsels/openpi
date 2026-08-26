@@ -7,6 +7,9 @@ export PYTHONUNBUFFERED=1 PATH="${HOME}/.local/bin:${PATH}"
 export WANDB_MODE="${WANDB_MODE:-online}"
 export WANDB_ENTITY="${WANDB_ENTITY:-pravsels}"
 export REQUIRE_JAX_DEVICES="${REQUIRE_JAX_DEVICES:-8}"
+# Match the proven Isambard/GCloud launchers. JAX otherwise reserves only 75%
+# of HBM, which made full-replica training fail despite fitting in ~78 GiB.
+export XLA_PYTHON_CLIENT_MEM_FRACTION="${XLA_PYTHON_CLIENT_MEM_FRACTION:-0.95}"
 
 REPO_DIR="${REPO_DIR:-${HOME}/openpi}"
 CONFIG_NAME="${CONFIG_NAME:?CONFIG_NAME is required}"

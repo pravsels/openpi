@@ -74,6 +74,9 @@ class AssetsConfig:
 class DataConfig:
     # LeRobot repo id. If None, fake data will be created.
     repo_id: str | None = None
+    # Video decoder passed to RoboCandyWrapper. Keep pyav as the compatibility
+    # default; high-throughput configs can opt into cached torchcodec decoders.
+    video_backend: str = "pyav"
     # Directory within the assets directory containing the data assets.
     asset_id: str | None = None
     # Contains precomputed normalization stats. If None, normalization will not be performed.
@@ -983,6 +986,7 @@ class LeRobotSO101ThreeCamDataConfig(DataConfigFactory):
 
     default_prompt: str | None = "push the green button"
     use_delta_actions: bool = False
+    video_backend: str = "torchcodec"
 
     repack_transforms: tyro.conf.Suppress[_transforms.Group] = dataclasses.field(
         default=_transforms.Group(
@@ -1024,6 +1028,7 @@ class LeRobotSO101ThreeCamDataConfig(DataConfigFactory):
 
         return dataclasses.replace(
             base_config,
+            video_backend=self.video_backend,
             repack_transforms=self.repack_transforms,
             data_transforms=data_transforms,
             model_transforms=model_transforms,
@@ -2753,9 +2758,9 @@ _CONFIGS = [
     # ---------------------------------------------------------------------------
     # Busybox single-arm three-cam comparison — villekuosmanen/busybox_push_green_button.
     # 6D SO101, cameras top/wrist/front at 720x1280. Matches ACT / SmolVLA /
-    # MolmoAct2 at 30k steps, global batch 32. Full-replica data parallel
-    # (fsdp_devices=1) OOMs π0 (~62 GiB peak on H100 80GB); shard like the
-    # official 8-GPU OpenPI configs.
+    # MolmoAct2 at 30k steps, global batch 32. Use full-replica data parallel;
+    # launchers must set XLA_PYTHON_CLIENT_MEM_FRACTION=0.95 so JAX can use the
+    # ~78 GiB required instead of its default 75% HBM pool.
     # front maps to base_1_rgb so it gets scene-camera augmentation.
     # ---------------------------------------------------------------------------
     TrainConfig(
@@ -2781,7 +2786,7 @@ _CONFIGS = [
         save_interval=5_000,
         keep_period=5_000,
         batch_size=32,
-        fsdp_devices=8,
+        fsdp_devices=1,
         ema_decay=0.999,
         wandb_enabled=True,
     ),
@@ -2809,7 +2814,7 @@ _CONFIGS = [
         save_interval=5_000,
         keep_period=5_000,
         batch_size=32,
-        fsdp_devices=8,
+        fsdp_devices=1,
         ema_decay=0.999,
         wandb_enabled=True,
     ),

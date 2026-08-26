@@ -1,5 +1,6 @@
 import dataclasses
 import json
+import types
 
 import jax
 import numpy as np
@@ -79,6 +80,23 @@ def test_with_fake_dataset():
 
     for _, actions in batches:
         assert actions.shape == (config.batch_size, config.model.action_horizon, config.model.action_dim)
+
+
+def test_create_torch_dataset_forwards_video_backend(monkeypatch):
+    captured = {}
+
+    def fake_make_dataset(repo_id, **kwargs):
+        captured["repo_id"] = repo_id
+        captured.update(kwargs)
+        return types.SimpleNamespace(meta=types.SimpleNamespace(tasks={}))
+
+    monkeypatch.setattr(_data_loader, "make_dataset_without_config", fake_make_dataset)
+    data_config = _config.DataConfig(repo_id="owner/dataset", video_backend="torchcodec")
+
+    _data_loader.create_torch_dataset(data_config, action_horizon=30, model_config=pi0_config.Pi0Config())
+
+    assert captured["repo_id"] == "owner/dataset"
+    assert captured["video_backend"] == "torchcodec"
 
 
 def test_with_real_dataset():
