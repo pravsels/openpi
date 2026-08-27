@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 import shutil
+import subprocess
+import sys
 
 import pytest
 
@@ -182,6 +184,19 @@ def test_smoke_launch_mode_resumes_without_pruning_publish_steps(tmp_path: Path)
 def test_publisher_signal_handler_exits_for_context_cleanup():
     with pytest.raises(SystemExit, match="143"):
         gman_publish_latest.exit_on_signal(15, None)
+
+
+def test_publisher_script_runs_directly_outside_repo(tmp_path: Path):
+    script = Path(__file__).with_name("gman_publish_latest.py")
+    result = subprocess.run(
+        [sys.executable, str(script), "--help"],
+        cwd=tmp_path,
+        env={"PATH": ""},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_assert_hub_steps_exist_requires_params():

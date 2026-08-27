@@ -10,8 +10,12 @@ import time
 
 from huggingface_hub import HfApi
 
-from scripts.gman_publish import finalized_checkpoint_steps
-from scripts.gman_publish import publish_checkpoint_root
+try:
+    from gman_publish import finalized_checkpoint_steps
+    from gman_publish import publish_checkpoint_root
+except ImportError:
+    from scripts.gman_publish import finalized_checkpoint_steps
+    from scripts.gman_publish import publish_checkpoint_root
 
 
 def exit_on_signal(signum: int, _frame: object) -> None:

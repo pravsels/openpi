@@ -5,7 +5,10 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from scripts.gman_publish import prepare_resume_checkpoint
+try:
+    from gman_publish import prepare_resume_checkpoint
+except ImportError:
+    from scripts.gman_publish import prepare_resume_checkpoint
 
 
 def main() -> None:

@@ -22,6 +22,7 @@ fi
 EXP_NAME="${EXP_NAME:-${DEFAULT_EXP_NAME}}"
 ASSETS_DIR="${ASSETS_DIR:-${HOME}/openpi_runs/${CONFIG_NAME}/${EXP_NAME}/assets}"
 CHECKPOINT_DIR="${CHECKPOINT_DIR:-${REPO_DIR}/checkpoints/${CONFIG_NAME}/${EXP_NAME}}"
+CHECKPOINT_BASE_DIR="${CHECKPOINT_BASE_DIR:-$(dirname "$(dirname "${CHECKPOINT_DIR}")")}"
 
 cd "${REPO_DIR}"
 : "${HF_TOKEN:?HF_TOKEN must be injected through a GMAN secret reference}"
@@ -51,7 +52,11 @@ if [[ ! -f "${ASSETS_DIR}/norm_stats.json" ]] || [[ ! -f "${ASSETS_DIR}/norm_sta
         --assets-dir="${ASSETS_DIR}"
 fi
 
-TRAIN_FLAGS=(--exp-name="${EXP_NAME}" --assets-dir="${ASSETS_DIR}")
+TRAIN_FLAGS=(
+    --exp-name="${EXP_NAME}"
+    --assets-dir="${ASSETS_DIR}"
+    --checkpoint-base-dir="${CHECKPOINT_BASE_DIR}"
+)
 CHECKPOINT_MODE="$(
     CHECKPOINT_DIR="${CHECKPOINT_DIR}" SMOKE="${SMOKE}" uv run python - <<'PY'
 from pathlib import Path

@@ -80,6 +80,7 @@ def test_gman_production_train_publishes_latest_checkpoint_to_hub_root():
     assert "scripts/gman_publish_latest.py" in script
     assert '--checkpoint-root="${CHECKPOINT_DIR}"' in script
     assert '--repo-id="${HF_REPO}"' in script
+    assert '--checkpoint-base-dir="${CHECKPOINT_BASE_DIR}"' in script
     assert 'PUBLISH_RUN_DIR="$(mktemp -d' in script
     assert 'PUBLISH_DONE_FILE="${PUBLISH_RUN_DIR}/done"' in script
     assert "trap cleanup_publisher EXIT" in script
