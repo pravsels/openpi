@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import shutil
 
 import pytest
 
@@ -103,14 +104,38 @@ def test_publish_checkpoint_root_replaces_model_files_but_preserves_hub_metadata
         step=10_000,
     )
 
-    assert api.uploads[0] == {
-        "folder_path": str(tmp_path / "10000"),
+    upload = api.uploads[0]
+    assert Path(str(upload.pop("folder_path"))).name.startswith(".hf-upload-")
+    assert upload == {
         "repo_id": "pravsels/pi0_busybox_push_green_button",
         "path_in_repo": ".",
         "ignore_patterns": ["train_state/**"],
         "delete_patterns": ["params/old-chunk", "assets/old.json"],
         "commit_message": "Update pi0_busybox_push_green_button checkpoint to step 10000",
     }
+
+
+def test_publish_uses_stable_staging_if_source_is_deleted_during_upload(tmp_path: Path):
+    source = tmp_path / "10000"
+    _write_step(tmp_path, "10000")
+    (source / "train_state").mkdir()
+    (source / "train_state" / "optimizer").write_text("large")
+
+    class SourceDeletingApi(FakeHf):
+        def upload_folder(self, **kwargs: object) -> None:
+            shutil.rmtree(source)
+            staged = Path(str(kwargs["folder_path"]))
+            assert (staged / "params" / "marker").read_text() == "ok"
+            assert not (staged / "train_state").exists()
+            super().upload_folder(**kwargs)
+
+    gman_publish.publish_checkpoint_root(
+        SourceDeletingApi(),
+        repo_id="pravsels/pi0_busybox_push_green_button",
+        checkpoint_dir=source,
+        config_name="pi0_busybox_push_green_button",
+        step=10_000,
+    )
 
 
 def test_finalized_checkpoint_steps_ignores_temporary_and_incomplete_dirs(tmp_path: Path):
@@ -120,6 +145,26 @@ def test_finalized_checkpoint_steps_ignores_temporary_and_incomplete_dirs(tmp_pa
     (tmp_path / "20000").mkdir()
 
     assert gman_publish.finalized_checkpoint_steps(tmp_path) == [5_000, 10_000]
+
+
+def test_prepare_resume_keeps_newest_complete_checkpoint_and_removes_stale_dirs(tmp_path: Path):
+    for step in ("5000", "10000"):
+        _write_step(tmp_path, step)
+        (tmp_path / step / "train_state").mkdir()
+        (tmp_path / step / "_CHECKPOINT_METADATA").write_text("{}")
+    _write_step(tmp_path, "15000.orbax-checkpoint-tmp-1")
+    (tmp_path / "20000").mkdir()
+
+    assert gman_publish.prepare_resume_checkpoint(tmp_path) == 10_000
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["10000"]
+
+
+def test_prepare_resume_refuses_cleanup_without_complete_checkpoint(tmp_path: Path):
+    _write_step(tmp_path, "15000.orbax-checkpoint-tmp-1")
+
+    with pytest.raises(RuntimeError, match="No complete checkpoint"):
+        gman_publish.prepare_resume_checkpoint(tmp_path)
+    assert (tmp_path / "15000.orbax-checkpoint-tmp-1").exists()
 
 
 def test_assert_hub_steps_exist_requires_params():

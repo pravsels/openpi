@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import shutil
+import tempfile
 from typing import Any
 from typing import Protocol
 from typing import Sequence
@@ -47,6 +49,36 @@ def finalized_checkpoint_steps(checkpoint_root: Path) -> list[int]:
     )
 
 
+def checkpoint_is_resumable(checkpoint_dir: Path) -> bool:
+    checkpoint_dir = Path(checkpoint_dir)
+    return (
+        checkpoint_dir.is_dir()
+        and (checkpoint_dir / "_CHECKPOINT_METADATA").is_file()
+        and checkpoint_has_params(checkpoint_dir)
+        and (checkpoint_dir / "train_state").is_dir()
+    )
+
+
+def prepare_resume_checkpoint(checkpoint_root: Path) -> int:
+    """Keep the newest complete checkpoint and remove stale/incomplete save dirs."""
+    root = Path(checkpoint_root)
+    complete_steps = sorted(
+        int(path.name)
+        for path in root.iterdir()
+        if path.is_dir() and path.name.isdigit() and checkpoint_is_resumable(path)
+    )
+    if not complete_steps:
+        raise RuntimeError(f"No complete checkpoint found under {root}; refusing cleanup")
+
+    resume_step = complete_steps[-1]
+    for path in root.iterdir():
+        is_other_numeric_step = path.is_dir() and path.name.isdigit() and int(path.name) != resume_step
+        is_orbax_temporary = path.is_dir() and ".orbax-checkpoint-tmp-" in path.name
+        if is_other_numeric_step or is_orbax_temporary:
+            shutil.rmtree(path)
+    return resume_step
+
+
 def publish_checkpoint_root(
     api: HfPublishApi,
     *,
@@ -60,20 +92,30 @@ def publish_checkpoint_root(
     if not checkpoint_dir.is_dir() or not checkpoint_has_params(checkpoint_dir):
         raise ValueError(f"Checkpoint step {step} is incomplete: {checkpoint_dir}")
 
-    api.create_repo(repo_id, repo_type="model", exist_ok=True)
-    preserved = {".gitattributes", "README.md"}
-    delete_patterns = [
-        path for path in api.list_repo_files(repo_id, repo_type="model") if path not in preserved
-    ]
-    api.upload_folder(
-        folder_path=str(checkpoint_dir),
-        repo_id=repo_id,
-        path_in_repo=".",
-        repo_type="model",
-        ignore_patterns=["train_state/**"],
-        delete_patterns=delete_patterns,
-        commit_message=f"Update {config_name} checkpoint to step {step}",
-    )
+    with tempfile.TemporaryDirectory(prefix=".hf-upload-", dir=checkpoint_dir.parent) as temp_dir:
+        staged = Path(temp_dir)
+        shutil.copytree(
+            checkpoint_dir,
+            staged,
+            dirs_exist_ok=True,
+            copy_function=os.link,
+            ignore=shutil.ignore_patterns("train_state"),
+        )
+
+        api.create_repo(repo_id, repo_type="model", exist_ok=True)
+        preserved = {".gitattributes", "README.md"}
+        delete_patterns = [
+            path for path in api.list_repo_files(repo_id, repo_type="model") if path not in preserved
+        ]
+        api.upload_folder(
+            folder_path=str(staged),
+            repo_id=repo_id,
+            path_in_repo=".",
+            repo_type="model",
+            ignore_patterns=["train_state/**"],
+            delete_patterns=delete_patterns,
+            commit_message=f"Update {config_name} checkpoint to step {step}",
+        )
 
 
 def publish_checkpoint_steps(

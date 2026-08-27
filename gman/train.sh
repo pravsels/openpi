@@ -52,7 +52,17 @@ if [[ ! -f "${ASSETS_DIR}/norm_stats.json" ]] || [[ ! -f "${ASSETS_DIR}/norm_sta
 fi
 
 TRAIN_FLAGS=(--exp-name="${EXP_NAME}" --assets-dir="${ASSETS_DIR}")
-if [[ -d "${CHECKPOINT_DIR}" ]] && [[ -n "$(find "${CHECKPOINT_DIR}" -mindepth 1 -maxdepth 1 -type d ! -name assets 2>/dev/null | head -1)" ]]; then
+HAS_FINALIZED_CHECKPOINT="$(
+    CHECKPOINT_DIR="${CHECKPOINT_DIR}" uv run python - <<'PY'
+from pathlib import Path
+import os
+from scripts.gman_publish import checkpoint_is_resumable
+
+root = Path(os.environ["CHECKPOINT_DIR"])
+print(int(root.is_dir() and any(path.name.isdigit() and checkpoint_is_resumable(path) for path in root.iterdir())))
+PY
+)"
+if [[ "${HAS_FINALIZED_CHECKPOINT}" == "1" ]]; then
     TRAIN_FLAGS+=(--resume)
 else
     TRAIN_FLAGS+=(--overwrite)
@@ -70,10 +80,38 @@ fi
 echo "=== train ${CONFIG_NAME} exp=${EXP_NAME} $(date -Is --utc) ==="
 PUBLISH_PID=""
 PUBLISH_DONE_FILE=""
+PUBLISH_RUN_DIR=""
+PUBLISH_STATUS=0
+
+cleanup_publisher() {
+    if [[ -n "${PUBLISH_PID}" ]]; then
+        touch "${PUBLISH_DONE_FILE}"
+        set +e
+        wait "${PUBLISH_PID}"
+        PUBLISH_STATUS=$?
+        set -e
+        PUBLISH_PID=""
+    fi
+    if [[ -n "${PUBLISH_RUN_DIR}" ]]; then
+        rm -rf "${PUBLISH_RUN_DIR}"
+        PUBLISH_RUN_DIR=""
+    fi
+}
+
+terminate_publisher() {
+    if [[ -n "${PUBLISH_PID}" ]]; then
+        kill "${PUBLISH_PID}" 2>/dev/null || true
+    fi
+}
+
+trap cleanup_publisher EXIT
+trap 'terminate_publisher; exit 130' INT
+trap 'terminate_publisher; exit 143' TERM
+
 if [[ "${SMOKE}" != "1" ]]; then
     HF_REPO="${HF_REPO:-pravsels/${CONFIG_NAME}}"
-    PUBLISH_DONE_FILE="/tmp/openpi-${CONFIG_NAME}-${EXP_NAME}-publish-done"
-    rm -f "${PUBLISH_DONE_FILE}"
+    PUBLISH_RUN_DIR="$(mktemp -d "/tmp/openpi-${CONFIG_NAME}-${EXP_NAME}-publish.XXXXXX")"
+    PUBLISH_DONE_FILE="${PUBLISH_RUN_DIR}/done"
     uv run python scripts/gman_publish_latest.py \
         --checkpoint-root="${CHECKPOINT_DIR}" \
         --repo-id="${HF_REPO}" \
@@ -88,11 +126,7 @@ TRAIN_STATUS=$?
 set -e
 
 if [[ -n "${PUBLISH_PID}" ]]; then
-    touch "${PUBLISH_DONE_FILE}"
-    set +e
-    wait "${PUBLISH_PID}"
-    PUBLISH_STATUS=$?
-    set -e
+    cleanup_publisher
     if [[ "${TRAIN_STATUS}" -eq 0 && "${PUBLISH_STATUS}" -ne 0 ]]; then
         echo "ERROR: latest-checkpoint publisher exited ${PUBLISH_STATUS}" >&2
         exit "${PUBLISH_STATUS}"
