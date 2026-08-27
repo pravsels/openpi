@@ -2787,7 +2787,7 @@ _CONFIGS = [
         keep_period=None,
         batch_size=32,
         fsdp_devices=1,
-        num_workers=8,
+        num_workers=6,
         ema_decay=0.999,
         wandb_enabled=True,
     ),

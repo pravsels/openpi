@@ -389,9 +389,9 @@ def test_reward_recap_slurm_script_references_existing_configs():
 
 def test_busybox_push_green_button_pi0_and_pi05_configs():
     three_cam = ("base_0_rgb", "left_wrist_0_rgb", "base_1_rgb")
-    for name, pi05, weight in (
-        ("pi0_busybox_push_green_button", False, "weights/pi0_base/params"),
-        ("pi05_busybox_push_green_button", True, "weights/pi05_base/params"),
+    for name, pi05, weight, num_workers in (
+        ("pi0_busybox_push_green_button", False, "weights/pi0_base/params", 6),
+        ("pi05_busybox_push_green_button", True, "weights/pi05_base/params", 8),
     ):
         cfg = _config.get_config(name)
         assert cfg.project_name == f"busybox_push_green_button_{'pi05' if pi05 else 'pi0'}"
@@ -407,6 +407,6 @@ def test_busybox_push_green_button_pi0_and_pi05_configs():
         assert cfg.keep_period is None
         assert cfg.batch_size == 32
         assert cfg.fsdp_devices == 1
-        assert cfg.num_workers == 8
+        assert cfg.num_workers == num_workers
         assert cfg.weight_loader.params_path == weight
         assert cfg.lr_schedule.decay_steps == 30_000
