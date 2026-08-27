@@ -83,7 +83,8 @@ def test_gman_production_train_publishes_latest_checkpoint_to_hub_root():
     assert 'PUBLISH_RUN_DIR="$(mktemp -d' in script
     assert 'PUBLISH_DONE_FILE="${PUBLISH_RUN_DIR}/done"' in script
     assert "trap cleanup_publisher EXIT" in script
-    assert "checkpoint_is_resumable" in script
+    assert "checkpoint_launch_mode" in script
+    assert 'cleanup_stale=os.environ["SMOKE"] != "1"' in script
 
 
 def test_experiment_name_separates_smoke_from_production():

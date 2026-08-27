@@ -5,12 +5,17 @@ from __future__ import annotations
 import argparse
 import logging
 from pathlib import Path
+import signal
 import time
 
 from huggingface_hub import HfApi
 
 from scripts.gman_publish import finalized_checkpoint_steps
 from scripts.gman_publish import publish_checkpoint_root
+
+
+def exit_on_signal(signum: int, _frame: object) -> None:
+    raise SystemExit(128 + signum)
 
 
 def watch_checkpoints(
@@ -62,6 +67,8 @@ def main() -> None:
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    signal.signal(signal.SIGINT, exit_on_signal)
+    signal.signal(signal.SIGTERM, exit_on_signal)
     watch_checkpoints(
         checkpoint_root=args.checkpoint_root,
         repo_id=args.repo_id,

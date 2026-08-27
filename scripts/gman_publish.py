@@ -59,14 +59,21 @@ def checkpoint_is_resumable(checkpoint_dir: Path) -> bool:
     )
 
 
-def prepare_resume_checkpoint(checkpoint_root: Path) -> int:
-    """Keep the newest complete checkpoint and remove stale/incomplete save dirs."""
+def resumable_checkpoint_steps(checkpoint_root: Path) -> list[int]:
     root = Path(checkpoint_root)
-    complete_steps = sorted(
+    if not root.is_dir():
+        return []
+    return sorted(
         int(path.name)
         for path in root.iterdir()
         if path.is_dir() and path.name.isdigit() and checkpoint_is_resumable(path)
     )
+
+
+def prepare_resume_checkpoint(checkpoint_root: Path) -> int:
+    """Keep the newest complete checkpoint and remove stale/incomplete save dirs."""
+    root = Path(checkpoint_root)
+    complete_steps = resumable_checkpoint_steps(root)
     if not complete_steps:
         raise RuntimeError(f"No complete checkpoint found under {root}; refusing cleanup")
 
@@ -74,9 +81,22 @@ def prepare_resume_checkpoint(checkpoint_root: Path) -> int:
     for path in root.iterdir():
         is_other_numeric_step = path.is_dir() and path.name.isdigit() and int(path.name) != resume_step
         is_orbax_temporary = path.is_dir() and ".orbax-checkpoint-tmp-" in path.name
-        if is_other_numeric_step or is_orbax_temporary:
+        is_abandoned_upload = path.is_dir() and path.name.startswith(".hf-upload-")
+        if is_other_numeric_step or is_orbax_temporary or is_abandoned_upload:
             shutil.rmtree(path)
     return resume_step
+
+
+def checkpoint_launch_mode(checkpoint_root: Path, *, cleanup_stale: bool) -> tuple[str, int | None]:
+    root = Path(checkpoint_root)
+    if not root.is_dir() or not any(root.iterdir()):
+        return "overwrite", None
+
+    complete_steps = resumable_checkpoint_steps(root)
+    if not complete_steps:
+        raise RuntimeError(f"{root} is nonempty but has no complete checkpoint; refusing overwrite")
+    step = prepare_resume_checkpoint(root) if cleanup_stale else complete_steps[-1]
+    return "resume", step
 
 
 def publish_checkpoint_root(

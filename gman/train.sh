@@ -52,17 +52,21 @@ if [[ ! -f "${ASSETS_DIR}/norm_stats.json" ]] || [[ ! -f "${ASSETS_DIR}/norm_sta
 fi
 
 TRAIN_FLAGS=(--exp-name="${EXP_NAME}" --assets-dir="${ASSETS_DIR}")
-HAS_FINALIZED_CHECKPOINT="$(
-    CHECKPOINT_DIR="${CHECKPOINT_DIR}" uv run python - <<'PY'
+CHECKPOINT_MODE="$(
+    CHECKPOINT_DIR="${CHECKPOINT_DIR}" SMOKE="${SMOKE}" uv run python - <<'PY'
 from pathlib import Path
 import os
-from scripts.gman_publish import checkpoint_is_resumable
+import sys
+from scripts.gman_publish import checkpoint_launch_mode
 
 root = Path(os.environ["CHECKPOINT_DIR"])
-print(int(root.is_dir() and any(path.name.isdigit() and checkpoint_is_resumable(path) for path in root.iterdir())))
+mode, step = checkpoint_launch_mode(root, cleanup_stale=os.environ["SMOKE"] != "1")
+if step is not None:
+    print(f"resume_step={step}", file=sys.stderr)
+print(mode)
 PY
 )"
-if [[ "${HAS_FINALIZED_CHECKPOINT}" == "1" ]]; then
+if [[ "${CHECKPOINT_MODE}" == "resume" ]]; then
     TRAIN_FLAGS+=(--resume)
 else
     TRAIN_FLAGS+=(--overwrite)

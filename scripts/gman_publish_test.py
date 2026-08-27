@@ -6,6 +6,7 @@ import shutil
 import pytest
 
 from scripts import gman_publish
+from scripts import gman_publish_latest
 from scripts.gman_publish import assert_hub_steps_exist
 from scripts.gman_publish import assert_wandb_history_logged
 from scripts.gman_publish import delete_hub_step_folders
@@ -154,6 +155,7 @@ def test_prepare_resume_keeps_newest_complete_checkpoint_and_removes_stale_dirs(
         (tmp_path / step / "_CHECKPOINT_METADATA").write_text("{}")
     _write_step(tmp_path, "15000.orbax-checkpoint-tmp-1")
     (tmp_path / "20000").mkdir()
+    _write_step(tmp_path, ".hf-upload-abandoned")
 
     assert gman_publish.prepare_resume_checkpoint(tmp_path) == 10_000
     assert sorted(path.name for path in tmp_path.iterdir()) == ["10000"]
@@ -165,6 +167,21 @@ def test_prepare_resume_refuses_cleanup_without_complete_checkpoint(tmp_path: Pa
     with pytest.raises(RuntimeError, match="No complete checkpoint"):
         gman_publish.prepare_resume_checkpoint(tmp_path)
     assert (tmp_path / "15000.orbax-checkpoint-tmp-1").exists()
+
+
+def test_smoke_launch_mode_resumes_without_pruning_publish_steps(tmp_path: Path):
+    for step in ("5", "9"):
+        _write_step(tmp_path, step)
+        (tmp_path / step / "train_state").mkdir()
+        (tmp_path / step / "_CHECKPOINT_METADATA").write_text("{}")
+
+    assert gman_publish.checkpoint_launch_mode(tmp_path, cleanup_stale=False) == ("resume", 9)
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["5", "9"]
+
+
+def test_publisher_signal_handler_exits_for_context_cleanup():
+    with pytest.raises(SystemExit, match="143"):
+        gman_publish_latest.exit_on_signal(15, None)
 
 
 def test_assert_hub_steps_exist_requires_params():
