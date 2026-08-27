@@ -15,6 +15,7 @@
 - parallelism: 4-GPU full data parallel (`fsdp_devices=1`), GPUs 4–7
 - input pipeline: TorchCodec, 8 persistent workers
 - memory: `XLA_PYTHON_CLIENT_MEM_FRACTION=0.95`
+- publishing: each finalized checkpoint replaces the Hugging Face repo root; `train_state` is excluded
 - init: `weights/pi05_base/params`
 - code: `27ee136` on `task/train_pi_policies_green_button`
 
@@ -52,5 +53,6 @@
 
 ## Next
 - resume from the complete 10k checkpoint and verify the next save replaces it without exhausting disk
+- verify the latest finalized checkpoint is published at the Hugging Face repo root
 - let the run reach 30k and verify the final step-29999 checkpoint
 - publish selected production checkpoints after training completes

@@ -68,7 +68,39 @@ if [[ "${SMOKE}" == "1" ]]; then
 fi
 
 echo "=== train ${CONFIG_NAME} exp=${EXP_NAME} $(date -Is --utc) ==="
+PUBLISH_PID=""
+PUBLISH_DONE_FILE=""
+if [[ "${SMOKE}" != "1" ]]; then
+    HF_REPO="${HF_REPO:-pravsels/${CONFIG_NAME}}"
+    PUBLISH_DONE_FILE="/tmp/openpi-${CONFIG_NAME}-${EXP_NAME}-publish-done"
+    rm -f "${PUBLISH_DONE_FILE}"
+    uv run python scripts/gman_publish_latest.py \
+        --checkpoint-root="${CHECKPOINT_DIR}" \
+        --repo-id="${HF_REPO}" \
+        --config-name="${CONFIG_NAME}" \
+        --done-file="${PUBLISH_DONE_FILE}" &
+    PUBLISH_PID=$!
+fi
+
+set +e
 uv run scripts/train.py "${CONFIG_NAME}" "${TRAIN_FLAGS[@]}"
+TRAIN_STATUS=$?
+set -e
+
+if [[ -n "${PUBLISH_PID}" ]]; then
+    touch "${PUBLISH_DONE_FILE}"
+    set +e
+    wait "${PUBLISH_PID}"
+    PUBLISH_STATUS=$?
+    set -e
+    if [[ "${TRAIN_STATUS}" -eq 0 && "${PUBLISH_STATUS}" -ne 0 ]]; then
+        echo "ERROR: latest-checkpoint publisher exited ${PUBLISH_STATUS}" >&2
+        exit "${PUBLISH_STATUS}"
+    fi
+fi
+if [[ "${TRAIN_STATUS}" -ne 0 ]]; then
+    exit "${TRAIN_STATUS}"
+fi
 
 if [[ "${SMOKE}" == "1" ]]; then
     HF_REPO="${HF_REPO:-pravsels/${CONFIG_NAME}}"

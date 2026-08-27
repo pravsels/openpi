@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from scripts import gman_publish
 from scripts.gman_publish import assert_hub_steps_exist
 from scripts.gman_publish import assert_wandb_history_logged
 from scripts.gman_publish import delete_hub_step_folders
@@ -29,6 +30,7 @@ class FakeHf:
         path_in_repo: str,
         repo_type: str,
         ignore_patterns: list[str] | None = None,
+        delete_patterns: list[str] | None = None,
         commit_message: str | None = None,
     ) -> None:
         self.uploads.append(
@@ -37,6 +39,8 @@ class FakeHf:
                 "repo_id": repo_id,
                 "path_in_repo": path_in_repo,
                 "ignore_patterns": ignore_patterns,
+                "delete_patterns": delete_patterns,
+                "commit_message": commit_message,
             }
         )
         self.files.append(f"{path_in_repo}/params/array")
@@ -84,6 +88,38 @@ def test_publish_errors_when_nothing_uploaded(tmp_path: Path):
             steps=("5", "9"),
             config_name="pi0_busybox_push_green_button",
         )
+
+
+def test_publish_checkpoint_root_replaces_model_files_but_preserves_hub_metadata(tmp_path: Path):
+    _write_step(tmp_path, "10000")
+    api = FakeHf()
+    api.files = [".gitattributes", "README.md", "params/old-chunk", "assets/old.json"]
+
+    gman_publish.publish_checkpoint_root(
+        api,
+        repo_id="pravsels/pi0_busybox_push_green_button",
+        checkpoint_dir=tmp_path / "10000",
+        config_name="pi0_busybox_push_green_button",
+        step=10_000,
+    )
+
+    assert api.uploads[0] == {
+        "folder_path": str(tmp_path / "10000"),
+        "repo_id": "pravsels/pi0_busybox_push_green_button",
+        "path_in_repo": ".",
+        "ignore_patterns": ["train_state/**"],
+        "delete_patterns": ["params/old-chunk", "assets/old.json"],
+        "commit_message": "Update pi0_busybox_push_green_button checkpoint to step 10000",
+    }
+
+
+def test_finalized_checkpoint_steps_ignores_temporary_and_incomplete_dirs(tmp_path: Path):
+    _write_step(tmp_path, "5000")
+    _write_step(tmp_path, "10000")
+    _write_step(tmp_path, "15000.orbax-checkpoint-tmp-1")
+    (tmp_path / "20000").mkdir()
+
+    assert gman_publish.finalized_checkpoint_steps(tmp_path) == [5_000, 10_000]
 
 
 def test_assert_hub_steps_exist_requires_params():

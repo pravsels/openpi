@@ -20,6 +20,7 @@ class HfPublishApi(Protocol):
         path_in_repo: str,
         repo_type: str,
         ignore_patterns: list[str] | None = None,
+        delete_patterns: list[str] | None = None,
         commit_message: str | None = None,
     ) -> Any: ...
 
@@ -33,6 +34,46 @@ class HfPublishApi(Protocol):
 def checkpoint_has_params(checkpoint_dir: Path) -> bool:
     params = Path(checkpoint_dir) / "params"
     return params.is_dir() or params.is_file()
+
+
+def finalized_checkpoint_steps(checkpoint_root: Path) -> list[int]:
+    root = Path(checkpoint_root)
+    if not root.is_dir():
+        return []
+    return sorted(
+        int(path.name)
+        for path in root.iterdir()
+        if path.is_dir() and path.name.isdigit() and checkpoint_has_params(path)
+    )
+
+
+def publish_checkpoint_root(
+    api: HfPublishApi,
+    *,
+    repo_id: str,
+    checkpoint_dir: Path,
+    config_name: str,
+    step: int,
+) -> None:
+    """Replace inference checkpoint files at the model repo root."""
+    checkpoint_dir = Path(checkpoint_dir)
+    if not checkpoint_dir.is_dir() or not checkpoint_has_params(checkpoint_dir):
+        raise ValueError(f"Checkpoint step {step} is incomplete: {checkpoint_dir}")
+
+    api.create_repo(repo_id, repo_type="model", exist_ok=True)
+    preserved = {".gitattributes", "README.md"}
+    delete_patterns = [
+        path for path in api.list_repo_files(repo_id, repo_type="model") if path not in preserved
+    ]
+    api.upload_folder(
+        folder_path=str(checkpoint_dir),
+        repo_id=repo_id,
+        path_in_repo=".",
+        repo_type="model",
+        ignore_patterns=["train_state/**"],
+        delete_patterns=delete_patterns,
+        commit_message=f"Update {config_name} checkpoint to step {step}",
+    )
 
 
 def publish_checkpoint_steps(

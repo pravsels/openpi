@@ -75,6 +75,13 @@ def test_gman_train_uses_proven_xla_memory_fraction():
     assert 'XLA_PYTHON_CLIENT_MEM_FRACTION="${XLA_PYTHON_CLIENT_MEM_FRACTION:-0.95}"' in script
 
 
+def test_gman_production_train_publishes_latest_checkpoint_to_hub_root():
+    script = (Path(__file__).resolve().parents[1] / "gman/train.sh").read_text()
+    assert "scripts/gman_publish_latest.py" in script
+    assert '--checkpoint-root="${CHECKPOINT_DIR}"' in script
+    assert '--repo-id="${HF_REPO}"' in script
+
+
 def test_experiment_name_separates_smoke_from_production():
     assert experiment_name("pi0_busybox_push_green_button", smoke=True) == "pi0_busybox_push_green_button_smoke"
     assert experiment_name("pi0_busybox_push_green_button", smoke=False) == "pi0_busybox_push_green_button"
