@@ -3474,6 +3474,58 @@ _CONFIGS = [
         num_train_steps=10_000,
     ),
     #
+    # Single-arm three-cam RLT (RLT Stage 1) — villekuosmanen/busybox_push_green_button.
+    # Attaches the RL-token encoder-decoder to the frozen pi05 green-button VLA
+    # (config `pi05_busybox_push_green_button`, Hub
+    # pravsels/pi05_busybox_push_green_button). Trains ONLY the encoder-decoder
+    # (rl_vla_loss_weight=0.0 → VLA frozen). Same three-cam keys, prompt, dataset,
+    # and delta-action setup as the baseline so norm stats and the 6D action space
+    # line up. Do not reuse the bimanual busybox RLT configs above.
+    #
+    TrainConfig(
+        name="pi05_rlt_busybox_push_green_button",
+        project_name="busybox_push_green_button_rlt",
+        model=pi0_rl_config.Pi0RLConfig(
+            pi05=True,
+            action_horizon=30,
+            image_keys=so101_policy.SO101_THREE_CAM_IMAGE_KEYS,
+            rl_vla_loss_weight=0.0,
+        ),
+        data=LeRobotSO101ThreeCamDataConfig(
+            repo_id="villekuosmanen/busybox_push_green_button",
+            default_prompt="push the green button",
+            use_delta_actions=True,
+        ),
+        batch_size=16,
+        num_workers=8,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=5e-5,
+            decay_steps=20_000,
+            decay_lr=5e-5,
+        ),
+        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
+        ema_decay=0.999,
+        freeze_filter=pi0_rl_config.Pi0RLConfig(
+            pi05=True,
+            action_horizon=30,
+            image_keys=so101_policy.SO101_THREE_CAM_IMAGE_KEYS,
+            rl_vla_loss_weight=0.0,
+        ).get_rl_freeze_filter(),
+        weight_loader=weight_loaders.RLTokenCheckpointWeightLoader(
+            # Published Hub repo puts params/ + assets/ at the repo root (not
+            # step_N/). Download into the checkpoints bind:
+            #   hf download pravsels/pi05_busybox_push_green_button \
+            #     --local-dir checkpoints/pi05_busybox_push_green_button
+            #   → checkpoints/pi05_busybox_push_green_button/params
+            "checkpoints/pi05_busybox_push_green_button/params"
+        ),
+        num_train_steps=20_000,
+        save_interval=20_000,
+        keep_period=None,
+        wandb_enabled=True,
+    ),
+    #
     # Debugging configs.
     #
     TrainConfig(

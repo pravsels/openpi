@@ -86,3 +86,38 @@ def test_sample_actions_with_rl_token_none_noise_uses_rng():
     )
 
     assert not jnp.allclose(actions_a, actions_b, atol=1e-5)
+
+
+def test_pi0rl_public_paths_accept_three_cam_image_keys():
+    """BusyBox three-cam uses base_1_rgb instead of right_wrist_0_rgb."""
+    keys = ("base_0_rgb", "left_wrist_0_rgb", "base_1_rgb")
+    config = Pi0RLConfig(
+        paligemma_variant="dummy",
+        action_expert_variant="dummy",
+        action_dim=8,
+        action_horizon=4,
+        max_token_len=16,
+        pi05=False,
+        rl_num_layers=1,
+        rl_num_heads=4,
+        rl_mlp_dim=64,
+        rl_vla_loss_weight=0.0,
+        image_keys=keys,
+    )
+    model = config.create(jax.random.key(0))
+    obs = config.fake_obs(batch_size=1)
+    actions = config.fake_act(batch_size=1)
+
+    assert "right_wrist_0_rgb" not in obs.images
+    assert set(obs.images) == set(keys)
+
+    token = model.extract_rl_token(obs)
+    sampled, sampled_token = model.sample_actions_with_rl_token(
+        jax.random.key(1), obs, num_steps=3
+    )
+    loss = model.compute_loss(jax.random.key(2), obs, actions, train=False)
+
+    assert token.shape[0] == 1
+    assert sampled.shape == (1, config.action_horizon, config.action_dim)
+    assert sampled_token.shape[0] == 1
+    assert loss.shape == (1, config.action_horizon)

@@ -1,7 +1,11 @@
-import numpy as np
 import pathlib
 
+import flax.nnx as nnx
+import jax
+import numpy as np
+
 from openpi.models import pi0_config
+from openpi.models import pi0_rl_config
 from openpi.shared import normalize as _normalize
 from openpi.training import config as _config
 import openpi.transforms as _transforms
@@ -410,3 +414,60 @@ def test_busybox_push_green_button_pi0_and_pi05_configs():
         assert cfg.num_workers == num_workers
         assert cfg.weight_loader.params_path == weight
         assert cfg.lr_schedule.decay_steps == 30_000
+
+
+def test_busybox_push_green_button_rlt_config():
+    three_cam = ("base_0_rgb", "left_wrist_0_rgb", "base_1_rgb")
+    cfg = _config.get_config("pi05_rlt_busybox_push_green_button")
+    assert cfg.project_name == "busybox_push_green_button_rlt"
+    assert cfg.model.pi05 is True
+    assert cfg.model.action_horizon == 30
+    assert cfg.model.rl_vla_loss_weight == 0.0
+    assert tuple(cfg.model.image_keys) == three_cam
+    assert isinstance(cfg.data, _config.LeRobotSO101ThreeCamDataConfig)
+    assert cfg.data.repo_id == "villekuosmanen/busybox_push_green_button"
+    assert cfg.data.default_prompt == "push the green button"
+    assert cfg.data.use_delta_actions is True
+    assert cfg.num_train_steps == 20_000
+    assert cfg.save_interval == 20_000
+    assert cfg.keep_period is None
+    assert cfg.num_workers == 8
+    assert cfg.batch_size == 16
+    assert cfg.fsdp_devices == 1
+    assert cfg.weight_loader.params_path == "checkpoints/pi05_busybox_push_green_button/params"
+    assert cfg.lr_schedule.warmup_steps == 1_000
+    assert cfg.lr_schedule.peak_lr == 5e-5
+    assert cfg.lr_schedule.decay_steps == 20_000
+    assert cfg.lr_schedule.decay_lr == 5e-5
+    assert cfg.ema_decay == 0.999
+
+    dummy = pi0_rl_config.Pi0RLConfig(
+        pi05=True,
+        paligemma_variant="dummy",
+        action_expert_variant="dummy",
+        action_horizon=30,
+        image_keys=three_cam,
+        rl_vla_loss_weight=0.0,
+    )
+    abstract = nnx.eval_shape(dummy.create, jax.random.key(0))
+    frozen = nnx.state(abstract, nnx.All(nnx.Param, cfg.freeze_filter)).flat_state()
+    assert frozen, "freeze_filter must freeze VLA params, not nnx.Nothing"
+    assert all("rl_encoder" not in str(path) and "rl_decoder" not in str(path) for path in frozen)
+
+
+def test_busybox_push_green_button_rlt_gcloud_script_references_config():
+    script = pathlib.Path("slurm/train_busybox_push_green_button_rlt_gcloud.sh").read_text()
+    assert 'CONFIG_NAME="pi05_rlt_busybox_push_green_button"' in script
+    assert "pravsels/pi05_busybox_push_green_button" in script
+    assert "checkpoints/pi05_busybox_push_green_button/params" in script
+    assert "WANDB_MODE=online" in script
+    assert "80000" in script
+    assert "MIN_FREE_GB" in script
+    assert "refusing to recompute" in script
+    assert "XLA_PYTHON_CLIENT_MEM_FRACTION=0.95" in script
+    assert "snapshot_download" in script
+    assert "_METADATA" in script
+    assert "manifest.ocdbt" in script
+    assert "TRAIN_ARGS=(" in script
+    assert '"${TRAIN_ARGS[@]}"' in script
+    _config.get_config("pi05_rlt_busybox_push_green_button")

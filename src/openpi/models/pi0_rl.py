@@ -274,7 +274,7 @@ class Pi0RL(_pi0.Pi0):
         Runs only the VLA prefix (image + language) through the backbone,
         stop-gradients the output, and feeds it through the encoder.
         """
-        observation = _model.preprocess_observation(None, observation, train=False)
+        observation = self._preprocess_observation(None, observation, train=False)
 
         prefix_tokens, prefix_mask, prefix_ar_mask = self.embed_prefix(observation)
         prefix_attn_mask = _pi0.make_attn_mask(prefix_mask, prefix_ar_mask)
@@ -305,7 +305,7 @@ class Pi0RL(_pi0.Pi0):
             noise: If provided, use this fixed noise instead of sampling from rng.
                    Shape must be [batch_size, action_horizon, action_dim].
         """
-        observation = _model.preprocess_observation(None, observation, train=False)
+        observation = self._preprocess_observation(None, observation, train=False)
         dt = -1.0 / num_steps
         batch_size = observation.state.shape[0]
 
@@ -367,7 +367,7 @@ class Pi0RL(_pi0.Pi0):
         train: bool = False,
     ) -> at.Float[at.Array, "*b ah"]:
         preprocess_rng, noise_rng, time_rng = jax.random.split(rng, 3)
-        observation = _model.preprocess_observation(preprocess_rng, observation, train=train)
+        observation = self._preprocess_observation(preprocess_rng, observation, train=train)
 
         batch_shape = actions.shape[:-2]
         noise = jax.random.normal(noise_rng, actions.shape)
