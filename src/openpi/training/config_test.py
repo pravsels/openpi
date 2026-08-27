@@ -404,7 +404,7 @@ def test_busybox_push_green_button_pi0_and_pi05_configs():
         assert cfg.data.use_delta_actions is True
         assert cfg.num_train_steps == 30_000
         assert cfg.save_interval == 5_000
-        assert cfg.keep_period == 5_000
+        assert cfg.keep_period is None
         assert cfg.batch_size == 32
         assert cfg.fsdp_devices == 1
         assert cfg.num_workers == 8

@@ -3,7 +3,7 @@
 ## Mode
 - run_type: full-component fine-tune
 - objective: train π0 on `villekuosmanen/busybox_push_green_button` for the 30k-step green-button comparison
-- status: running
+- status: interrupted; resuming from step 10k
 
 ## Config
 - config: `pi0_busybox_push_green_button`
@@ -11,7 +11,7 @@
 - dataset: `villekuosmanen/busybox_push_green_button` (LeRobot v3, 20 episodes, 2471 frames, 20 fps)
 - prompt: `push the green button`
 - cameras: `top` → `base_0_rgb`, `wrist` → `left_wrist_0_rgb`, `front` → `base_1_rgb`
-- key settings: π0, full-component fine-tuning, action horizon 30, global batch 32, 30k steps, save/keep every 5k, cosine LR 2.5e-5 → 2.5e-6, EMA 0.999
+- key settings: π0, full-component fine-tuning, action horizon 30, global batch 32, 30k steps, save every 5k and retain only the latest checkpoint, cosine LR 2.5e-5 → 2.5e-6, EMA 0.999
 - parallelism: 4-GPU full data parallel (`fsdp_devices=1`), GPUs 0–3
 - input pipeline: TorchCodec, 8 persistent workers
 - memory: `XLA_PYTHON_CLIENT_MEM_FRACTION=0.95`
@@ -42,6 +42,8 @@
 - 2026-08-26 23:40 UTC — step 0 completed; W&B online.
 - 2026-08-26 23:44 UTC — step 430/30k, recent rate ~2.2 iterations/s, ETA ~3h48m; step-400 loss 0.1920.
 - GPU sample: GPUs 0–3 sustained 99–100% SM utilization, ~78.6 GiB VRAM, and ~580–650 W.
+- 2026-08-27 02:04 UTC — command exited 1 after reaching approximately step 17.6k. The concurrent π0.5 checkpoint save reported `ENOSPC`; both runs had retained 5k and 10k checkpoints and attempted concurrent 15k saves on the shared node disk.
+- Recovery retains the complete 10k checkpoint, removes the obsolete 5k and incomplete 15k checkpoints, changes `keep_period` to `None`, and resumes with only the latest checkpoint retained.
 
 ## W&B
 - project: `busybox_push_green_button_pi0`
@@ -49,5 +51,6 @@
 - run id: `xmrjumvc`
 
 ## Next
-- let the run reach 30k and verify checkpoints at 5k intervals plus final step 29999
+- resume from the complete 10k checkpoint and verify the next save replaces it without exhausting disk
+- let the run reach 30k and verify the final step-29999 checkpoint
 - publish selected production checkpoints after training completes
