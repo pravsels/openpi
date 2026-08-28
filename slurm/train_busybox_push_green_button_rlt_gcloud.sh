@@ -10,11 +10,22 @@
 #
 # Before first run:
 #   - Docker image openpi:latest
-#   - HF / W&B tokens in the environment (WANDB_MODE=online must be set here;
-#     scripts/train.py defaults offline)
+#   - Secrets in $HOME/.env (not in git):
+#       WANDB_API_KEY=...
+#       HF_TOKEN=...
+#     Override path with OPENPI_ENV. WANDB_MODE=online must be set here;
+#     scripts/train.py defaults offline.
 #   - ~200 GB free (Hub VLA is ~75 GB)
 
 set -euo pipefail
+
+OPENPI_ENV="${OPENPI_ENV:-${HOME}/.env}"
+if [ -f "${OPENPI_ENV}" ]; then
+    set -a
+    # shellcheck disable=SC1090
+    . "${OPENPI_ENV}"
+    set +a
+fi
 
 # --- Config ---
 CONFIG_NAME="pi05_rlt_busybox_push_green_button"
@@ -105,6 +116,11 @@ if [ -d "${RLT_CKPT_DIR}" ] && [ -n "$(find "${RLT_CKPT_DIR}" -mindepth 1 -maxde
     TRAIN_ARGS+=(--resume)
 else
     TRAIN_ARGS+=(--overwrite)
+fi
+
+if [ -z "${WANDB_API_KEY:-}" ]; then
+    echo "ERROR: WANDB_API_KEY is empty. Add it to ${OPENPI_ENV} (or export it)." | tee -a "${LOG_FILE}"
+    exit 1
 fi
 
 start_time="$(date +%s)"

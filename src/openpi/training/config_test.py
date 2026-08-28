@@ -470,4 +470,5 @@ def test_busybox_push_green_button_rlt_gcloud_script_references_config():
     assert "manifest.ocdbt" in script
     assert "TRAIN_ARGS=(" in script
     assert '"${TRAIN_ARGS[@]}"' in script
+    assert '${HOME}/.env' in script
     _config.get_config("pi05_rlt_busybox_push_green_button")

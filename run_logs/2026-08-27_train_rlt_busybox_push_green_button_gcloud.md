@@ -3,7 +3,7 @@
 ## Mode
 - run_type: RLT Stage 1 encoder/decoder
 - objective: train the RL-token bottleneck on the frozen π0.5 green-button checkpoint so `hw_control.pi0_rlt` can extract tokens
-- status: running
+- status: completed (exit 0); published to Hub; VM deleted
 
 ## Config
 - script: `slurm/train_busybox_push_green_button_rlt_gcloud.sh`
@@ -41,8 +41,18 @@
 - 2026-08-27 20:12 UTC — ~253/20k, ~1.4 it/s, ETA ~4h; no errors.
 - GPU sample (20:10 UTC): 100% util, 75.8/80.0 GiB VRAM, 353/400 W, 65°C.
 - Host sample (20:10 UTC): 12 GiB / 167 GiB RAM used; Docker ~14.2 GiB and ~411% CPU.
+- 2026-08-27 22:13 UTC — step 10000: `loss=299.31`, `grad_norm=1402.69`.
+- 2026-08-28 00:18 UTC — step 19900: `loss=189.18`, `grad_norm=805.95`; Orbax save of `19999` finalized.
+- 2026-08-28 00:19 UTC — train.py exited 0 after 4h 15m 17s.
 
 ## Results
+- runtime: `4:15:17` (start `2026-08-27T20:03:43+00:00`, end `2026-08-28T00:19:00+00:00`)
+- final step: 19999
+- start_train_loss: `9935.2900` (step 0)
+- end_train_loss: `189.1828` (step 19900)
+- checkpoint: `/home/ps/openpi/checkpoints/pi05_rlt_busybox_push_green_button/busybox_push_green_button_rlt/19999/`
+- params size: 5.9 GiB (`_METADATA` + `manifest.ocdbt` present)
+- assets: `norm_stats.json`, `norm_stats_actions_per_timestep.json`, `valid_indices.json`
 
 ## W&B
 - project: `busybox_push_green_button_rlt`
@@ -52,9 +62,10 @@
 
 ## HuggingFace
 - frozen VLA: https://huggingface.co/pravsels/pi05_busybox_push_green_button
-- RLT checkpoint: not published yet
+- RLT checkpoint: https://huggingface.co/pravsels/pi05_rlt_busybox_push_green_button
+- published: `params/` + `assets/` + `README.md` at the repo root (step 19999; `train_state/` excluded)
+- uploaded: 2026-08-28 04:08 UTC
 
 ## Next
-- let the run reach 20k and verify the single end-of-run checkpoint
-- publish selected RLT params + assets after training completes
-- stop/delete `openpi-rlt-busybox-green` when the job is done
+- pull `pravsels/pi05_rlt_busybox_push_green_button` for `hw_control.pi0_rlt` demo-cache / online RL
+- VM `openpi-rlt-busybox-green` deleted after Hub verify
