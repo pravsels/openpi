@@ -37,6 +37,28 @@ def test_normalize_update():
     assert np.allclose(results.std, np.std(arr, axis=0))
 
 
+def test_running_stats_uses_one_and_ninety_ninth_percentiles_by_default():
+    arr = np.array([[0.0, -10.0], [1.0, 0.0], [100.0, 10.0]])
+    stats = normalize.RunningStats()
+    stats.update(arr)
+
+    results = stats.get_statistics()
+
+    np.testing.assert_allclose(results.q01, np.array([-1e-10, -10.0000000001]))
+    np.testing.assert_allclose(results.q99, np.array([99.98, 9.996]))
+
+
+def test_running_stats_can_use_true_min_max_bounds():
+    arr = np.array([[3.0, -4.0], [1.0, 8.0], [7.0, 2.0]])
+    stats = normalize.RunningStats()
+    stats.update(arr)
+
+    results = stats.get_statistics(use_min_max=True)
+
+    np.testing.assert_array_equal(results.q01, np.min(arr, axis=0))
+    np.testing.assert_array_equal(results.q99, np.max(arr, axis=0))
+
+
 def test_serialize_deserialize():
     stats = normalize.RunningStats()
     stats.update(np.arange(12).reshape(4, 3))  # 4 vectors of length 3

@@ -68,4 +68,4 @@ Vast launch (image, 4×H100, bootstrap, 10-step gate) comes after this lands.
 
 ## Variant 2 (later)
 
-Same three-cam dataset. New config `pi05_busybox_multitask_abs`: `use_delta_actions=False`, separate assets dir. Normalization: q01/q99 → `[-1, 1]` unless we later opt into true min/max. Not in this slice.
+Implemented separately as `pi05_busybox_multitask_abs` with true min/max bounds; see `docs/plans/2026-09-01-pi05-busybox-multitask-abs.md`.

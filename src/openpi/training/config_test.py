@@ -442,6 +442,57 @@ def test_busybox_multitask_pi05_config():
     assert cfg.lr_schedule.decay_lr == 2.5e-6
 
 
+def test_busybox_multitask_pi05_abs_config(tmp_path):
+    three_cam = ("base_0_rgb", "left_wrist_0_rgb", "base_1_rgb")
+    cfg = _config.get_config("pi05_busybox_multitask_abs")
+    assert cfg.project_name == "busybox_multitask_pi05_abs"
+    assert cfg.model.pi05 is True
+    assert cfg.model.action_horizon == 30
+    assert tuple(cfg.model.image_keys) == three_cam
+    assert isinstance(cfg.data, _config.LeRobotSO101ThreeCamDataConfig)
+    assert cfg.data.repo_id == "villekuosmanen/busybox_multitask"
+    assert cfg.data.video_backend == "torchcodec"
+    assert cfg.data.default_prompt is None
+    assert cfg.data.base_config is not None
+    assert cfg.data.base_config.prompt_from_task is True
+    assert cfg.data.base_config.use_min_max_norm_stats is True
+    assert cfg.data.base_config.use_per_timestep_action_norm is True
+    assert cfg.data.use_delta_actions is False
+    assert cfg.num_train_steps == 30_000
+    assert cfg.save_interval == 5_000
+    assert cfg.keep_period is None
+    assert cfg.batch_size == 32
+    assert cfg.fsdp_devices == 1
+    assert cfg.num_workers == 8
+    assert cfg.weight_loader.params_path == "weights/pi05_base/params"
+    assert cfg.lr_schedule.warmup_steps == 1_000
+    assert cfg.lr_schedule.decay_steps == 30_000
+    assert cfg.lr_schedule.peak_lr == 2.5e-5
+    assert cfg.lr_schedule.decay_lr == 2.5e-6
+    assert cfg.ema_decay == 0.999
+    assert cfg.assets_dirs != _config.get_config("pi05_busybox_multitask").assets_dirs
+    created_data = cfg.data.create_base_config(tmp_path, cfg.model)
+    assert created_data.use_quantile_norm is True
+    assert created_data.use_min_max_norm_stats is True
+    assert created_data.use_per_timestep_action_norm is True
+
+
+def test_busybox_multitask_pi05_abs_norm_stats_wiring():
+    for script_path in (
+        "scripts/compute_norm_stats.py",
+        "scripts/compute_norm_stats_per_timestep.py",
+    ):
+        source = pathlib.Path(script_path).read_text()
+        assert "use_min_max_norm_stats = data_config.use_min_max_norm_stats" in source
+        assert "get_statistics(use_min_max=use_min_max_norm_stats)" in source
+
+    gman_train = pathlib.Path("gman/train.sh").read_text()
+    assert (
+        'pi05_busybox_multitask_abs) WANDB_PROJECT="${WANDB_PROJECT:-busybox_multitask_pi05_abs}"'
+        in gman_train
+    )
+
+
 def test_three_cam_prompt_from_task_keeps_prompt_in_repack():
     factory = _config.LeRobotSO101ThreeCamDataConfig(
         repo_id="villekuosmanen/busybox_multitask",

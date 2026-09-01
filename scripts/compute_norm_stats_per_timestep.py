@@ -2,7 +2,8 @@
 
 This script computes global normalization stats for state/actions (same as
 scripts/compute_norm_stats.py) and additionally computes per-timestep action
-stats saved to a parallel file.
+stats saved to a parallel file. Bounds are 1st/99th percentiles by default or
+exact min/max when requested by the data config.
 """
 
 from __future__ import annotations
@@ -133,6 +134,7 @@ def main(
         raise ValueError("--assets-base-dir is not supported; use --assets-dir instead.")
     config = dataclasses.replace(config, assets_dir=assets_dir)
     data_config = config.data.create(config.assets_dirs, config.model)
+    use_min_max_norm_stats = data_config.use_min_max_norm_stats
 
     if data_config.rlds_data_dir is not None:
         data_loader, num_batches = create_rlds_dataloader(
@@ -152,8 +154,12 @@ def main(
             stats[key].update(np.asarray(batch[key]))
         _update_per_timestep_stats(per_timestep_stats, np.asarray(batch["actions"]), config.model.action_horizon)
 
-    norm_stats = {key: stats.get_statistics() for key, stats in stats.items()}
-    per_timestep_action_stats = _stack_norm_stats([stats.get_statistics() for stats in per_timestep_stats])
+    norm_stats = {
+        key: stats.get_statistics(use_min_max=use_min_max_norm_stats) for key, stats in stats.items()
+    }
+    per_timestep_action_stats = _stack_norm_stats(
+        [stats.get_statistics(use_min_max=use_min_max_norm_stats) for stats in per_timestep_stats]
+    )
     per_timestep_action_stats = normalize.backfill_collapsed_timesteps(per_timestep_action_stats, norm_stats["actions"])
 
     output_path = config.assets_dirs

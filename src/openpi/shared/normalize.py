@@ -71,9 +71,14 @@ class RunningStats:
 
         self._update_histograms(batch)
 
-    def get_statistics(self) -> NormStats:
+    def get_statistics(self, *, use_min_max: bool = False) -> NormStats:
         """
         Compute and return the statistics of the vectors processed so far.
+
+        Args:
+            use_min_max: Store exact observed minima/maxima in the historical
+                q01/q99 fields instead of the default histogram-based 1st/99th
+                percentiles.
 
         Returns:
             dict: A dictionary containing the computed statistics.
@@ -83,7 +88,10 @@ class RunningStats:
 
         variance = self._mean_of_squares - self._mean**2
         stddev = np.sqrt(np.maximum(0, variance))
-        q01, q99 = self._compute_quantiles([0.01, 0.99])
+        if use_min_max:
+            q01, q99 = self._min.copy(), self._max.copy()
+        else:
+            q01, q99 = self._compute_quantiles([0.01, 0.99])
         return NormStats(mean=self._mean, std=stddev, q01=q01, q99=q99)
 
     def _adjust_histograms(self):

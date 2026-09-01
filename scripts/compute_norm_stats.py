@@ -1,8 +1,8 @@
 """Compute normalization statistics for a config.
 
 This script computes global normalization statistics for a given config and saves
-them to the config assets directory. Quantile stats follow the repo default:
-1st/99th percentiles map to [-1, 1] during quantile normalization.
+them to the config assets directory. Quantile stats follow the repo default
+(1st/99th percentiles) unless the data config opts into exact min/max bounds.
 """
 
 import numpy as np
@@ -176,6 +176,7 @@ def main(
 ):
     config = _config.get_config(config_name)
     data_config = config.data.create(config.assets_dirs, config.model)
+    use_min_max_norm_stats = data_config.use_min_max_norm_stats
 
     if data_config.rlds_data_dir is not None:
         data_loader, num_batches = create_rlds_dataloader(
@@ -257,7 +258,9 @@ def main(
         norm_stats = {}
         for key in keys:
             dim_stats_list = per_dim_stats[key]
-            per_dim_results = [ds.get_statistics() for ds in dim_stats_list]
+            per_dim_results = [
+                ds.get_statistics(use_min_max=use_min_max_norm_stats) for ds in dim_stats_list
+            ]
             norm_stats[key] = normalize.NormStats(
                 mean=np.array([s.mean for s in per_dim_results]).squeeze(-1),
                 std=np.array([s.std for s in per_dim_results]).squeeze(-1),
@@ -270,7 +273,9 @@ def main(
                 print(f"  [{d:2d}] mean={s.mean[0]:+.4f} std={s.std[0]:.4f} "
                       f"q01={s.q01[0]:+.4f} q99={s.q99[0]:+.4f} count={count:,}")
     else:
-        norm_stats = {key: stats.get_statistics() for key, stats in stats.items()}
+        norm_stats = {
+            key: stats.get_statistics(use_min_max=use_min_max_norm_stats) for key, stats in stats.items()
+        }
 
     output_path = config.assets_dirs
     print(f"Writing stats to: {output_path}")

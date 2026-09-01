@@ -85,6 +85,8 @@ class DataConfig:
     use_per_timestep_action_norm: bool | None = None
     # Per-timestep action normalization stats (actions only).
     per_timestep_action_norm_stats: _transforms.NormStats | None = None
+    # If true, norm-stat computation stores exact minima/maxima in q01/q99 instead of the default 1st/99th percentiles.
+    use_min_max_norm_stats: bool = False
 
     # Used to adopt the inputs from a dataset specific format to a common format
     # which is expected by the data transforms.
@@ -2911,6 +2913,44 @@ _CONFIGS = [
             default_prompt=None,
             base_config=DataConfig(prompt_from_task=True),
             use_delta_actions=True,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=2.5e-5,
+            decay_steps=30_000,
+            decay_lr=2.5e-6,
+        ),
+        num_train_steps=30_000,
+        save_interval=5_000,
+        keep_period=None,
+        batch_size=32,
+        fsdp_devices=1,
+        num_workers=8,
+        ema_decay=0.999,
+        wandb_enabled=True,
+    ),
+    # Absolute-action variant. Exact observed min/max bounds are stored in the
+    # historical q01/q99 fields and mapped to [-1, 1] by quantile normalization.
+    # Its config name gives it a separate default assets directory from the
+    # relative-action run above.
+    TrainConfig(
+        name="pi05_busybox_multitask_abs",
+        project_name="busybox_multitask_pi05_abs",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=30,
+            image_keys=so101_policy.SO101_THREE_CAM_IMAGE_KEYS,
+        ),
+        data=LeRobotSO101ThreeCamDataConfig(
+            repo_id="villekuosmanen/busybox_multitask",
+            default_prompt=None,
+            base_config=DataConfig(
+                prompt_from_task=True,
+                use_per_timestep_action_norm=True,
+                use_min_max_norm_stats=True,
+            ),
+            use_delta_actions=False,
         ),
         weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
         lr_schedule=_optimizer.CosineDecaySchedule(
