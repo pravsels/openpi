@@ -14,9 +14,9 @@
 # cache (§3 of hw_control/pi0_rlt/README.md) and then run the actor/critic
 # learner. All tasks are bimanual, so downstream steps use --embodiment biso101.
 #
-# pi05_rlt_busybox_multitask covers all 24 busybox tasks at once. Its Stage-1
-# training spans every task, but the demo cache and the learner are still built
-# per task: pass the target task's prompt as --language-instruction downstream.
+# pi05_rlt_busybox_multitask still uses the old bimanual 10k data config. The
+# rewritten pi05_busybox_multitask VLA is single-arm 30k three-cam — do not
+# attach this RLT run to that baseline until the RLT config is updated.
 #
 # Profile: 10k steps, batch 16, 1 GPU, 6h walltime, single checkpoint at the end.
 # Runs from the same worktree as the baselines (~/openpi_busybox_tasks) so both

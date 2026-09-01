@@ -1008,7 +1008,7 @@ class LeRobotSO101ThreeCamDataConfig(DataConfigFactory):
     @override
     def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
         data_transforms = _transforms.Group(
-            inputs=[so101_policy.SO101ThreeCamInputs(default_prompt=self.default_prompt or "push the green button")],
+            inputs=[so101_policy.SO101ThreeCamInputs(default_prompt=three_cam_fallback_prompt(self.default_prompt))],
             outputs=[so101_policy.SO101Outputs()],
         )
 
@@ -1022,6 +1022,10 @@ class LeRobotSO101ThreeCamDataConfig(DataConfigFactory):
         model_transforms = ModelTransformFactory(default_prompt=self.default_prompt)(model_config)
         base_config = self.create_base_config(assets_dirs, model_config)
 
+        repack_transforms = self.repack_transforms
+        if base_config.prompt_from_task:
+            repack_transforms = carry_prompt_through_repack(repack_transforms)
+
         use_per_timestep_action_norm = base_config.use_per_timestep_action_norm
         if self.use_delta_actions and use_per_timestep_action_norm is None:
             use_per_timestep_action_norm = True
@@ -1029,12 +1033,29 @@ class LeRobotSO101ThreeCamDataConfig(DataConfigFactory):
         return dataclasses.replace(
             base_config,
             video_backend=self.video_backend,
-            repack_transforms=self.repack_transforms,
+            repack_transforms=repack_transforms,
             data_transforms=data_transforms,
             model_transforms=model_transforms,
             action_sequence_keys=self.action_sequence_keys,
             use_per_timestep_action_norm=use_per_timestep_action_norm,
         )
+
+
+def carry_prompt_through_repack(repack_transforms: _transforms.Group) -> _transforms.Group:
+    """Keep PromptFromLeRobotTask's prompt when RepackTransform rebuilds the sample."""
+    return _transforms.Group(
+        inputs=[
+            _transforms.RepackTransform({**tf.structure, "prompt": "prompt"})
+            if isinstance(tf, _transforms.RepackTransform)
+            else tf
+            for tf in repack_transforms.inputs
+        ],
+        outputs=repack_transforms.outputs,
+    )
+
+
+def three_cam_fallback_prompt(default_prompt: str | None) -> str:
+    return default_prompt or "complete the task"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -1091,15 +1112,7 @@ class LeRobotSO101BimanualDataConfig(DataConfigFactory):
             # RepackTransform rebuilds each sample from its structure alone, so the
             # per-task prompt set upstream by PromptFromLeRobotTask is dropped
             # unless "prompt" is carried through explicitly.
-            repack_transforms = _transforms.Group(
-                inputs=[
-                    _transforms.RepackTransform({**tf.structure, "prompt": "prompt"})
-                    if isinstance(tf, _transforms.RepackTransform)
-                    else tf
-                    for tf in repack_transforms.inputs
-                ],
-                outputs=repack_transforms.outputs,
-            )
+            repack_transforms = carry_prompt_through_repack(repack_transforms)
 
         use_per_timestep_action_norm = base_config.use_per_timestep_action_norm
         if self.use_delta_actions and use_per_timestep_action_norm is None:
@@ -2880,21 +2893,22 @@ _CONFIGS = [
     ),
     # ---------------------------------------------------------------------------
     # Busybox multi-task SO101 config — villekuosmanen/busybox_multitask.
-    # Identical bimanual schema to the single-task busybox configs above, but one
-    # dataset covering all 24 busybox tasks (both switches on/off, four buttons,
-    # both sliders to positions 1-5, knob to positions 1-6) over 56 episodes /
-    # 13k frames. The task is therefore selected by the prompt at inference time,
-    # so the prompt must come from each frame's own task string instead of a
-    # single default_prompt — hence prompt_from_task.
-    # Same 10k-step / batch-32 profile as the single-task runs; with ~2.8x the
-    # frames that is ~24 epochs rather than ~60.
+    # Current Hub snapshot is single-arm 6D (66 episodes, 12141 frames, 27 tasks,
+    # cameras top/wrist/front). Same three-cam relative-action recipe as
+    # pi05_busybox_push_green_button; prompt_from_task because there is no single
+    # instruction. Do not reuse the bimanual 10k Isambard/Modal recipe.
     # ---------------------------------------------------------------------------
     TrainConfig(
         name="pi05_busybox_multitask",
         project_name="busybox_multitask_pi05",
-        model=pi0_config.Pi0Config(pi05=True, action_horizon=30),
-        data=LeRobotSO101BimanualDataConfig(
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=30,
+            image_keys=so101_policy.SO101_THREE_CAM_IMAGE_KEYS,
+        ),
+        data=LeRobotSO101ThreeCamDataConfig(
             repo_id="villekuosmanen/busybox_multitask",
+            default_prompt=None,
             base_config=DataConfig(prompt_from_task=True),
             use_delta_actions=True,
         ),
@@ -2902,13 +2916,15 @@ _CONFIGS = [
         lr_schedule=_optimizer.CosineDecaySchedule(
             warmup_steps=1_000,
             peak_lr=2.5e-5,
-            decay_steps=10_000,
+            decay_steps=30_000,
             decay_lr=2.5e-6,
         ),
-        num_train_steps=10_000,
-        save_interval=5000,
-        keep_period=10_000,
+        num_train_steps=30_000,
+        save_interval=5_000,
+        keep_period=None,
         batch_size=32,
+        fsdp_devices=1,
+        num_workers=8,
         ema_decay=0.999,
         wandb_enabled=True,
     ),

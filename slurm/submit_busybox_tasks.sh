@@ -5,15 +5,14 @@
 # unaffected. On successful training, the paired publish job (afterok dependency)
 # uploads the final checkpoint straight to Hugging Face.
 #
-# Datasets (all bimanual SO101, 12D dual-arm joint-space, cameras
+# Datasets (bimanual SO101, 12D dual-arm joint-space, cameras
 # top/left_wrist/right_wrist, LeRobot v3.0):
 #   villekuosmanen/busybox_press_green_yellow_buttons — press green (left arm)
 #     then yellow (right arm). 20 episodes, single task.
 #   villekuosmanen/busybox_flip_left_switch_off — flip the left switch off.
 #     20 episodes, single task.
-#   villekuosmanen/busybox_multitask — all 24 busybox tasks (switches, buttons,
-#     sliders, knob) in one dataset, 56 episodes / 13k frames. Its config uses
-#     prompt_from_task, so the task is chosen by the prompt at inference time.
+# pi05_busybox_multitask is not submitted here. The Hub dataset is now single-arm
+# 6D / 30k three-cam; see docs/plans/2026-09-01-pi05-busybox-multitask.md.
 #
 # Profile: 10k steps, batch 32, 2 GPUs, 8h walltime, save every 5k.
 # All pairs run from the single shared worktree (~/openpi_busybox_tasks) and
@@ -49,7 +48,9 @@ DRY_RUN="${DRY_RUN:-0}"
 JOBS=(
     "pi05_busybox_press_green_yellow_buttons|lorenzouttini/pi05-so101-busybox-press-green-yellow-buttons-isambard"
     "pi05_busybox_flip_left_switch_off|lorenzouttini/pi05-so101-busybox-flip-left-switch-off-isambard"
-    "pi05_busybox_multitask|lorenzouttini/pi05-so101-busybox-multitask-isambard"
+    # pi05_busybox_multitask is the single-arm 30k three-cam recipe; do not launch
+    # it with this 10k 2-GPU Isambard pair.
+    # "pi05_busybox_multitask|lorenzouttini/pi05-so101-busybox-multitask-isambard"
 )
 
 echo "Submitting train->publish pairs (PUBLISH_STEPS=\"${PUBLISH_STEPS}\"${FILTER:+, filter=\"${FILTER}\"})"

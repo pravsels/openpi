@@ -12,12 +12,14 @@
 #SBATCH --exclude=nid010755
 
 # Generic launcher for the villekuosmanen busybox pi0.5 policies (10k steps /
-# batch 32 / 2-GPU profile). Every dataset is bimanual SO101 (12D dual-arm
-# joint-space, delta actions, cameras top/left_wrist/right_wrist, LeRobot v3.0),
-# so the same launcher covers:
+# batch 32 / 2-GPU profile). The remaining datasets here are bimanual SO101
+# (12D dual-arm joint-space, delta actions, cameras top/left_wrist/right_wrist,
+# LeRobot v3.0):
 #   pi05_busybox_press_green_yellow_buttons
 #   pi05_busybox_flip_left_switch_off
-#   pi05_busybox_multitask
+# pi05_busybox_multitask is no longer this recipe: the Hub dataset is single-arm
+# 6D / 30k / three-cam (see docs/plans/2026-09-01-pi05-busybox-multitask.md).
+# Do not sbatch it with this 8h 2-GPU launcher.
 # 2 GPUs with fsdp_devices=1 (data parallel) gives 16 samples/GPU, matching the
 # proven 1-GPU/batch-16 memory footprint. The config carries everything (dataset,
 # prompt, pi05_base weights, schedule); this script is config-agnostic.

@@ -87,7 +87,11 @@ entities work.
 
 Always smoke test first. A hundred steps costs a couple of dollars and tells
 you whether the image builds, the weights load, and the model fits in memory —
-the three things that actually go wrong:
+the three things that actually go wrong.
+
+`pi05_busybox_multitask` is now the single-arm 30k three-cam relative recipe
+(see `docs/plans/2026-09-01-pi05-busybox-multitask.md`). The 10k / 2×H100
+timing and cost numbers below were measured on the old bimanual 10k config.
 
 ```bash
 modal run external/openpi/modal/train_modal.py::main \

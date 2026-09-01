@@ -416,6 +416,46 @@ def test_busybox_push_green_button_pi0_and_pi05_configs():
         assert cfg.lr_schedule.decay_steps == 30_000
 
 
+def test_busybox_multitask_pi05_config():
+    three_cam = ("base_0_rgb", "left_wrist_0_rgb", "base_1_rgb")
+    cfg = _config.get_config("pi05_busybox_multitask")
+    assert cfg.project_name == "busybox_multitask_pi05"
+    assert cfg.model.pi05 is True
+    assert cfg.model.action_horizon == 30
+    assert tuple(cfg.model.image_keys) == three_cam
+    assert isinstance(cfg.data, _config.LeRobotSO101ThreeCamDataConfig)
+    assert cfg.data.repo_id == "villekuosmanen/busybox_multitask"
+    assert cfg.data.video_backend == "torchcodec"
+    assert cfg.data.default_prompt is None
+    assert cfg.data.base_config is not None
+    assert cfg.data.base_config.prompt_from_task is True
+    assert cfg.data.use_delta_actions is True
+    assert cfg.num_train_steps == 30_000
+    assert cfg.save_interval == 5_000
+    assert cfg.keep_period is None
+    assert cfg.batch_size == 32
+    assert cfg.fsdp_devices == 1
+    assert cfg.num_workers == 8
+    assert cfg.weight_loader.params_path == "weights/pi05_base/params"
+    assert cfg.lr_schedule.decay_steps == 30_000
+    assert cfg.lr_schedule.peak_lr == 2.5e-5
+    assert cfg.lr_schedule.decay_lr == 2.5e-6
+
+
+def test_three_cam_prompt_from_task_keeps_prompt_in_repack():
+    factory = _config.LeRobotSO101ThreeCamDataConfig(
+        repo_id="villekuosmanen/busybox_multitask",
+        default_prompt=None,
+        base_config=_config.DataConfig(prompt_from_task=True),
+        use_delta_actions=True,
+    )
+    carried = _config.carry_prompt_through_repack(factory.repack_transforms)
+    assert isinstance(carried.inputs[0], _transforms.RepackTransform)
+    assert carried.inputs[0].structure["prompt"] == "prompt"
+    assert _config.three_cam_fallback_prompt(factory.default_prompt) == "complete the task"
+    assert _config.three_cam_fallback_prompt("push the green button") == "push the green button"
+
+
 def test_busybox_push_green_button_rlt_config():
     three_cam = ("base_0_rgb", "left_wrist_0_rgb", "base_1_rgb")
     cfg = _config.get_config("pi05_rlt_busybox_push_green_button")
