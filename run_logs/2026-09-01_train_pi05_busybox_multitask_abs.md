@@ -43,7 +43,11 @@
 - 2026-09-01 23:18 UTC — 30k restarted from step 0 on `49590717`. JAX `device_count=4`. W&B online as `1xb73qsx`. Norm stats loaded from the abs assets dir (`use_min_max_norm_stats=True`).
 - 2026-09-01 23:20 UTC — first-step compile: XLA gemm autotune `Results do not match the reference` and rematerialization memory warnings; training continued.
 - 2026-09-01 23:20 UTC — step 0: `loss=0.2664`, `grad_norm=4.6466`, `param_norm=1802.3865`.
-- 2026-09-01 23:21 UTC — step 100: `loss=0.0865`, `grad_norm=1.1302`; ~1.9–2.0 it/s, remaining ~4h15m.
+- 2026-09-01 23:21 UTC — step 100: `loss=0.0865`, `grad_norm=1.1302`.
+- 2026-09-01 23:22 UTC — step 200: `loss=0.0429`, `grad_norm=0.4300`.
+- 2026-09-01 23:23 UTC — step 300: `loss=0.0350`, `grad_norm=0.3945`.
+- 2026-09-01 23:24 UTC — step 400: `loss=0.0304`, `grad_norm=0.3386`.
+- throughput: ~2.0 it/s after compile (~0.50 s/step); remaining ~4h10m to 30k. Same envelope as the relative Taiwan 30k and the killed US abs box.
 - GPU sample (23:21 UTC): 4× H100 ~59–98% util, ~78.6 / 81.6 GiB.
 
 ## W&B
