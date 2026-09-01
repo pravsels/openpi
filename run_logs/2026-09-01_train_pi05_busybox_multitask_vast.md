@@ -24,13 +24,15 @@
 - offer: `49467276` 4× H100 SXM 80GB HBM3, Taiwan, billed ~$13.54/hr, 1516 GB disk
 - image: `nvcr.io/nvidia/pytorch:25.03-py3`
 - SSH: `ssh -i ~/.ssh/id_ed25519 -p 22742 root@ssh8.vast.ai`
-- clone: `/workspace/openpi` at `6b94b6b` (`task/busybox_multitask`)
+- clone: `/workspace/openpi` at `01521d7` (`task/busybox_multitask`)
+- bootstrap log: `/workspace/vast_runs/openpi/logs/bootstrap.log`
 - do not touch CRA `49561214`
 
 ## Status
 - 2026-09-01 — config rewritten to single-arm three-cam / 30k. Launch pending.
 - 2026-09-01 21:35 UTC — rented Vast `49582742`. SSH up, 4× H100 80GB, clone at `6b94b6b`. Bootstrap waiting on `/workspace/secrets/{hf_token,wandb_token}`.
+- 2026-09-01 21:40–21:52 UTC — `vast/bootstrap.sh` finished `setup_done`. `branch_assets_ok`. Staged `pi0_base` and `pi05_base`.
 
 ## Next
-- Vast bootstrap + 10-step publish gate, then 30k
+- 10-step publish gate (`SMOKE=1 bash vast/train.sh`), then 30k
 - Variant 2 (`pi05_busybox_multitask_abs`) later
