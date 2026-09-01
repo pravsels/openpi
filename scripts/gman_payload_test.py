@@ -164,3 +164,18 @@ def test_bootstrap_checks_branch_before_uv_sync():
     script = (Path(__file__).resolve().parents[1] / "gman/bootstrap.sh").read_text()
     assert script.index("branch assets") < script.index("uv sync")
     assert "python3 - <<'PY'" in script
+    assert "EXPECTED_GPUS" in script
+    assert 'gpu_memory[@]} != 8' not in script
+
+
+def test_vast_wrappers_use_four_gpus_and_multitask_branch():
+    root = Path(__file__).resolve().parents[1]
+    bootstrap = (root / "vast/bootstrap.sh").read_text()
+    train = (root / "vast/train.sh").read_text()
+    assert "EXPECTED_GPUS" in bootstrap
+    assert "task/busybox_multitask" in bootstrap
+    assert "REQUIRE_JAX_DEVICES" in train
+    assert ":-4}" in train
+    assert "pi05_busybox_multitask" in train
+    assert "gman/train.sh" in train
+    assert "busybox_multitask_pi05" in train

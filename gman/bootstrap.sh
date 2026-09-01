@@ -8,6 +8,7 @@ REPO_URL="${REPO_URL:-https://github.com/pravsels/openpi.git}"
 REPO_REF="${REPO_REF:-task/train_pi_policies_green_button}"
 REPO_DIR="${REPO_DIR:-${HOME}/openpi}"
 WEIGHTS_DIR="${WEIGHTS_DIR:-${REPO_DIR}/weights}"
+EXPECTED_GPUS="${EXPECTED_GPUS:-8}"
 export WEIGHTS_DIR
 
 echo "=== inventory $(date -Is --utc) ==="
@@ -16,8 +17,8 @@ nvidia-smi -L || true
 df -h "${HOME}"
 
 mapfile -t gpu_memory < <(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits)
-if (( ${#gpu_memory[@]} != 8 )); then
-    echo "Expected exactly 8 GPUs, found ${#gpu_memory[@]}" >&2
+if (( ${#gpu_memory[@]} != EXPECTED_GPUS )); then
+    echo "Expected exactly ${EXPECTED_GPUS} GPUs, found ${#gpu_memory[@]}" >&2
     exit 1
 fi
 for memory_mib in "${gpu_memory[@]}"; do

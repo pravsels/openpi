@@ -150,6 +150,7 @@ if [[ "${SMOKE}" == "1" ]]; then
     case "${CONFIG_NAME}" in
         pi0_busybox_push_green_button) WANDB_PROJECT="${WANDB_PROJECT:-busybox_push_green_button_pi0}" ;;
         pi05_busybox_push_green_button) WANDB_PROJECT="${WANDB_PROJECT:-busybox_push_green_button_pi05}" ;;
+        pi05_busybox_multitask) WANDB_PROJECT="${WANDB_PROJECT:-busybox_multitask_pi05}" ;;
         *) WANDB_PROJECT="${WANDB_PROJECT:-${CONFIG_NAME}}" ;;
     esac
     echo "=== smoke publish ${HF_REPO} $(date -Is --utc) ==="

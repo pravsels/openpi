@@ -20,7 +20,11 @@
 
 ## Infrastructure
 - provider: Vast (not launched)
-- hardware: TBD (4×H100 class, same memory envelope as green-button)
+- planned offer: `49467276` 4× H100 SXM 80GB, Taiwan, ~$12.54/hr, 1516 GB disk
+- image: `nvcr.io/nvidia/pytorch:25.03-py3`
+- label: `pi05-busybox-multitask`
+- SSH: pending
+- skip: do not touch CRA `49561214`
 
 ## Status
 - 2026-09-01 — config rewritten to single-arm three-cam / 30k. Launch pending.
