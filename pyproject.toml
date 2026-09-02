@@ -37,7 +37,7 @@ dependencies = [
     "transformers==4.53.2",
     "rich>=14.0.0",
     "polars>=1.30.0",
-    "robocandywrapper>=0.2.13",
+    "robocandywrapper",
     "rewact_tools",
 ]
 
@@ -63,6 +63,7 @@ default-groups = []
 [tool.uv.sources]
 openpi-client = { workspace = true }
 lerobot = { git = "https://github.com/huggingface/lerobot", rev = "v0.4.3" }
+robocandywrapper = { git = "https://github.com/villekuosmanen/RoboCandyWrapper.git", rev = "main" }
 
 [tool.uv.workspace]
 members = ["packages/*"]

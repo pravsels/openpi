@@ -1138,7 +1138,7 @@ class TestRealDatasetIntegration:
 
     def _load_dataset(self, repo_id: str, use_patched_plugin: bool = False):
         """Load a dataset with either the upstream or patched ControlModePlugin."""
-        from robocandywrapper.factory import make_dataset_without_config
+        from openpi.training.lerobot_rcw_compat import make_dataset_without_config
         from robocandywrapper.plugins import EpisodeOutcomePlugin
         from rewact_tools import PiStar0_6CumulativeRewardPlugin
 

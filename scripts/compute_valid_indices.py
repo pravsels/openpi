@@ -18,12 +18,14 @@ import pathlib
 import tqdm_loggable.auto as tqdm
 import tyro
 
-from robocandywrapper.factory import make_dataset_without_config
-from robocandywrapper.plugins import EpisodeOutcomePlugin, ControlModePlugin
-
 import openpi.training.config as _config
 import openpi.training.data_loader as _data_loader
 import openpi.training.valid_indices as _valid_indices
+from openpi.training.lerobot_rcw_compat import (
+    ControlModePlugin,
+    EpisodeOutcomePlugin,
+    make_dataset_without_config,
+)
 
 
 def compute_valid_indices(dataset, policy: _valid_indices.ValidIndicesPolicy) -> list[int]:
