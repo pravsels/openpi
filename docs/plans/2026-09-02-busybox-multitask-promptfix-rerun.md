@@ -1,23 +1,28 @@
 # BusyBox multitask prompt-fix rerun
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Do **not** use git worktrees; branch as `task/busybox_*`. Read `../autohpc/hpc-run-tracking/SKILL.md` before writing run logs. Read GMAN `gman://docs/llms.txt` (or https://givemeanode.com/llms.txt) before `create_node`.
+> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Do **not** use git worktrees; branch as `task/busybox_*`. Read `../autohpc/hpc-run-tracking/SKILL.md` before writing run logs. Do **not** use GMAN. Rent Vast 4× H100 SXM boxes and launch with `vast/bootstrap.sh` + `vast/train.sh`.
 
 **Goal:** Retrain the two relative-action BusyBox π0.5 30k variants once, with honest per-frame language, keeping OpenPI on LeRobot `v0.4.3` and installing RoboCandyWrapper from git `main`.
 
-**Architecture:** RCW `main` already remaps sample `task_index` to the sorted `meta.tasks` table (`de4e4eb`). OpenPI always installs RCW from that repo (`[tool.uv.sources] robocandywrapper` git `main`); do not go back to PyPI. Do **not** edit RCW. `main` imports `lerobot.datasets.feature_utils` at factory import time (v2.1 compat), which 0.4.3 does not have. BusyBox is LeRobot v3, so OpenPI aliases those 0.5 module names onto `lerobot.datasets.utils` before any RCW import (`openpi.training.lerobot_rcw_compat`). Do not bump OpenPI to LeRobot 0.5. Then run the two existing TrainConfigs from scratch.
+**Architecture:** RCW `main` already remaps sample `task_index` to the sorted `meta.tasks` table (`de4e4eb`). OpenPI always installs RCW from that repo (`[tool.uv.sources] robocandywrapper` git `main`); do not go back to PyPI. Do **not** edit RCW. `main` imports `lerobot.datasets.feature_utils` at factory import time (v2.1 compat), which 0.4.3 does not have. BusyBox is LeRobot v3, so OpenPI aliases those 0.5 module names onto `lerobot.datasets.utils` before any RCW import (`openpi.training.lerobot_rcw_compat`). Do not bump OpenPI to LeRobot 0.5. Then run the two existing TrainConfigs from scratch on Vast.
 
-**Tech Stack:** OpenPI branch from `task/busybox_multitask_minmax`, RCW git `main`, LeRobot git `v0.4.3`, GMAN 8×H100, `gman/bootstrap.sh` + `gman/train.sh`.
+**Tech Stack:** OpenPI `task/busybox_multitask_promptfix` (`84a93ad`), RCW git `main` lock `597aa9ad21176e7f7dcee4aede5dc1ffc07eacee`, LeRobot git `v0.4.3`, Vast 4× H100 SXM 80GB, image `nvcr.io/nvidia/pytorch:25.03-py3`, `vast/bootstrap.sh` + `vast/train.sh` (sets `REQUIRE_JAX_DEVICES=4`, then execs `gman/train.sh`).
+
+**Progress:** Tasks 1–3 are done on `task/busybox_multitask_promptfix` (pushed). Local prompt check passed (`wrapped_tasks 27`, `mismatches 0`, `prompt_ok`). Skip to Task 4.
 
 ---
 
 ## Do not
 
+- Use GMAN. Do not `create_node`, resume `pi05-busybox-minmax-8xh100-prav` / `cmd-dcr8t`, or continue `pi05-busybox-rel-promptfix-8xh100-prav`.
+- Call `gman/train.sh` directly (`REQUIRE_JAX_DEVICES` defaults to 8). Always `bash vast/train.sh`.
+- Rent H100 **PCIe** (discarded on the abs run). Require **SXM** 80GB HBM3.
+- Rent a pricey US 4×H100 (~$21/hr) when a cheaper NL/TW SXM offer exists (~$11–14/hr).
 - Rerun `pi05_busybox_multitask_abs` (wrong action space).
-- Resume the parked GMAN node `pi05-busybox-minmax-8xh100-prav` or bootstrap `cmd-dcr8t`.
 - Install RCW from PyPI. Source is always git `main`.
 - Upgrade OpenPI to LeRobot 0.5.x (Python 3.12 + Transformers v5).
 - Reuse old `assets/` from the shuffled-language runs.
-- Skip the prompt check and go straight to 30k.
+- Skip the on-box prompt check and go straight to 30k.
 - Use git worktrees.
 - Edit or push RoboCandyWrapper. The 0.4.3 import break is handled in OpenPI.
 
@@ -34,60 +39,46 @@ Both: dataset `villekuosmanen/busybox_multitask` (v3, 66 eps, 12141 frames, 27 t
 | `pi05_busybox_multitask` | per-timestep **1%/99%** | `busybox_multitask_pi05` | `pravsels/pi05_busybox_multitask` |
 | `pi05_busybox_multitask_minmax` | per-timestep **min/max** stuffed into q01/q99 | `busybox_multitask_pi05_minmax` | `pravsels/pi05_busybox_multitask_minmax` |
 
-Relative Vast 30k was 4 GPU (`412112c`). This rerun uses GMAN `gman/train.sh`, which **requires 8 JAX devices**. Same global batch; only throughput changes.
+## Proven Vast recipe (copy this)
+
+From the completed 30k runs (`run_logs/2026-09-01_train_pi05_busybox_multitask_vast.md`, `..._abs.md`):
+
+| Knob | Value |
+|---|---|
+| GPUs | **4× H100 SXM 80GB HBM3** (not PCIe, not 8×) |
+| Image | `nvcr.io/nvidia/pytorch:25.03-py3` |
+| Disk | ≥1500 GB |
+| Price | NL ~$11.11/hr beat TW ~$13.54/hr and US ~$21.72/hr |
+| Throughput | ~2.0 it/s after compile (~0.50 s/step); 30k ≈ **4h 25–28m** |
+| JAX | `device_count=4`, `XLA_PYTHON_CLIENT_MEM_FRACTION=0.95` |
+| SSH key | `~/.ssh/id_ed25519` |
+| Secrets | `/workspace/secrets/{hf_token,wandb_token,github_token}` (no echo) |
+| Clone | `/workspace/openpi` |
+| First-step noise | XLA gemm autotune `Results do not match the reference` + rematerialization warnings; training continued |
+
+`vast/train.sh` already defaults `CONFIG_NAME=pi05_busybox_multitask` and `WANDB_PROJECT=busybox_multitask_pi05`. Minmax **must** override both `CONFIG_NAME` and `WANDB_PROJECT`.
 
 ---
 
-### Task 1: OpenPI import shim for RCW `main` on LeRobot 0.4.3
+### Task 1: OpenPI import shim for RCW `main` on LeRobot 0.4.3 — DONE
 
 Do not change RCW. Alias LeRobot 0.5 dataset helper module names onto `lerobot.datasets.utils` before any `robocandywrapper` import (`rewact_tools` also imports RCW).
 
-**Files:**
-- Add: `src/openpi/training/lerobot_rcw_compat.py` (aliases + re-export factory/plugins)
-- Add: `src/openpi/training/lerobot_rcw_compat_test.py`
-- Modify: `src/openpi/training/data_loader.py`, `scripts/compute_valid_indices.py`, `src/openpi/conftest.py`
-
-Import RCW symbols from `openpi.training.lerobot_rcw_compat` so isort cannot hoist `robocandywrapper` above the aliases.
-
-Run: `GIT_LFS_SKIP_SMUDGE=1 uv run pytest src/openpi/training/lerobot_rcw_compat_test.py -v`  
-Expected: PASS. `from robocandywrapper.factory import …` without the shim still fails on 0.4.3; that is OK.
+Landed in `84a93ad`: `src/openpi/training/lerobot_rcw_compat.py`, `lerobot_rcw_compat_test.py`, plus imports in `data_loader.py`, `scripts/compute_valid_indices.py`, `src/openpi/conftest.py`.
 
 ---
 
-### Task 2: Lock OpenPI onto RCW git `main`
+### Task 2: Lock OpenPI onto RCW git `main` — DONE
 
-**Files:**
-- Modify: `pyproject.toml`, `uv.lock` (already has git `main`; re-lock after Task 1)
-- Branch: `task/busybox_multitask_promptfix` from `origin/task/busybox_multitask_minmax`
+Branch `task/busybox_multitask_promptfix` is pushed. Lock records git `main` SHA `597aa9ad21176e7f7dcee4aede5dc1ffc07eacee`.
 
-Keep:
-
-```toml
-"robocandywrapper",
-```
-
-```toml
-[tool.uv.sources]
-openpi-client = { workspace = true }
-lerobot = { git = "https://github.com/huggingface/lerobot", rev = "v0.4.3" }
-robocandywrapper = { git = "https://github.com/villekuosmanen/RoboCandyWrapper.git", rev = "main" }
-```
-
-`uv.lock` will record the resolved `main` SHA. That is the install; do not add a PyPI specifier. Locked SHA during this slice: `597aa9ad21176e7f7dcee4aede5dc1ffc07eacee` (includes remap `de4e4eb`).
-
-Run: `GIT_LFS_SKIP_SMUDGE=1 uv lock --upgrade-package robocandywrapper && GIT_LFS_SKIP_SMUDGE=1 uv sync --group dev`
-
-Expected: lock `source = { git = "...RoboCandyWrapper.git?rev=main#<sha>" }`. `from openpi.training.lerobot_rcw_compat import make_dataset_without_config` succeeds on LeRobot 0.4.3. Wrapper `__getitem__` remaps `task_index` and sets `item["task"]` (no separate `unified_task_index` key).
-
-Push the OpenPI branch. GMAN clones this ref.
+Vast clones this ref. Override `vast/bootstrap.sh` default (`REPO_REF=task/busybox_multitask`) to `task/busybox_multitask_promptfix`.
 
 ---
 
-### Task 3: Prove language matches inner LeRobot tasks
+### Task 3: Prove language matches inner LeRobot tasks — DONE locally; repeat on each Vast box
 
-On the OpenPI venv, after Task 2:
-
-Import factory through `lerobot_rcw_compat`, not raw `robocandywrapper.factory`. `load_videos=False` still tries to decode mp4s; stub `_query_videos` when videos are not on disk. On GMAN after bootstrap, videos are present so the stub is unnecessary.
+Import factory through `lerobot_rcw_compat`, not raw `robocandywrapper.factory`. `load_videos=False` still tries to decode mp4s; stub `_query_videos` when videos are not on disk. After Vast bootstrap, videos are present so the stub is unnecessary.
 
 ```bash
 GIT_LFS_SKIP_SMUDGE=1 uv run python - <<'PY'
@@ -125,33 +116,38 @@ Local result (2026-09-02): `wrapped_tasks 27`, `mismatches 0`, index 0 is `Move 
 
 ---
 
-### Task 4: GMAN 30k × 2 (fresh nodes)
+### Task 4: Vast 30k × 2 (fresh 4× H100 SXM)
 
-`gman/bootstrap.sh` defaults `REPO_REF=task/train_pi_policies_green_button`. Override to `task/busybox_multitask_promptfix`.
+Rent **two** 4× H100 SXM 80GB instances (or one, relative first, if only one cheap SXM offer). Image `nvcr.io/nvidia/pytorch:25.03-py3`. Disk ≥1500 GB. Prefer cheapest verified-SXM offer (NL ~$11/hr was the cheap completed box).
 
-Secrets: `github-repo`, `hf-token`, `wandb-api-key`. `WANDB_MODE=online`.
+`vast/bootstrap.sh` defaults `REPO_REF=task/busybox_multitask`. Override:
 
-Two **new** 8×H100 80GB nodes (`cuda-12.9`, scratch ≥250 GiB). Name them so they are obviously yours. `list_nodes` first. `stop_node` when done.
+```bash
+export REPO_REF=task/busybox_multitask_promptfix
+bash vast/bootstrap.sh
+```
 
-| Node (suggested) | Config | After bootstrap |
+Secrets must exist at `/workspace/secrets/{github_token,hf_token,wandb_token}` before bootstrap finishes `setup_done`. `WANDB_MODE=online`.
+
+| Instance label | Config | After bootstrap + Task 3 `prompt_ok` |
 |---|---|---|
-| `pi05-busybox-rel-promptfix-8xh100-prav` | `pi05_busybox_multitask` | `CONFIG_NAME=pi05_busybox_multitask bash gman/train.sh` |
-| `pi05-busybox-minmax-promptfix-8xh100-prav` | `pi05_busybox_multitask_minmax` | `CONFIG_NAME=pi05_busybox_multitask_minmax bash gman/train.sh` |
+| `pi05-busybox-rel-promptfix` | `pi05_busybox_multitask` | `nohup bash vast/train.sh` (defaults already match) |
+| `pi05-busybox-minmax-promptfix` | `pi05_busybox_multitask_minmax` | `CONFIG_NAME=pi05_busybox_multitask_minmax WANDB_PROJECT=busybox_multitask_pi05_minmax nohup bash vast/train.sh` |
 
-No `SMOKE=1`. Repeat Task 3 on the node after `uv sync` before `train.sh`. Distinct `ASSETS_DIR`s (config name already isolates them). `XLA_PYTHON_CLIENT_MEM_FRACTION=0.95`.
+No `SMOKE=1`. Distinct `ASSETS_DIR`s (config name already isolates them). Destroy each instance after Hub 29999 / `train_done`. Do not touch leftover CRA boxes.
 
-Parallel if quota allows; otherwise relative first, then minmax.
+Train logs: `/workspace/vast_runs/openpi/logs/{bootstrap.log,train_30k.log}`.
 
 ---
 
 ### Task 5: Run logs
 
-New files (keep the cancelled minmax log as history):
+Keep abandoned GMAN logs as history. New Vast files:
 
-- `run_logs/2026-09-02_train_pi05_busybox_multitask_promptfix_gman.md`
-- `run_logs/2026-09-02_train_pi05_busybox_multitask_minmax_promptfix_gman.md`
+- `run_logs/2026-09-02_train_pi05_busybox_multitask_promptfix_vast.md`
+- `run_logs/2026-09-02_train_pi05_busybox_multitask_minmax_promptfix_vast.md`
 
-Follow AutoHPC run-tracking. Record: OpenPI branch SHA, RCW `main` SHA from the lockfile, W&B id, Hub URL, JAX device count, step 0 / last loss, `train_done`.
+Follow AutoHPC run-tracking. Record: OpenPI branch SHA, RCW `main` SHA from the lockfile, Vast instance id + offer + $/hr + GPU interconnect (must say SXM), W&B id, Hub URL, JAX device count (4), step 0 / last loss, `train_done`.
 
 ---
 
@@ -160,6 +156,6 @@ Follow AutoHPC run-tracking. Record: OpenPI branch SHA, RCW `main` SHA from the 
 1. Both 30k jobs print `train_done`.
 2. Hub roots are step **29999** (not the shuffled-language checkpoints).
 3. W&B runs exist under the two project names above.
-4. Run logs list the locked RCW `main` SHA.
+4. Run logs list the locked RCW `main` SHA and Vast 4× H100 SXM instance ids.
 
 Do not start eval/RLT in this slice.

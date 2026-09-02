@@ -3,7 +3,7 @@
 ## Mode
 - run_type: full-component fine-tune
 - objective: retrain π0.5 on `villekuosmanen/busybox_multitask` with remapped per-frame prompts, relative actions (5 joints delta, gripper absolute), and per-timestep min/max bounds in `q01`/`q99`
-- status: running (norm stats / 30k)
+- status: completed (`train_done`); published to Hub; Vast instance destroyed
 
 ## Config
 - config: `pi05_busybox_multitask_minmax`
@@ -36,8 +36,10 @@
 
 ## Job
 - execution_id: Vast `49646082`
-- submitted/start: `2026-09-02T12:48Z`
+- submitted/start: `2026-09-02T13:09:34Z` (train start)
 - start_human: Wednesday, Sep 2nd, 2026
+- end: `2026-09-02T17:04:14Z` (`train_done` / Hub 29999)
+- end_human: Wednesday, Sep 2nd, 2026
 
 ## Status
 - 2026-09-02 — relative 30k already running on Taiwan 4× H100 SXM `49643702`. No second H100 SXM on the market.
@@ -49,8 +51,17 @@
 - 2026-09-02 13:09 UTC — JAX `device_count=4`. `use_min_max_norm_stats=True`. W&B `swjv9hbs`.
 - 2026-09-02 13:11 UTC — first-step XLA gemm autotune mismatch (same as prior 30k; training continued). Step 0: `loss=0.2058`, `grad_norm=2.6192`, `param_norm=1802.3865`.
 - 2026-09-02 13:12 UTC — ~2.2 it/s after compile (~3h45m remaining). Step 100: `loss=0.1158`.
+- 2026-09-02 13:51–17:04 UTC — published Hub 5k / 10k / 15k / 20k / 25k / 29999.
+- 2026-09-02 17:04 UTC — `train_done`. GPUs idle. Instance still billed ~$18.63/hr.
+- 2026-09-02 18:50 UTC — uploaded prompt-fix model card to Hub `README.md` (W&B `swjv9hbs`, code `84a93ad`). Destroyed Vast `49646082`.
 
 ## Results
+- runtime: ~3h 55m (train start `2026-09-02T13:09:34+00:00`, Hub 29999 / `train_done` `2026-09-02T17:04:14+00:00`)
+- final step: 29999
+- start_train_loss: `0.2058` (step 0)
+- end_train_loss: `0.0019` (step 29900)
+- local checkpoint: `.../pi05_busybox_multitask_minmax/pi05_busybox_multitask_minmax/29999/` (`keep_period=None`)
+- assets: `norm_stats.json`, `norm_stats_actions_per_timestep.json`, `valid_indices.json`
 
 ## W&B
 - project: `busybox_multitask_pi05_minmax`
@@ -59,5 +70,11 @@
 - Hub: `pravsels/pi05_busybox_multitask_minmax`
 - synced: online
 
+## HuggingFace
+- Hub: https://huggingface.co/pravsels/pi05_busybox_multitask_minmax
+- published: repo root replaced at 5k, 10k, 15k, 20k, 25k, and 29999 (`train_state` excluded)
+- uploaded: 2026-09-02 17:04 UTC (final); model card 2026-09-02 18:50 UTC
+
 ## Next
-- Hub 29999 / `train_done`. Do not touch relative instance `49643702`.
+- Vast `49646082` destroyed
+- eval / RLT later; do not start in this slice

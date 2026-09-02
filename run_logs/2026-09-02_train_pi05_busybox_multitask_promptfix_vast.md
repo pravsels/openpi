@@ -3,7 +3,7 @@
 ## Mode
 - run_type: full-component fine-tune
 - objective: retrain π0.5 on `villekuosmanen/busybox_multitask` with remapped per-frame prompts, relative actions (5 joints delta, gripper absolute), and per-timestep 1%/99% action norm
-- status: running (norm stats / 30k)
+- status: completed (`train_done`); published to Hub; Vast instance destroyed
 
 ## Config
 - config: `pi05_busybox_multitask`
@@ -36,8 +36,10 @@
 
 ## Job
 - execution_id: Vast `49643702`
-- submitted/start: `2026-09-02T12:19Z` (approx; contract created)
+- submitted/start: `2026-09-02T12:40:12Z` (train start)
 - start_human: Wednesday, Sep 2nd, 2026
+- end: `2026-09-02T17:10:03Z` (`train_done` / Hub 29999)
+- end_human: Wednesday, Sep 2nd, 2026
 
 ## Status
 - 2026-09-02 — local prompt check: `wrapped_tasks 27`, `mismatches 0`, `prompt_ok`. Index 0 is `Move the left slider to position 1`.
@@ -52,8 +54,17 @@
 - 2026-09-02 12:40 UTC — train process up. JAX `device_count=4`. Fresh assets written under `/root/openpi_runs/pi05_busybox_multitask/...`. W&B `4ym0qegc`.
 - 2026-09-02 12:42 UTC — step 0: `loss=0.2669`, `grad_norm=2.5032`, `param_norm=1802.3865`.
 - 2026-09-02 13:12 UTC — ~2.0 it/s at step 3400, `loss=0.0214`. Remaining ~3h45m.
+- 2026-09-02 13:34–17:10 UTC — published Hub 5k / 10k / 15k / 20k / 25k / 29999.
+- 2026-09-02 17:10 UTC — `train_done`. GPUs idle. Instance still billed ~$13.53/hr.
+- 2026-09-02 18:50 UTC — uploaded prompt-fix model card to Hub `README.md` (W&B `4ym0qegc`, code `84a93ad`). Destroyed Vast `49643702`.
 
 ## Results
+- runtime: ~4h 30m (train start `2026-09-02T12:40:12+00:00`, Hub 29999 / `train_done` `2026-09-02T17:10:03+00:00`)
+- final step: 29999
+- start_train_loss: `0.2669` (step 0)
+- end_train_loss: `0.0030` (step 29900)
+- local checkpoint: `.../pi05_busybox_multitask/pi05_busybox_multitask/29999/` (`keep_period=None`)
+- assets: `norm_stats.json`, `norm_stats_actions_per_timestep.json`, `valid_indices.json`
 
 ## W&B
 - project: `busybox_multitask_pi05`
@@ -63,5 +74,11 @@
 - synced: online
 - local: `/workspace/openpi/wandb/run-20260902_124025-4ym0qegc`
 
+## HuggingFace
+- Hub: https://huggingface.co/pravsels/pi05_busybox_multitask
+- published: repo root replaced at 5k, 10k, 15k, 20k, 25k, and 29999 (`train_state` excluded)
+- uploaded: 2026-09-02 17:10 UTC (final); model card 2026-09-02 18:50 UTC
+
 ## Next
-- Hub 29999 / `train_done`. Minmax is on Japan H200 `49646082`.
+- Vast `49643702` destroyed
+- eval / RLT later; do not start in this slice
