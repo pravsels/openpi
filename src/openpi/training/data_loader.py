@@ -19,10 +19,15 @@ try:
     import lerobot.datasets.lerobot_dataset as lerobot_dataset
 except ModuleNotFoundError:
     import lerobot.common.datasets.lerobot_dataset as lerobot_dataset
- 
-from robocandywrapper.factory import make_dataset_without_config
-from robocandywrapper.plugins import EpisodeOutcomePlugin, ControlModePlugin
-from robocandywrapper.plugins.subtask import SubtaskPlugin
+
+# rewact_tools imports RCW, which imports factory at package load. Aliases must
+# be installed first; isort would hoist rewact_tools above this first-party import.
+from openpi.training.lerobot_rcw_compat import (  # noqa: I001
+    ControlModePlugin,
+    EpisodeOutcomePlugin,
+    SubtaskPlugin,
+    make_dataset_without_config,
+)
 from rewact_tools import PiStar0_6CumulativeRewardPlugin
 
 
