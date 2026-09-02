@@ -2968,6 +2968,43 @@ _CONFIGS = [
         ema_decay=0.999,
         wandb_enabled=True,
     ),
+    # Same relative recipe as pi05_busybox_multitask (5 joints delta, gripper
+    # absolute) but stores exact min/max in the q01/q99 fields instead of 1%/99%
+    # percentiles. Distinct config name so it cannot reuse relative or abs assets.
+    TrainConfig(
+        name="pi05_busybox_multitask_minmax",
+        project_name="busybox_multitask_pi05_minmax",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=30,
+            image_keys=so101_policy.SO101_THREE_CAM_IMAGE_KEYS,
+        ),
+        data=LeRobotSO101ThreeCamDataConfig(
+            repo_id="villekuosmanen/busybox_multitask",
+            default_prompt=None,
+            base_config=DataConfig(
+                prompt_from_task=True,
+                use_per_timestep_action_norm=True,
+                use_min_max_norm_stats=True,
+            ),
+            use_delta_actions=True,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi05_base/params"),
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=2.5e-5,
+            decay_steps=30_000,
+            decay_lr=2.5e-6,
+        ),
+        num_train_steps=30_000,
+        save_interval=5_000,
+        keep_period=None,
+        batch_size=32,
+        fsdp_devices=1,
+        num_workers=8,
+        ema_decay=0.999,
+        wandb_enabled=True,
+    ),
     #
     # ARX5 multi-task foundation model configs.
     #
