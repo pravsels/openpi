@@ -1,9 +1,9 @@
-# Train — π0.5 BusyBox multitask absolute actions
+# Train — π0.5 BusyBox multitask absolute actions (Vast)
 
 ## Mode
 - run_type: full-component fine-tune
 - objective: train π0.5 on `villekuosmanen/busybox_multitask` with absolute 6D actions, true min/max normalization, and per-episode task prompts
-- status: running (30k; smoke skipped; restarted on cheaper SXM)
+- status: completed (`train_done`); published to Hub; instance destroyed
 
 ## Config
 - config: `pi05_busybox_multitask_abs`
@@ -22,7 +22,7 @@
 
 ## Infrastructure
 - provider: Vast
-- instance: `49590717` (`pi05-busybox-multitask-abs`)
+- instance: `49590717` (`pi05-busybox-multitask-abs`) — destroyed 2026-09-02 after `train_done`
 - offer: `49362311` 4× H100 SXM 80GB HBM3, Netherlands, billed ~$11.11/hr, 1600 GB disk
 - image: `nvcr.io/nvidia/pytorch:25.03-py3`
 - SSH: `ssh -i ~/.ssh/id_ed25519 -p 30716 root@ssh6.vast.ai`
@@ -32,7 +32,7 @@
 - bootstrap log: `/workspace/vast_runs/openpi/logs/bootstrap.log`
 - checkpoints: `/workspace/openpi/checkpoints/pi05_busybox_multitask_abs/pi05_busybox_multitask_abs/`
 - assets: `/root/openpi_runs/pi05_busybox_multitask_abs/pi05_busybox_multitask_abs/assets`
-- prior US box `49589136` destroyed before 5k; do not reuse relative-run assets or touch relative `49582742` / CRA `49561214`
+- prior US box `49589136` destroyed before 5k; do not reuse relative-run assets
 
 ## Status
 - 2026-09-01 — Variant 2 config and true min/max normalization wiring prepared locally.
@@ -47,8 +47,21 @@
 - 2026-09-01 23:22 UTC — step 200: `loss=0.0429`, `grad_norm=0.4300`.
 - 2026-09-01 23:23 UTC — step 300: `loss=0.0350`, `grad_norm=0.3945`.
 - 2026-09-01 23:24 UTC — step 400: `loss=0.0304`, `grad_norm=0.3386`.
-- throughput: ~2.0 it/s after compile (~0.50 s/step); remaining ~4h10m to 30k. Same envelope as the relative Taiwan 30k and the killed US abs box.
-- GPU sample (23:21 UTC): 4× H100 ~59–98% util, ~78.6 / 81.6 GiB.
+- throughput: ~2.0 it/s after compile (~0.50 s/step). GPU sample (23:21 UTC): 4× H100 ~59–98% util, ~78.6 / 81.6 GiB.
+- 2026-09-02 00:05 UTC — published Hub step 5000.
+- 2026-09-02 00:49 UTC — published Hub step 10000.
+- 2026-09-02 01:32 UTC — published Hub step 15000.
+- 2026-09-02 02:16 UTC — published Hub step 20000.
+- 2026-09-02 02:59 UTC — published Hub step 25000.
+- 2026-09-02 03:43 UTC — published Hub step 29999; wrapper printed `train_done`. GPUs idle.
+
+## Results
+- runtime: ~4h 25m (train start `2026-09-01T23:18:37+00:00`, Hub 29999 / `train_done` `2026-09-02T03:43:34+00:00`)
+- final step: 29999
+- start_train_loss: `0.2664` (step 0)
+- end_train_loss: `0.0017` (step 29900)
+- local checkpoint: `.../pi05_busybox_multitask_abs/pi05_busybox_multitask_abs/29999/` (`keep_period=None`)
+- assets: `norm_stats.json`, `norm_stats_actions_per_timestep.json`, `valid_indices.json`
 
 ## W&B
 - project: `busybox_multitask_pi05_abs`
@@ -59,8 +72,9 @@
 
 ## HuggingFace
 - Hub: https://huggingface.co/pravsels/pi05_busybox_multitask_abs
-- publisher: `scripts/gman_publish_latest.py` (started with train; steps 5k–30k when they finalize)
+- published: repo root replaced at 5k, 10k, 15k, 20k, 25k, and 29999 (`train_state` excluded)
+- uploaded: 2026-09-02 03:43 UTC (final)
 
 ## Next
-- let the run reach 30k and verify Hub 5k–30k plus train/publisher exit codes
-- do not destroy `49590717` or relative `49582742` without asking
+- pull `pravsels/pi05_busybox_multitask_abs` for eval / comparison against the relative Hub
+- instance `49590717` destroyed after Hub verify

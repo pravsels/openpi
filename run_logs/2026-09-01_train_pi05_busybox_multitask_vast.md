@@ -3,7 +3,7 @@
 ## Mode
 - run_type: full-component fine-tune
 - objective: train π0.5 on `villekuosmanen/busybox_multitask` with the green-button relative-action recipe and per-episode task prompts
-- status: running (30k; smoke skipped)
+- status: completed (`train_done`); published to Hub; instance destroyed
 
 ## Config
 - config: `pi05_busybox_multitask`
@@ -22,7 +22,7 @@
 
 ## Infrastructure
 - provider: Vast
-- instance: `49582742` (`pi05-busybox-multitask`)
+- instance: `49582742` (`pi05-busybox-multitask`) — destroyed 2026-09-02 after `train_done`
 - offer: `49467276` 4× H100 SXM 80GB HBM3, Taiwan, billed ~$13.54/hr, 1516 GB disk
 - image: `nvcr.io/nvidia/pytorch:25.03-py3`
 - SSH: `ssh -i ~/.ssh/id_ed25519 -p 22742 root@ssh8.vast.ai`
@@ -45,6 +45,21 @@
 - 2026-09-01 22:04 UTC — step 200: `loss=0.1007`, `grad_norm=0.9142`.
 - 2026-09-01 22:05 UTC — step 300: `loss=0.0857`, `grad_norm=0.8005`; ~2.0 it/s, remaining ~4h10m.
 - GPU sample (22:05 UTC): 4× H100 ~99–100% util, ~78.6 / 81.6 GiB.
+- 2026-09-01 22:50 UTC — published Hub step 5000.
+- 2026-09-01 23:33 UTC — published Hub step 10000.
+- 2026-09-02 00:16 UTC — published Hub step 15000.
+- 2026-09-02 01:01 UTC — published Hub step 20000.
+- 2026-09-02 01:44 UTC — published Hub step 25000.
+- 2026-09-02 02:22 UTC — Orbax save of `29999` finalized (`Waiting for checkpoint manager to finish`).
+- 2026-09-02 02:28 UTC — published Hub step 29999; wrapper printed `train_done`. GPUs idle.
+
+## Results
+- runtime: ~4h 28m (train start `2026-09-01T22:00:20+00:00`, Hub 29999 / `train_done` `2026-09-02T02:28:01+00:00`)
+- final step: 29999
+- start_train_loss: `0.2662` (step 0)
+- end_train_loss: `0.0031` (step 29900)
+- local checkpoint: `.../pi05_busybox_multitask/pi05_busybox_multitask/29999/` (`keep_period=None`)
+- assets: `norm_stats.json`, `norm_stats_actions_per_timestep.json`, `valid_indices.json`
 
 ## W&B
 - project: `busybox_multitask_pi05`
@@ -54,9 +69,9 @@
 
 ## HuggingFace
 - Hub: https://huggingface.co/pravsels/pi05_busybox_multitask
-- publisher: `scripts/gman_publish_latest.py` (started with train; steps 5k–30k when they finalize)
+- published: repo root replaced at 5k, 10k, 15k, 20k, 25k, and 29999 (`train_state` excluded)
+- uploaded: 2026-09-02 02:28 UTC (final)
 
 ## Next
-- let the run reach 30k and verify Hub 5k–30k plus train/publisher exit codes
-- Variant 2 (`pi05_busybox_multitask_abs`) later
-- do not destroy `49582742` without asking
+- pull `pravsels/pi05_busybox_multitask` for eval / RLT later
+- instance `49582742` destroyed after Hub verify
