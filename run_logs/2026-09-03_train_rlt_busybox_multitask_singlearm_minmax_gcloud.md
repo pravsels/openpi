@@ -3,7 +3,7 @@
 ## Mode
 - run_type: replication
 - objective: train the RL-token bottleneck on the frozen prompt-fix π0.5 minmax multitask checkpoint so `hw_control.pi0_rlt` can extract tokens
-- status: training (step 100 logged)
+- status: training (step 12900 logged)
 
 ## Config
 - script: `slurm/train_busybox_multitask_singlearm_minmax_rlt_gcloud.sh`
@@ -52,6 +52,8 @@
 - 2026-09-03 12:22 UTC — 86/20000, ~1.4 it/s, ETA ~4h. GPU 100%, 77.6/80.0 GiB.
 - 2026-09-03 12:22 UTC — step 100: `loss=5612.74`, `grad_norm=14162.65`, `param_norm=1836.38`.
 - 2026-09-03 12:23 UTC — 184/20000, ~1.4 it/s, ETA ~4h. GPU 100%, 77.6/80.0 GiB. No errors.
+- 2026-09-03 14:43 UTC — step 11500: `loss=379.56`, `grad_norm=1144.63`, `param_norm=1837.09`. 11.6k/20000, ~1.4 it/s, ETA ~1h 44m. GPU 100%, 77.6/80.0 GiB. No errors.
+- 2026-09-03 15:01 UTC — step 12900: `loss=358.34`, `grad_norm=1229.78`, `param_norm=1837.24`. 13.0k/20000, ~1.3 it/s, ETA ~1h 27m. GPU 100%, 77.6/80.0 GiB. No errors.
 
 ## Results
 

@@ -3,7 +3,7 @@
 ## Mode
 - run_type: replication
 - objective: train the RL-token bottleneck on the frozen prompt-fix π0.5 multitask checkpoint so `hw_control.pi0_rlt` can extract tokens
-- status: training (step 7500 logged)
+- status: completed (exit 0)
 
 ## Config
 - script: `slurm/train_busybox_multitask_singlearm_rlt_gcloud.sh`
@@ -35,10 +35,11 @@
 
 ## Job
 - execution_id: `openpi-rlt-busybox-multitask` / `us-central1-c`
-- submitted/start: `2026-09-03T10:46:14Z` (train.py)
+- submitted/start: `2026-09-03T10:46:00Z` (launcher)
 - start_human: Thursday, Sep 3rd, 2026
-- end:
-- end_human:
+- end: `2026-09-03T14:56:06Z`
+- end_human: Thursday, Sep 3rd, 2026
+- runtime: `4h 10m 6s`
 
 ## Status
 - 2026-09-03 10:11 UTC — committed and pushed `29fb3dc` on `task/rlt_busybox_multitask`.
@@ -55,8 +56,17 @@
 - 2026-09-03 10:52 UTC — 86/20000, ~1.4 it/s, ETA ~4h. GPU 100%, 77.6/80.0 GiB.
 - 2026-09-03 12:21 UTC — step 7400: `loss=387.69`, `grad_norm=1175.97`, `param_norm=1836.89`.
 - 2026-09-03 12:22 UTC — step 7500: `loss=386.30`, `grad_norm=1141.76`, `param_norm=1836.89`. 7.57k/20000, ~1.4 it/s, ETA ~2.5h. GPU 100%, 77.6/80.0 GiB. No errors.
+- 2026-09-03 14:43 UTC — step 19000: `loss=249.69`, `grad_norm=727.33`, `param_norm=1838.05`. 19.0k/20000, ~1.4 it/s, ETA ~12m. GPU 100%, 77.6/80.0 GiB. No errors.
+- 2026-09-03 14:55 UTC — step 19900: `loss=246.70`, `grad_norm=738.00`, `param_norm=1838.16`. Orbax save of `19999` started.
+- 2026-09-03 14:56 UTC — checkpoint finalized at `19999` (`params/` + `assets/` + `train_state/`). Launcher exit 0. GPU idle.
 
 ## Results
+- runtime: `4:10:06` (start `2026-09-03T10:46:00Z`, end `2026-09-03T14:56:06Z`)
+- final step: 19999
+- start_train_loss: `12117.80` (step 0)
+- end_train_loss: `246.70` (step 19900)
+- loss_one_liner: Stage-1 bottleneck loss dropped from ~12k to ~247 and flattened in the last 1k steps.
+- checkpoint: `/home/user/openpi/checkpoints/pi05_rlt_busybox_multitask_singlearm/busybox_multitask_rlt_singlearm/19999/`
 
 ## W&B
 - project: `busybox_multitask_rlt_singlearm`
@@ -67,4 +77,5 @@
 - local: `/workspace/repo/wandb/run-20260903_104616-xmkdxvrl`
 
 ## Next
-- monitor to 20k; do not start eval/publish in this slice
+- leave VM up until Hub publish (`params/` + `assets/` only; drop `train_state/`)
+- wait for the minmax sibling before tearing anything down
