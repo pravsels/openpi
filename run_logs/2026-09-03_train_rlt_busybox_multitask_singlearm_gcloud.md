@@ -60,6 +60,7 @@
 - 2026-09-03 14:55 UTC — step 19900: `loss=246.70`, `grad_norm=738.00`, `param_norm=1838.16`. Orbax save of `19999` started.
 - 2026-09-03 14:56 UTC — checkpoint finalized at `19999` (`params/` + `assets/` + `train_state/`). Launcher exit 0. GPU idle.
 - 2026-09-03 15:32 UTC — published step 19999 to Hub `pravsels/pi05_rlt_busybox_multitask_singlearm` (`params/` + `assets/` + README; no `train_state/`).
+- 2026-09-03 15:53 UTC — deleted VM `openpi-rlt-busybox-multitask`.
 
 ## Results
 - runtime: `4:10:06` (start `2026-09-03T10:46:00Z`, end `2026-09-03T14:56:06Z`)
@@ -85,5 +86,4 @@
 - manifest sha256: `84496d0ff720df1bfed125d56759c7dfa3d0e7e10e81de8af7d6aa61b6a5d433`
 
 ## Next
-- relative VM `openpi-rlt-busybox-multitask` is idle and billing; delete after you confirm the Hub tree
-- wait for the minmax sibling before tearing that box down
+- wait for the minmax sibling to finish and publish before tearing that box down
