@@ -3619,6 +3619,109 @@ _CONFIGS = [
         wandb_enabled=True,
     ),
     #
+    # Single-arm three-cam RLT (RLT Stage 1) — villekuosmanen/busybox_multitask
+    # on the frozen prompt-fix VLA (Hub pravsels/pi05_busybox_multitask).
+    # Trains ONLY the encoder-decoder (rl_vla_loss_weight=0.0 → VLA frozen).
+    # Same three-cam keys, prompt_from_task, and relative-action setup as
+    # pi05_busybox_multitask so norm stats and the 6D action space line up.
+    # Do not reuse pi05_rlt_busybox_multitask (bimanual 12D / 10k).
+    #
+    TrainConfig(
+        name="pi05_rlt_busybox_multitask_singlearm",
+        project_name="busybox_multitask_rlt_singlearm",
+        model=pi0_rl_config.Pi0RLConfig(
+            pi05=True,
+            action_horizon=30,
+            image_keys=so101_policy.SO101_THREE_CAM_IMAGE_KEYS,
+            rl_vla_loss_weight=0.0,
+        ),
+        data=LeRobotSO101ThreeCamDataConfig(
+            repo_id="villekuosmanen/busybox_multitask",
+            default_prompt=None,
+            base_config=DataConfig(prompt_from_task=True),
+            use_delta_actions=True,
+        ),
+        batch_size=16,
+        num_workers=8,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=5e-5,
+            decay_steps=20_000,
+            decay_lr=5e-5,
+        ),
+        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
+        ema_decay=0.999,
+        freeze_filter=pi0_rl_config.Pi0RLConfig(
+            pi05=True,
+            action_horizon=30,
+            image_keys=so101_policy.SO101_THREE_CAM_IMAGE_KEYS,
+            rl_vla_loss_weight=0.0,
+        ).get_rl_freeze_filter(),
+        weight_loader=weight_loaders.RLTokenCheckpointWeightLoader(
+            # Published Hub repo puts params/ + assets/ at the repo root (not
+            # step_N/). Download into the checkpoints bind:
+            #   hf download pravsels/pi05_busybox_multitask \
+            #     --local-dir checkpoints/pi05_busybox_multitask
+            #   → checkpoints/pi05_busybox_multitask/params
+            "checkpoints/pi05_busybox_multitask/params"
+        ),
+        num_train_steps=20_000,
+        save_interval=20_000,
+        keep_period=None,
+        wandb_enabled=True,
+    ),
+    #
+    # Same Stage-1 RLT recipe on the frozen minmax VLA
+    # (Hub pravsels/pi05_busybox_multitask_minmax). Distinct config name so
+    # assets cannot mix with the 1%/99% single-arm RLT above.
+    #
+    TrainConfig(
+        name="pi05_rlt_busybox_multitask_singlearm_minmax",
+        project_name="busybox_multitask_rlt_singlearm_minmax",
+        model=pi0_rl_config.Pi0RLConfig(
+            pi05=True,
+            action_horizon=30,
+            image_keys=so101_policy.SO101_THREE_CAM_IMAGE_KEYS,
+            rl_vla_loss_weight=0.0,
+        ),
+        data=LeRobotSO101ThreeCamDataConfig(
+            repo_id="villekuosmanen/busybox_multitask",
+            default_prompt=None,
+            base_config=DataConfig(
+                prompt_from_task=True,
+                use_per_timestep_action_norm=True,
+                use_min_max_norm_stats=True,
+            ),
+            use_delta_actions=True,
+        ),
+        batch_size=16,
+        num_workers=8,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=5e-5,
+            decay_steps=20_000,
+            decay_lr=5e-5,
+        ),
+        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
+        ema_decay=0.999,
+        freeze_filter=pi0_rl_config.Pi0RLConfig(
+            pi05=True,
+            action_horizon=30,
+            image_keys=so101_policy.SO101_THREE_CAM_IMAGE_KEYS,
+            rl_vla_loss_weight=0.0,
+        ).get_rl_freeze_filter(),
+        weight_loader=weight_loaders.RLTokenCheckpointWeightLoader(
+            #   hf download pravsels/pi05_busybox_multitask_minmax \
+            #     --local-dir checkpoints/pi05_busybox_multitask_minmax
+            #   → checkpoints/pi05_busybox_multitask_minmax/params
+            "checkpoints/pi05_busybox_multitask_minmax/params"
+        ),
+        num_train_steps=20_000,
+        save_interval=20_000,
+        keep_period=None,
+        wandb_enabled=True,
+    ),
+    #
     # Debugging configs.
     #
     TrainConfig(
