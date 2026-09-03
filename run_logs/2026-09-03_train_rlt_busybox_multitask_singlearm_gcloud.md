@@ -3,7 +3,7 @@
 ## Mode
 - run_type: replication
 - objective: train the RL-token bottleneck on the frozen prompt-fix π0.5 multitask checkpoint so `hw_control.pi0_rlt` can extract tokens
-- status: completed (exit 0)
+- status: completed (exit 0); published to Hub
 
 ## Config
 - script: `slurm/train_busybox_multitask_singlearm_rlt_gcloud.sh`
@@ -59,6 +59,7 @@
 - 2026-09-03 14:43 UTC — step 19000: `loss=249.69`, `grad_norm=727.33`, `param_norm=1838.05`. 19.0k/20000, ~1.4 it/s, ETA ~12m. GPU 100%, 77.6/80.0 GiB. No errors.
 - 2026-09-03 14:55 UTC — step 19900: `loss=246.70`, `grad_norm=738.00`, `param_norm=1838.16`. Orbax save of `19999` started.
 - 2026-09-03 14:56 UTC — checkpoint finalized at `19999` (`params/` + `assets/` + `train_state/`). Launcher exit 0. GPU idle.
+- 2026-09-03 15:32 UTC — published step 19999 to Hub `pravsels/pi05_rlt_busybox_multitask_singlearm` (`params/` + `assets/` + README; no `train_state/`).
 
 ## Results
 - runtime: `4:10:06` (start `2026-09-03T10:46:00Z`, end `2026-09-03T14:56:06Z`)
@@ -76,6 +77,13 @@
 - synced: online
 - local: `/workspace/repo/wandb/run-20260903_104616-xmkdxvrl`
 
+## HuggingFace
+- repo: https://huggingface.co/pravsels/pi05_rlt_busybox_multitask_singlearm
+- uploaded checkpoints: step 19999, `params/` + `assets/` at repo root
+- includes: README, TRAINING_LOG, CHECKPOINT_MANIFEST.json, assets, params
+- excludes: `train_state/`
+- manifest sha256: `84496d0ff720df1bfed125d56759c7dfa3d0e7e10e81de8af7d6aa61b6a5d433`
+
 ## Next
-- leave VM up until Hub publish (`params/` + `assets/` only; drop `train_state/`)
-- wait for the minmax sibling before tearing anything down
+- relative VM `openpi-rlt-busybox-multitask` is idle and billing; delete after you confirm the Hub tree
+- wait for the minmax sibling before tearing that box down
