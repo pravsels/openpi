@@ -3,7 +3,7 @@
 ## Mode
 - run_type: replication
 - objective: train the RL-token bottleneck on the frozen prompt-fix π0.5 minmax multitask checkpoint so `hw_control.pi0_rlt` can extract tokens
-- status: training (step 12900 logged)
+- status: completed (exit 0); published to Hub
 
 ## Config
 - script: `slurm/train_busybox_multitask_singlearm_minmax_rlt_gcloud.sh`
@@ -35,10 +35,11 @@
 
 ## Job
 - execution_id: `openpi-rlt-busybox-multitask-minmax` / `us-central1-c`
-- submitted/start: `2026-09-03T12:16:19Z` (train.py)
+- submitted/start: `2026-09-03T12:16:05Z` (launcher)
 - start_human: Thursday, Sep 3rd, 2026
-- end:
-- end_human:
+- end: `2026-09-03T16:28:39Z`
+- end_human: Thursday, Sep 3rd, 2026
+- runtime: `4h 12m 34s`
 
 ## Status
 - 2026-09-03 — relative single-arm RLT already running on `openpi-rlt-busybox-multitask`. This run is a separate VM.
@@ -54,8 +55,18 @@
 - 2026-09-03 12:23 UTC — 184/20000, ~1.4 it/s, ETA ~4h. GPU 100%, 77.6/80.0 GiB. No errors.
 - 2026-09-03 14:43 UTC — step 11500: `loss=379.56`, `grad_norm=1144.63`, `param_norm=1837.09`. 11.6k/20000, ~1.4 it/s, ETA ~1h 44m. GPU 100%, 77.6/80.0 GiB. No errors.
 - 2026-09-03 15:01 UTC — step 12900: `loss=358.34`, `grad_norm=1229.78`, `param_norm=1837.24`. 13.0k/20000, ~1.3 it/s, ETA ~1h 27m. GPU 100%, 77.6/80.0 GiB. No errors.
+- 2026-09-03 15:53 UTC — step 17200: `loss=315.43`, `grad_norm=1028.22`, `param_norm=1837.74`. 17.2k/20000, ~1.3–1.4 it/s, ETA ~34m. GPU 100%, 77.6/80.0 GiB. No errors.
+- 2026-09-03 16:27 UTC — step 19900: `loss=293.81`, `grad_norm=999.75`, `param_norm=1838.08`. Orbax save of `19999` started.
+- 2026-09-03 16:28 UTC — checkpoint finalized at `19999` (`params/` + `assets/` + `train_state/`). Launcher exit 0. GPU idle.
+- 2026-09-03 16:52 UTC — published step 19999 to Hub `pravsels/pi05_rlt_busybox_multitask_singlearm_minmax` (`params/` + `assets/` + README; no `train_state/`).
 
 ## Results
+- runtime: `4:12:34` (start `2026-09-03T12:16:05Z`, end `2026-09-03T16:28:39Z`)
+- final step: 19999
+- start_train_loss: `10755.68` (step 0)
+- end_train_loss: `293.81` (step 19900)
+- loss_one_liner: Stage-1 bottleneck loss dropped from ~10.8k to ~294 and flattened in the last 1k steps.
+- checkpoint: `/home/user/openpi/checkpoints/pi05_rlt_busybox_multitask_singlearm_minmax/busybox_multitask_rlt_singlearm_minmax/19999/`
 
 ## W&B
 - project: `busybox_multitask_rlt_singlearm_minmax`
@@ -65,5 +76,12 @@
 - synced: online
 - local: `/workspace/repo/wandb/run-20260903_121621-93keszgb`
 
+## HuggingFace
+- repo: https://huggingface.co/pravsels/pi05_rlt_busybox_multitask_singlearm_minmax
+- uploaded checkpoints: step 19999, `params/` + `assets/` at repo root
+- includes: README, TRAINING_LOG, CHECKPOINT_MANIFEST.json, assets, params
+- excludes: `train_state/`
+- manifest sha256: `eab2c46fc0d6bdf51268132bece95b431044ec227055997bac45e7e37db8e98e`
+
 ## Next
-- monitor to 20k; do not start eval/publish in this slice
+- delete VM `openpi-rlt-busybox-multitask-minmax` after you confirm the Hub tree
