@@ -23,10 +23,15 @@ RUN uv python install 3.11
 WORKDIR /workspace/repo
 
 # Install dependencies at build time.
+# RCW task-index remap (de4e4eb) is only on git main, not PyPI. Both report
+# 0.2.18, so a stale lock or cache can leave the image on the PyPI wheel.
+# Force git main after uv sync. RLT also uv-syncs a mounted repo .venv at
+# launch; this keeps image /.venv safe for scripts that still use it.
 COPY . /workspace/repo
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --group dev && \
-    uv pip install -e .
+    uv pip install -e . && \
+    uv pip install "robocandywrapper @ git+https://github.com/villekuosmanen/RoboCandyWrapper.git@main"
 
 # Install decord into the uv environment (source for arm64, pip for amd64).
 # Arm64 fix: patch FFmpeg includes + AVCodec constness to match newer FFmpeg headers.
