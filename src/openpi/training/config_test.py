@@ -641,6 +641,73 @@ def test_busybox_multitask_singlearm_rlt_gcloud_script_references_config():
     _config.get_config("pi05_rlt_busybox_multitask_singlearm")
 
 
+def test_busybox_multitask_singlearm_minmax_rlt_config():
+    three_cam = ("base_0_rgb", "left_wrist_0_rgb", "base_1_rgb")
+    cfg = _config.get_config("pi05_rlt_busybox_multitask_singlearm_minmax")
+    rel = _config.get_config("pi05_rlt_busybox_multitask_singlearm")
+    assert cfg.project_name == "busybox_multitask_rlt_singlearm_minmax"
+    assert cfg.model.pi05 is True
+    assert cfg.model.action_horizon == 30
+    assert cfg.model.rl_vla_loss_weight == 0.0
+    assert tuple(cfg.model.image_keys) == three_cam
+    assert isinstance(cfg.data, _config.LeRobotSO101ThreeCamDataConfig)
+    assert cfg.data.repo_id == "villekuosmanen/busybox_multitask"
+    assert cfg.data.video_backend == "torchcodec"
+    assert cfg.data.default_prompt is None
+    assert cfg.data.base_config is not None
+    assert cfg.data.base_config.prompt_from_task is True
+    assert cfg.data.base_config.use_min_max_norm_stats is True
+    assert cfg.data.base_config.use_per_timestep_action_norm is True
+    assert cfg.data.use_delta_actions is True
+    assert cfg.num_train_steps == 20_000
+    assert cfg.save_interval == 20_000
+    assert cfg.keep_period is None
+    assert cfg.num_workers == 8
+    assert cfg.batch_size == 16
+    assert cfg.fsdp_devices == 1
+    assert cfg.weight_loader.params_path == "checkpoints/pi05_busybox_multitask_minmax/params"
+    assert cfg.assets_dirs != rel.assets_dirs
+    assert rel.data.base_config is None or not rel.data.base_config.use_min_max_norm_stats
+
+    dummy = pi0_rl_config.Pi0RLConfig(
+        pi05=True,
+        paligemma_variant="dummy",
+        action_expert_variant="dummy",
+        action_horizon=30,
+        image_keys=three_cam,
+        rl_vla_loss_weight=0.0,
+    )
+    abstract = nnx.eval_shape(dummy.create, jax.random.key(0))
+    frozen = nnx.state(abstract, nnx.All(nnx.Param, cfg.freeze_filter)).flat_state()
+    assert frozen, "freeze_filter must freeze VLA params, not nnx.Nothing"
+    assert all("rl_encoder" not in str(path) and "rl_decoder" not in str(path) for path in frozen)
+
+
+def test_busybox_multitask_singlearm_minmax_rlt_gcloud_script_references_config():
+    script = pathlib.Path("slurm/train_busybox_multitask_singlearm_minmax_rlt_gcloud.sh").read_text()
+    assert 'CONFIG_NAME="pi05_rlt_busybox_multitask_singlearm_minmax"' in script
+    assert "pravsels/pi05_busybox_multitask_minmax" in script
+    assert "checkpoints/pi05_busybox_multitask_minmax/params" in script
+    assert "WANDB_MODE=online" in script
+    assert "80000" in script
+    assert "MIN_FREE_GB" in script
+    assert "refusing to recompute" in script
+    assert "XLA_PYTHON_CLIENT_MEM_FRACTION=0.95" in script
+    assert "snapshot_download" in script
+    assert "_METADATA" in script
+    assert "manifest.ocdbt" in script
+    assert "TRAIN_ARGS=(" in script
+    assert '"${TRAIN_ARGS[@]}"' in script
+    assert "${HOME}/.env" in script
+    assert "uv sync" in script
+    assert "597aa9ad21176e7f7dcee4aede5dc1ffc07eacee" in script
+    assert "scripts/check_busybox_multitask_rcw_prompts.py" in script
+    assert "UV_PROJECT_ENVIRONMENT=/workspace/repo/.venv" in script
+    assert "swjv9hbs" in script
+    assert "4ym0qegc" not in script
+    _config.get_config("pi05_rlt_busybox_multitask_singlearm_minmax")
+
+
 def test_dockerfile_installs_rcw_from_git_main_not_pypi():
     dockerfile = pathlib.Path("docker/Dockerfile").read_text()
     assert "github.com/villekuosmanen/RoboCandyWrapper.git" in dockerfile
