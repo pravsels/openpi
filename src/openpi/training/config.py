@@ -2894,6 +2894,42 @@ _CONFIGS = [
         wandb_enabled=True,
     ),
     # ---------------------------------------------------------------------------
+    # pi0 (not pi05) full fine-tune on armnet/busybox_multitask — single-GPU Vast,
+    # 20k steps, checkpoints every 5k (checkpoint-<step>/ on the Hub). Same three-cam
+    # relative-action recipe as the pi05 multitask config below, but pi0 base and a
+    # 20k cosine schedule. Single GPU (fsdp_devices=1), so batch_size == per-device
+    # batch. The proven pi05 three-cam run used 8/device (bs 32 over 4 devices); we
+    # match that here for one 80GB H100. Raise after a smoke run if memory allows.
+    # ---------------------------------------------------------------------------
+    TrainConfig(
+        name="pi0_busybox_multitask",
+        project_name="busybox_multitask_pi0",
+        model=pi0_config.Pi0Config(
+            action_horizon=30,
+            image_keys=so101_policy.SO101_THREE_CAM_IMAGE_KEYS,
+        ),
+        data=LeRobotSO101ThreeCamDataConfig(
+            repo_id="armnet/busybox_multitask",
+            default_prompt=None,
+            base_config=DataConfig(prompt_from_task=True),
+            use_delta_actions=True,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi0_base/params"),
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=2.5e-5,
+            decay_steps=20_000,
+            decay_lr=2.5e-6,
+        ),
+        num_train_steps=20_000,
+        save_interval=5_000,
+        keep_period=None,
+        batch_size=8,
+        fsdp_devices=1,
+        num_workers=8,
+        ema_decay=0.999,
+        wandb_enabled=True,
+    ),
     # Busybox multi-task SO101 config — villekuosmanen/busybox_multitask.
     # Current Hub snapshot is single-arm 6D (66 episodes, 12141 frames, 27 tasks,
     # cameras top/wrist/front). Same three-cam relative-action recipe as

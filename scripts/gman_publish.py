@@ -138,6 +138,35 @@ def publish_checkpoint_root(
         )
 
 
+def publish_checkpoint_subfolder(
+    api: HfPublishApi,
+    *,
+    repo_id: str,
+    checkpoint_dir: Path,
+    config_name: str,
+    step: int,
+) -> None:
+    """Upload one inference checkpoint to a ``checkpoint-<step>/`` subfolder.
+
+    Unlike :func:`publish_checkpoint_root`, this keeps every previously published
+    checkpoint in place, so a run leaves ``checkpoint-5000 .. checkpoint-20000``
+    side by side in the repo.
+    """
+    checkpoint_dir = Path(checkpoint_dir)
+    if not checkpoint_dir.is_dir() or not checkpoint_has_params(checkpoint_dir):
+        raise ValueError(f"Checkpoint step {step} is incomplete: {checkpoint_dir}")
+
+    api.create_repo(repo_id, repo_type="model", exist_ok=True)
+    api.upload_folder(
+        folder_path=str(checkpoint_dir),
+        repo_id=repo_id,
+        path_in_repo=f"checkpoint-{step}",
+        repo_type="model",
+        ignore_patterns=["train_state/**"],
+        commit_message=f"Add {config_name} checkpoint step {step}",
+    )
+
+
 def publish_checkpoint_steps(
     api: HfPublishApi,
     *,

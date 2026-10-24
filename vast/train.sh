@@ -1,14 +1,17 @@
 #!/usr/bin/env bash
-# Vast train wrapper: 4 JAX devices, pi05_busybox_multitask, online W&B.
+# Vast train wrapper: single GPU, pi0_busybox_multitask, online W&B.
+# Checkpoints publish to armnet/pi0_busybox_multitask as checkpoint-<step>/ subfolders.
 # Load tokens from /workspace/secrets/* without echoing them. Do not set -x.
 set -eu
 export PYTHONUNBUFFERED=1
 export REPO_DIR="${REPO_DIR:-/workspace/openpi}"
-export CONFIG_NAME="${CONFIG_NAME:-pi05_busybox_multitask}"
-export REQUIRE_JAX_DEVICES="${REQUIRE_JAX_DEVICES:-4}"
+export CONFIG_NAME="${CONFIG_NAME:-pi0_busybox_multitask}"
+export REQUIRE_JAX_DEVICES="${REQUIRE_JAX_DEVICES:-1}"
 export WANDB_MODE="${WANDB_MODE:-online}"
 export WANDB_ENTITY="${WANDB_ENTITY:-pravsels}"
-export WANDB_PROJECT="${WANDB_PROJECT:-busybox_multitask_pi05}"
+export WANDB_PROJECT="${WANDB_PROJECT:-busybox_multitask_pi0}"
+export HF_REPO="${HF_REPO:-armnet/pi0_busybox_multitask}"
+export HF_CHECKPOINT_LAYOUT="${HF_CHECKPOINT_LAYOUT:-subfolder}"
 export XLA_PYTHON_CLIENT_MEM_FRACTION="${XLA_PYTHON_CLIENT_MEM_FRACTION:-0.95}"
 
 if [[ -f /workspace/secrets/hf_token ]]; then

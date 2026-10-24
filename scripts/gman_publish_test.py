@@ -94,6 +94,24 @@ def test_publish_errors_when_nothing_uploaded(tmp_path: Path):
         )
 
 
+def test_publish_checkpoint_subfolder_uploads_to_checkpoint_step_and_keeps_prior(tmp_path: Path):
+    _write_step(tmp_path, "5000")
+    api = FakeHf()
+    gman_publish.publish_checkpoint_subfolder(
+        api,
+        repo_id="armnet/pi0_busybox_multitask",
+        checkpoint_dir=tmp_path / "5000",
+        config_name="pi0_busybox_multitask",
+        step=5_000,
+    )
+    assert api.created == ["armnet/pi0_busybox_multitask"]
+    upload = api.uploads[0]
+    assert upload["path_in_repo"] == "checkpoint-5000"
+    assert upload["ignore_patterns"] == ["train_state/**"]
+    # Prior checkpoints must not be deleted: no delete_patterns on a subfolder push.
+    assert upload["delete_patterns"] is None
+
+
 def test_publish_checkpoint_root_replaces_model_files_but_preserves_hub_metadata(tmp_path: Path):
     _write_step(tmp_path, "10000")
     api = FakeHf()

@@ -125,7 +125,8 @@ if [[ "${SMOKE}" != "1" ]]; then
         --checkpoint-root="${CHECKPOINT_DIR}" \
         --repo-id="${HF_REPO}" \
         --config-name="${CONFIG_NAME}" \
-        --done-file="${PUBLISH_DONE_FILE}" &
+        --done-file="${PUBLISH_DONE_FILE}" \
+        --layout="${HF_CHECKPOINT_LAYOUT:-root}" &
     PUBLISH_PID=$!
 fi
 
