@@ -3,7 +3,7 @@
 ## Mode
 - run_type: full-component fine-tune
 - objective: fine-tune π0 on `armnet/busybox_multitask` for 20,000 steps (direct run, no smoke)
-- status: running
+- status: completed
 
 ## Config
 - config: `pi0_busybox_multitask`
@@ -39,9 +39,9 @@
 - execution_id: Vast `57658382`, train PID `13445`, publisher PID `13444`
 - submitted/start: `2026-10-25T11:57:22Z` (train section; step 0 logged `2026-10-25T11:59:02Z`)
 - start_human: Sunday, Oct 25th, 2026
-- end: —
-- runtime: in progress
-- state: RUNNING
+- end: 2026-10-25T14:54:40Z
+- runtime: 2 h 55 m (step 0 at 11:59 UTC, final publish 14:54 UTC)
+- state: COMPLETED
 - W&B: https://wandb.ai/pravsels/busybox_multitask_pi0/runs/3yuw4r3l
 - Hugging Face: https://huggingface.co/armnet/pi0_busybox_multitask (first upload at step 5000)
 
@@ -55,7 +55,9 @@
 - 2026-10-25 11:57 UTC — train process up. JAX `device_count=1`, `local_batch_size=8`. W&B `3yuw4r3l`. Publisher running with `--layout=subfolder`.
 - 2026-10-25 11:58 UTC — XLA rematerialization warning: could not shrink the step below ~62 GiB (down from 62.3 GiB). It still fits.
 - 2026-10-25 11:59 UTC — step 0: `loss=0.4257`, `grad_norm=11.9115`, `param_norm=1377.8652`.
-- 2026-10-25 12:02 UTC — step **400**, `loss=0.3608`, `grad_norm=6.0072`. Progress **461 / 20000** at **1.9 it/s**, remaining ~2 h 51 m. GPU **91 GB / 94 GB**, utilization 100%.
+- 2026-10-25 12:02 UTC — step **400**, `loss=0.3608`, `grad_norm=6.0072`. Progress **461 / 20000** at **1.9 it/s**. GPU **91 GB / 94 GB**, utilization 100%.
+- 2026-10-25 14:54 UTC — **completed** 20,000 steps in 2 h 54 m. Last logged step 19,900: loss **0.0967**, grad_norm 1.983. Local checkpoint `19999` saved. GPU idle.
+- 2026-10-25 14:54 UTC — published `checkpoint-5000/` `checkpoint-10000/` `checkpoint-15000/` `checkpoint-19999/` to [armnet/pi0_busybox_multitask](https://huggingface.co/armnet/pi0_busybox_multitask). Final step index is 19999, not 20000. `train_state` excluded. Instance later destroyed.
 
 ## W&B
 - project: `busybox_multitask_pi0`
@@ -66,8 +68,8 @@
 
 ## HuggingFace
 - Hub: https://huggingface.co/armnet/pi0_busybox_multitask
-- publish cadence: `checkpoint-5000/` `checkpoint-10000/` `checkpoint-15000/` `checkpoint-20000/` (`train_state` excluded)
-- uploaded: not yet (first save is step 5000)
+- publish cadence: `checkpoint-5000/` `checkpoint-10000/` `checkpoint-15000/` `checkpoint-19999/` (`train_state` excluded)
+- uploaded: all four. `checkpoint-19999/` is the final step.
 
 ## Next
-1. Confirm `checkpoint-5000/` on the Hub, then `checkpoint-20000/`, before destroying instance `57658382`.
+1. None. Instance `57658382` is destroyed and the final checkpoint is on the Hub.
