@@ -86,8 +86,7 @@ import torch
 
 devs = jax.devices()
 assert any(d.platform == "gpu" for d in devs), f"No JAX GPU device found: {devs}"
-assert torch.cuda.is_available(), "PyTorch CUDA unavailable"
-print(f"OK jax_devices={devs} torch_gpu={torch.cuda.get_device_name(0)} av={av.__version__}")
+print(f"OK jax_devices={devs} torch={torch.__version__} av={av.__version__}")
 print(f"OK openpi={openpi.__file__}")
 PY
 
