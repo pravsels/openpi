@@ -40,10 +40,16 @@ module load brics/apptainer-multi-node
 unset APPTAINER_BINDPATH SINGULARITY_BINDPATH
 
 export APPTAINER_CACHEDIR="${WORK_ROOT}/apptainer_cache"
-export APPTAINER_TMPDIR="${WORK_ROOT}/apptainer_tmp"
+# Use node-local /tmp for APPTAINER_TMPDIR: --fakeroot unpackSIF fails on Lustre
+# /scratch and node-local /tmp is dramatically faster for rootfs extraction/squash.
+BUILD_TMP="/tmp/${USER}_rbb_openpi_${SLURM_JOB_ID:-local}"
+mkdir -p "${BUILD_TMP}"
+trap 'rm -rf "${BUILD_TMP}"' EXIT
+export APPTAINER_TMPDIR="${BUILD_TMP}"
 export SINGULARITY_CACHEDIR="${APPTAINER_CACHEDIR}"
 export SINGULARITY_TMPDIR="${APPTAINER_TMPDIR}"
 export TMPDIR="${APPTAINER_TMPDIR}"
+export APPTAINER_CPUS="${SLURM_CPUS_PER_TASK:-24}"
 
 echo "=== Host: $(hostname) ($(uname -m)) ==="
 echo "=== Repo: ${REPO_DIR} ==="
