@@ -42,6 +42,7 @@
   - GPU 0: **100% util**, 36% mem util, **93,633 / 97,871 MiB VRAM**, **521.56 / 900.00 W**, 54°C
   - GPU 1: **100% util**, 36% mem util, **93,605 / 97,871 MiB VRAM**, **511.45 / 900.00 W**, 55°C
 - 2026-11-22 21:42 UTC — `Step 300: grad_norm=4.9643, loss=0.2674, param_norm=1377.8674`.
+- 2026-11-22 22:08 UTC — `Step 2200: grad_norm=1.9086, loss=0.1697, param_norm=1378.5223` (36m elapsed, steady).
 
 ## Results
 - pending (running; checkpoints saving every 5,000 steps to `/scratch/u6abf/pravsels.u6abf/rbb_openpi/checkpoints/pi0_rbb_so101_insert_gear_in_gripper/pi0_rbb_so101_insert_gear_in_gripper/`)
