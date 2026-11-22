@@ -147,6 +147,57 @@ class SO101ThreeCamInputs(transforms.DataTransformFn):
 
 
 @dataclasses.dataclass(frozen=True)
+class SO101TopWristInputs(transforms.DataTransformFn):
+    """Single-arm SO101 with overhead (`top`) and `wrist` cameras (RoboBuilderBench layout).
+
+    Mapping (π0 / π0.5 slots):
+      top -> base_0_rgb, wrist -> left_wrist_0_rgb, right_wrist_0_rgb -> masked zeros
+    """
+
+    default_prompt: str = "complete the task"
+
+    def __call__(self, data: dict) -> dict:
+        top = _parse_image(
+            _get_key(data, "observation.images.top", "observation/images/top", "image", "images.top")
+        )
+        wrist = _parse_image(
+            _get_key(data, "observation.images.wrist", "observation/images/wrist", "wrist_image", "images.wrist")
+        )
+        state = np.asarray(
+            _get_key(data, "observation.state", "observation/state", "state"),
+            dtype=np.float32,
+        )
+
+        inputs = {
+            "state": state,
+            "image": {
+                "base_0_rgb": top,
+                "left_wrist_0_rgb": wrist,
+                "right_wrist_0_rgb": np.zeros_like(top),
+            },
+            "image_mask": {
+                "base_0_rgb": np.True_,
+                "left_wrist_0_rgb": np.True_,
+                "right_wrist_0_rgb": np.False_,
+            },
+        }
+
+        if "actions" in data:
+            inputs["actions"] = np.asarray(data["actions"], dtype=np.float32)
+
+        if "prompt" in data:
+            prompt = data["prompt"]
+            inputs["prompt"] = prompt.decode("utf-8") if isinstance(prompt, bytes) else prompt
+        elif "task" in data:
+            task = data["task"]
+            inputs["prompt"] = task.decode("utf-8") if isinstance(task, bytes) else str(task)
+        else:
+            inputs["prompt"] = self.default_prompt
+
+        return inputs
+
+
+@dataclasses.dataclass(frozen=True)
 class SO101Outputs(transforms.DataTransformFn):
     """Slices model output back to SO101's native 6D action space."""
 

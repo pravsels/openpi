@@ -29,6 +29,7 @@ import openpi.policies.arx_policy as arx_policy
 import openpi.policies.droid_policy as droid_policy
 import openpi.policies.so101_policy as so101_policy
 import openpi.policies.so101_bimanual_policy as so101_bimanual_policy
+import openpi.policies.yam_bimanual_policy as yam_bimanual_policy
 import openpi.policies.libero_policy as libero_policy
 import openpi.policies.libero_subtask_policy as libero_subtask_policy
 import openpi.shared.download as _download
@@ -1122,6 +1123,137 @@ class LeRobotSO101BimanualDataConfig(DataConfigFactory):
 
         return dataclasses.replace(
             base_config,
+            repack_transforms=repack_transforms,
+            data_transforms=data_transforms,
+            model_transforms=model_transforms,
+            action_sequence_keys=self.action_sequence_keys,
+            use_per_timestep_action_norm=use_per_timestep_action_norm,
+        )
+
+
+@dataclasses.dataclass(frozen=True)
+class LeRobotSO101TopWristDataConfig(DataConfigFactory):
+    """Single-arm SO101 with overhead (`top`) and `wrist` cameras (RoboBuilderBench layout).
+
+    6D joint-space ([5 joints, gripper]); maps top -> base_0_rgb, wrist -> left_wrist_0_rgb.
+    Defaults to PyAV video decoding for GH200/ARM64 compatibility (software AV1 decode).
+    """
+
+    default_prompt: str | None = "complete the task"
+    use_delta_actions: bool = False
+    video_backend: str = "pyav"
+
+    repack_transforms: tyro.conf.Suppress[_transforms.Group] = dataclasses.field(
+        default=_transforms.Group(
+            inputs=[
+                _transforms.RepackTransform(
+                    {
+                        "observation.images.top": "observation.images.top",
+                        "observation.images.wrist": "observation.images.wrist",
+                        "observation.state": "observation.state",
+                        "actions": "action",
+                    }
+                )
+            ]
+        )
+    )
+    action_sequence_keys: Sequence[str] = ("action",)
+
+    @override
+    def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
+        data_transforms = _transforms.Group(
+            inputs=[so101_policy.SO101TopWristInputs(default_prompt=self.default_prompt or "complete the task")],
+            outputs=[so101_policy.SO101Outputs()],
+        )
+
+        if self.use_delta_actions:
+            delta_action_mask = _transforms.make_bool_mask(5, -1)
+            data_transforms = data_transforms.push(
+                inputs=[_transforms.DeltaActions(delta_action_mask)],
+                outputs=[_transforms.AbsoluteActions(delta_action_mask)],
+            )
+
+        model_transforms = ModelTransformFactory(default_prompt=self.default_prompt)(model_config)
+        base_config = self.create_base_config(assets_dirs, model_config)
+
+        repack_transforms = self.repack_transforms
+        if base_config.prompt_from_task:
+            repack_transforms = carry_prompt_through_repack(repack_transforms)
+
+        use_per_timestep_action_norm = base_config.use_per_timestep_action_norm
+        if self.use_delta_actions and use_per_timestep_action_norm is None:
+            use_per_timestep_action_norm = True
+
+        return dataclasses.replace(
+            base_config,
+            video_backend=self.video_backend,
+            repack_transforms=repack_transforms,
+            data_transforms=data_transforms,
+            model_transforms=model_transforms,
+            action_sequence_keys=self.action_sequence_keys,
+            use_per_timestep_action_norm=use_per_timestep_action_norm,
+        )
+
+
+@dataclasses.dataclass(frozen=True)
+class LeRobotBimanualYAMDataConfig(DataConfigFactory):
+    """Data config for bimanual YAM (dual-arm 6-DOF + gripper, 14D joint-space).
+
+    Layout: [left 6 joints, left gripper, right 6 joints, right gripper].
+    Cameras top / left_wrist / right_wrist map to base_0_rgb / left_wrist_0_rgb / right_wrist_0_rgb.
+    Defaults to PyAV video decoding for GH200/ARM64 compatibility (software AV1 decode).
+    """
+
+    default_prompt: str | None = "complete the task"
+    use_delta_actions: bool = False
+    video_backend: str = "pyav"
+
+    repack_transforms: tyro.conf.Suppress[_transforms.Group] = dataclasses.field(
+        default=_transforms.Group(
+            inputs=[
+                _transforms.RepackTransform(
+                    {
+                        "observation.images.top": "observation.images.top",
+                        "observation.images.left_wrist": "observation.images.left_wrist",
+                        "observation.images.right_wrist": "observation.images.right_wrist",
+                        "observation.state": "observation.state",
+                        "actions": "action",
+                    }
+                )
+            ]
+        )
+    )
+    action_sequence_keys: Sequence[str] = ("action",)
+
+    @override
+    def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
+        data_transforms = _transforms.Group(
+            inputs=[yam_bimanual_policy.BimanualYAMInputs(default_prompt=self.default_prompt or "complete the task")],
+            outputs=[yam_bimanual_policy.BimanualYAMOutputs()],
+        )
+
+        if self.use_delta_actions:
+            # Per arm: 6 joints as delta, gripper stays absolute.
+            delta_action_mask = _transforms.make_bool_mask(6, -1, 6, -1)
+            data_transforms = data_transforms.push(
+                inputs=[_transforms.DeltaActions(delta_action_mask)],
+                outputs=[_transforms.AbsoluteActions(delta_action_mask)],
+            )
+
+        model_transforms = ModelTransformFactory(default_prompt=self.default_prompt)(model_config)
+        base_config = self.create_base_config(assets_dirs, model_config)
+
+        repack_transforms = self.repack_transforms
+        if base_config.prompt_from_task:
+            repack_transforms = carry_prompt_through_repack(repack_transforms)
+
+        use_per_timestep_action_norm = base_config.use_per_timestep_action_norm
+        if self.use_delta_actions and use_per_timestep_action_norm is None:
+            use_per_timestep_action_norm = True
+
+        return dataclasses.replace(
+            base_config,
+            video_backend=self.video_backend,
             repack_transforms=repack_transforms,
             data_transforms=data_transforms,
             model_transforms=model_transforms,
@@ -3769,6 +3901,284 @@ _CONFIGS = [
         overwrite=True,
         exp_name="debug_pi0_rl",
         wandb_enabled=False,
+    ),
+    # ---------------------------------------------------------------------------
+    # RoboBuilderBench (RBB) Pi0 finetuning configs (10 tasks: 6 bimanual YAM 14D
+    # + 4 single-arm SO-101 6D). Uses openpi Pi0 (`pi05=False`, `weights/pi0_base/params`),
+    # delta joints / absolute grippers, per-timestep action norm, PyAV video backend
+    # for GH200 AV1 decode, 20k steps / batch 32 / cosine LR 2.5e-5 -> 2.5e-6.
+    # ---------------------------------------------------------------------------
+    # Bimanual YAM (6 tasks)
+    TrainConfig(
+        # Pinned dataset rev: 4df8cf8c8c26b7ead05ef98aff8446ad97793e45
+        name="pi0_rbb_assemble_rail",
+        project_name="rbb_pi0_assemble_rail",
+        model=pi0_config.Pi0Config(action_horizon=30),
+        data=LeRobotBimanualYAMDataConfig(
+            repo_id="armnet/assemble_rail",
+            default_prompt="Assemble the rail from its parts",
+            use_delta_actions=True,
+            video_backend="pyav",
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi0_base/params"),
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=2.5e-5,
+            decay_steps=20_000,
+            decay_lr=2.5e-6,
+        ),
+        num_train_steps=20_000,
+        save_interval=5_000,
+        keep_period=None,
+        batch_size=32,
+        fsdp_devices=1,
+        num_workers=6,
+        ema_decay=0.999,
+        wandb_enabled=True,
+    ),
+    TrainConfig(
+        # Pinned dataset rev: b1ede60cbc99adea45df25e1a44ae4ee21cc6067
+        name="pi0_rbb_insert_actuator_into_camera_mount",
+        project_name="rbb_pi0_insert_actuator_into_camera_mount",
+        model=pi0_config.Pi0Config(action_horizon=30),
+        data=LeRobotBimanualYAMDataConfig(
+            repo_id="fanqi-robo/insert_actuator_into_camera_mount",
+            default_prompt="Insert the Feetech actuator into the camera mount, the drive shaft towards the angular control board holder",
+            use_delta_actions=True,
+            video_backend="pyav",
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi0_base/params"),
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=2.5e-5,
+            decay_steps=20_000,
+            decay_lr=2.5e-6,
+        ),
+        num_train_steps=20_000,
+        save_interval=5_000,
+        keep_period=None,
+        batch_size=32,
+        fsdp_devices=1,
+        num_workers=6,
+        ema_decay=0.999,
+        wandb_enabled=True,
+    ),
+    TrainConfig(
+        # Pinned dataset rev: acdc9ac82e45db2c421c242e41ef8ef0fe549b31
+        name="pi0_rbb_insert_gear_in_gripper",
+        project_name="rbb_pi0_insert_gear_in_gripper",
+        model=pi0_config.Pi0Config(action_horizon=30),
+        data=LeRobotBimanualYAMDataConfig(
+            repo_id="fanqi-robo/insert_gear_in_gripper",
+            default_prompt="Insert a gear into the parallel gripper",
+            use_delta_actions=True,
+            video_backend="pyav",
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi0_base/params"),
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=2.5e-5,
+            decay_steps=20_000,
+            decay_lr=2.5e-6,
+        ),
+        num_train_steps=20_000,
+        save_interval=5_000,
+        keep_period=None,
+        batch_size=32,
+        fsdp_devices=1,
+        num_workers=6,
+        ema_decay=0.999,
+        wandb_enabled=True,
+    ),
+    TrainConfig(
+        # Pinned dataset rev: c6a7962afe582d46616098b401d2ea9a32ed937f
+        name="pi0_rbb_take_actuator_from_box",
+        project_name="rbb_pi0_take_actuator_from_box",
+        model=pi0_config.Pi0Config(action_horizon=30),
+        data=LeRobotBimanualYAMDataConfig(
+            repo_id="armnet/take_actuator_from_box",
+            default_prompt="Take the Feetech actuator out from its box",
+            use_delta_actions=True,
+            video_backend="pyav",
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi0_base/params"),
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=2.5e-5,
+            decay_steps=20_000,
+            decay_lr=2.5e-6,
+        ),
+        num_train_steps=20_000,
+        save_interval=5_000,
+        keep_period=None,
+        batch_size=32,
+        fsdp_devices=1,
+        num_workers=6,
+        ema_decay=0.999,
+        wandb_enabled=True,
+    ),
+    TrainConfig(
+        # Pinned dataset rev: 7c18e52898b5bb8b0a4f1af796be597225f3380d
+        name="pi0_rbb_open_clamp",
+        project_name="rbb_pi0_open_clamp",
+        model=pi0_config.Pi0Config(action_horizon=30),
+        data=LeRobotBimanualYAMDataConfig(
+            repo_id="armnet/open_clamp",
+            default_prompt="Open the clamp",
+            use_delta_actions=True,
+            video_backend="pyav",
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi0_base/params"),
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=2.5e-5,
+            decay_steps=20_000,
+            decay_lr=2.5e-6,
+        ),
+        num_train_steps=20_000,
+        save_interval=5_000,
+        keep_period=None,
+        batch_size=32,
+        fsdp_devices=1,
+        num_workers=6,
+        ema_decay=0.999,
+        wandb_enabled=True,
+    ),
+    TrainConfig(
+        # Pinned dataset rev: e8f0ee1a32c88ffb32f90bf871c091ca3fd6c0d2
+        name="pi0_rbb_assemble_enpire_gripper",
+        project_name="rbb_pi0_assemble_enpire_gripper",
+        model=pi0_config.Pi0Config(action_horizon=30),
+        data=LeRobotBimanualYAMDataConfig(
+            repo_id="armnet/assemble_enpire_gripper",
+            default_prompt="Assemble the ENPIRE gripper finger, by placing the black part inside the white skeleton in the correct orientation",
+            use_delta_actions=True,
+            video_backend="pyav",
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi0_base/params"),
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=2.5e-5,
+            decay_steps=20_000,
+            decay_lr=2.5e-6,
+        ),
+        num_train_steps=20_000,
+        save_interval=5_000,
+        keep_period=None,
+        batch_size=32,
+        fsdp_devices=1,
+        num_workers=6,
+        ema_decay=0.999,
+        wandb_enabled=True,
+    ),
+    # Single-arm SO-101 (4 tasks; top + wrist RGB)
+    TrainConfig(
+        # Pinned dataset rev: 92ff711055ef489704dd74564848cd6be9cca837
+        name="pi0_rbb_so101_track_rails_depth_2",
+        project_name="rbb_pi0_so101_track_rails_depth_2",
+        model=pi0_config.Pi0Config(action_horizon=30),
+        data=LeRobotSO101TopWristDataConfig(
+            repo_id="armnet/so101_track_rails_depth_2",
+            default_prompt="Placing connectors to track rails",
+            use_delta_actions=True,
+            video_backend="pyav",
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi0_base/params"),
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=2.5e-5,
+            decay_steps=20_000,
+            decay_lr=2.5e-6,
+        ),
+        num_train_steps=20_000,
+        save_interval=5_000,
+        keep_period=None,
+        batch_size=32,
+        fsdp_devices=1,
+        num_workers=6,
+        ema_decay=0.999,
+        wandb_enabled=True,
+    ),
+    TrainConfig(
+        # Pinned dataset rev: 485b1d1c6f54ff17e9ef8fcd2be32c54ebadcb3b
+        name="pi0_rbb_so101_insert_actuator_into_camera_mount",
+        project_name="rbb_pi0_so101_insert_actuator_into_camera_mount",
+        model=pi0_config.Pi0Config(action_horizon=30),
+        data=LeRobotSO101TopWristDataConfig(
+            repo_id="armnet/so101_insert_actuator_into_camera_mount",
+            default_prompt="Insert actuator into camera mount",
+            use_delta_actions=True,
+            video_backend="pyav",
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi0_base/params"),
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=2.5e-5,
+            decay_steps=20_000,
+            decay_lr=2.5e-6,
+        ),
+        num_train_steps=20_000,
+        save_interval=5_000,
+        keep_period=None,
+        batch_size=32,
+        fsdp_devices=1,
+        num_workers=6,
+        ema_decay=0.999,
+        wandb_enabled=True,
+    ),
+    TrainConfig(
+        # Pinned dataset rev: 42e271c25c30d934449c4acf73af96c48ff86b6f
+        name="pi0_rbb_so101_insert_gear_in_gripper",
+        project_name="rbb_pi0_so101_insert_gear_in_gripper",
+        model=pi0_config.Pi0Config(action_horizon=30),
+        data=LeRobotSO101TopWristDataConfig(
+            repo_id="armnet/so101_insert_gear_in_gripper",
+            default_prompt="Insert gear into gripper",
+            use_delta_actions=True,
+            video_backend="pyav",
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi0_base/params"),
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=2.5e-5,
+            decay_steps=20_000,
+            decay_lr=2.5e-6,
+        ),
+        num_train_steps=20_000,
+        save_interval=5_000,
+        keep_period=None,
+        batch_size=32,
+        fsdp_devices=1,
+        num_workers=6,
+        ema_decay=0.999,
+        wandb_enabled=True,
+    ),
+    TrainConfig(
+        # Pinned dataset rev: 8495dff0e7e5c3640f885dcaaeeba8537ffa3993
+        name="pi0_rbb_so101_take_actuator_from_box",
+        project_name="rbb_pi0_so101_take_actuator_from_box",
+        model=pi0_config.Pi0Config(action_horizon=30),
+        data=LeRobotSO101TopWristDataConfig(
+            repo_id="armnet/so101_take_actuator_from_box",
+            default_prompt="Take actuator out of box",
+            use_delta_actions=True,
+            video_backend="pyav",
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("weights/pi0_base/params"),
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=2.5e-5,
+            decay_steps=20_000,
+            decay_lr=2.5e-6,
+        ),
+        num_train_steps=20_000,
+        save_interval=5_000,
+        keep_period=None,
+        batch_size=32,
+        fsdp_devices=1,
+        num_workers=6,
+        ema_decay=0.999,
+        wandb_enabled=True,
     ),
     TrainConfig(
         name="debug",

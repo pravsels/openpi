@@ -1,0 +1,67 @@
+Bootstrap: localimage
+From: /scratch/u6abf/pravsels.u6abf/rbb_openpi/container/ngc-pytorch-25.01-arm64.sif
+
+%labels
+    org.opencontainers.image.title openpi arm64 training container (GH200)
+    org.opencontainers.image.base.name nvcr.io/nvidia/pytorch:25.01-py3
+
+%files
+    pyproject.toml /workspace/repo/pyproject.toml
+    uv.lock /workspace/repo/uv.lock
+    README.md /workspace/repo/README.md
+    LICENSE /workspace/repo/LICENSE
+    packages /workspace/repo/packages
+    src /workspace/repo/src
+    scripts /workspace/repo/scripts
+
+%environment
+    export PYTHONUNBUFFERED=1
+    export PIP_NO_CACHE_DIR=1
+    export GIT_LFS_SKIP_SMUDGE=1
+    export UV_PYTHON=3.11
+    export UV_PROJECT_ENVIRONMENT=/.venv
+    export PATH="/.venv/bin:${PATH}"
+
+%post
+    set -eux
+    export DEBIAN_FRONTEND=noninteractive
+    export PIP_NO_CACHE_DIR=1
+    export GIT_LFS_SKIP_SMUDGE=1
+    export UV_PYTHON=3.11
+    export UV_PROJECT_ENVIRONMENT=/.venv
+    export UV_CACHE_DIR=/tmp/uv-cache
+
+    apt-get update
+    apt-get install -y --no-install-recommends \
+        git git-lfs ffmpeg libgl1 build-essential cmake pkg-config \
+        libavcodec-dev libavformat-dev libswscale-dev libavfilter-dev libavdevice-dev \
+        libdav1d-dev
+    rm -rf /var/lib/apt/lists/*
+
+    python3 -m pip install --no-cache-dir uv
+    uv python install 3.11
+
+    cd /workspace/repo
+    uv sync --group dev
+    uv pip install -e .
+    # Force RoboCandyWrapper from git main (includes task-index remap).
+    uv pip install --no-deps --force-reinstall \
+        "robocandywrapper @ git+https://github.com/villekuosmanen/RoboCandyWrapper.git@main"
+
+    # Verify core imports (CPU-only check during build; GPU verified post-build).
+    /.venv/bin/python - <<'PY'
+import av
+import jax
+import lerobot
+import openpi
+import robocandywrapper
+import torch
+
+print(
+    f"Verified build: jax={jax.__version__} torch={torch.__version__} "
+    f"av={av.__version__} lerobot={getattr(lerobot, '__version__', 'installed')} "
+    f"openpi={openpi.__file__}"
+)
+PY
+
+    rm -rf /tmp/uv-cache
