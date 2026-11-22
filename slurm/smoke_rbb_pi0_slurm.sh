@@ -4,8 +4,8 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --gpus=1
-#SBATCH --cpus-per-task=8
-#SBATCH --mem=96G
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=115G
 #SBATCH --time=00:45:00
 #SBATCH --output=/scratch/u6abf/pravsels.u6abf/rbb_openpi/logs/smoke_%j.out
 #SBATCH --error=/scratch/u6abf/pravsels.u6abf/rbb_openpi/logs/smoke_%j.err
@@ -106,7 +106,7 @@ echo "=== Step 3/3: Run 2-step Pi0 training smoke test ==="
     --assets-dir="${ASSETS_DIR}" \
     --checkpoint-base-dir="${CKPT_BASE}" \
     --batch-size=4 \
-    --num-workers=2 \
+    --num-workers=0 \
     --num-train-steps=2 \
     --log-interval=1 \
     --save-interval=2 \

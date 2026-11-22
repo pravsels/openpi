@@ -4,8 +4,8 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --gpus=2
-#SBATCH --cpus-per-task=24
-#SBATCH --mem=220G
+#SBATCH --cpus-per-task=32
+#SBATCH --mem=230G
 #SBATCH --time=1-00:00:00
 #SBATCH --requeue
 #SBATCH --output=/scratch/u6abf/pravsels.u6abf/rbb_openpi/logs/train_%j.out
