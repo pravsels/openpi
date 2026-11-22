@@ -79,6 +79,8 @@ apptainer exec --nv --writable-tmpfs \
 import av
 import jax
 import openpi
+from openpi.training.lerobot_rcw_compat import ensure_lerobot_04_module_aliases
+ensure_lerobot_04_module_aliases()
 import robocandywrapper
 import torch
 
