@@ -29,10 +29,11 @@
 - execution_id: `8737896` (`pi0_yam_gear`)
 - submitted/start: `2026-11-22T21:32:41Z` / `2026-11-22T21:32:43Z`
 - start_human: Sunday, Nov 22nd, 2026
-- end: pending (walltime limit `2026-11-23T21:32:43Z`, 24h)
-- end_human: pending
-- runtime: running
+- end: `2026-11-23T02:21:15Z`
+- end_human: Monday, Nov 23rd, 2026
+- runtime: `04:48:32` (exit `0:0`, `MaxRSS` ~42.0 GiB / 230G)
 - node: `nid010145`
+- wandb: https://wandb.ai/pravsels/rbb-pi0/runs/19i9n4st
 
 ## Status
 - 2026-11-22 21:32 UTC — submitted after 10/10 preflight pass; started immediately on `nid010145` (2× GH200). `$HOME` 1% used, `/scratch/u6abf/pravsels.u6abf` 6% used (4.8 TB free).
@@ -43,18 +44,33 @@
   - GPU 1: **100% util**, 34% mem util, **93,605 / 97,871 MiB VRAM**, **507.24 / 900.00 W**, 56°C
 - 2026-11-22 21:42 UTC — `Step 100: grad_norm=4.7622, loss=0.4311, param_norm=1377.8652`.
 - 2026-11-22 22:08 UTC — `Step 2000: grad_norm=1.2958, loss=0.1447, param_norm=1378.4810` (36m elapsed, steady).
+- 2026-11-23 02:21 UTC — `COMPLETED` (`0:0`), `Step 19900: grad_norm=0.3208, loss=0.0218, param_norm=1381.8127`. Orbax finalized `19999` (`params/` 12G + `assets/` + `train_state/` 29G; rotated earlier steps cleanly).
+- 2026-11-24 16:00 UTC — synced offline W&B run via `wandb beta sync` to `pravsels/rbb-pi0` (`pi0_rbb_yam_insert_gear_in_gripper`, `#1f77b4`, 0 model artifacts), generated `CHECKPOINT_MANIFEST.json`, and uploaded `checkpoint-19999` (`params/` + `assets/` + `_CHECKPOINT_METADATA`) to public HF repo `armnet/pi0_rbb_yam_insert_gear_in_gripper`.
 
 ## Results
-- pending (running; checkpoints saving every 5,000 steps to `/scratch/u6abf/pravsels.u6abf/rbb_openpi/checkpoints/pi0_rbb_insert_gear_in_gripper/pi0_rbb_insert_gear_in_gripper/`)
+- runtime: `04:48:32` (start `2026-11-22T21:32:43Z`, end `2026-11-23T02:21:15Z`)
+- final step: `19999` (last logged `19900`)
+- start_train_loss: `0.5973` (step 0)
+- end_train_loss: `0.0218` (step 19,900; `grad_norm=0.3208`, `param_norm=1381.8127`)
+- start_val_loss: `n/a`
+- end_val_loss: `n/a`
+- loss_one_liner: Steady flow-matching loss decrease from 0.5973 to 0.0218 over 20k steps with smooth gradient norm decay (16.20 → 0.32).
+- checkpoint: `/scratch/u6abf/pravsels.u6abf/rbb_openpi/checkpoints/pi0_rbb_insert_gear_in_gripper/pi0_rbb_insert_gear_in_gripper/19999`
+- config_snapshot: `src/openpi/training/config.py` (`pi0_rbb_insert_gear_in_gripper`)
 
 ## W&B
-- project: `rbb_pi0_insert_gear_in_gripper`
-- run id: `19i9n4st`
+- project: `pravsels/rbb-pi0`
+- run id: `19i9n4st` (display name: `pi0_rbb_yam_insert_gear_in_gripper`, color: `#1f77b4`)
 - local: `/scratch/u6abf/pravsels.u6abf/rbb_openpi/wandb/wandb/offline-run-20261122_213948-19i9n4st`
-- synced: pending — run `autohpc-wandb-sync sync` after confirming entity/project with user
-- notes: pending completion
+- synced: https://wandb.ai/pravsels/rbb-pi0/runs/19i9n4st
+- notes: Synced via `wandb beta sync` (0 logged artifacts; metrics + 5 small `camera_views` PNGs only).
+
+## HuggingFace
+- repo: https://huggingface.co/armnet/pi0_rbb_yam_insert_gear_in_gripper (public)
+- uploaded checkpoints: `checkpoint-19999` (`params/` + `assets/` + `_CHECKPOINT_METADATA`, 11.189 GiB; `train_state/` excluded)
+- includes: `README.md`, `TRAINING_LOG.md`, `CHECKPOINT_MANIFEST.json`, `checkpoint-19999/`
+- manifest sha256: `c4027adbfffb8f303e3dbb4b39de85386e6c15e55c6d7a3620cc1645a2134c21`
 
 ## Next
-- Monitor to completion (~4.6h ETA, ~02:15 UTC), then record `sacct`/`seff`, final loss, and checkpoint paths (`19999/params`).
-- Sync offline W&B run once entity/project are confirmed.
-- Generate `CHECKPOINT_MANIFEST.json` before publishing or transferring checkpoints.
+- Run robot eval on `armnet/pi0_rbb_yam_insert_gear_in_gripper` (`checkpoint-19999`, after `verify-checkpoint`).
+- Launch the remaining 8 RoboBuilderBench tasks in staggered batches.
